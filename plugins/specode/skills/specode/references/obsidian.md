@@ -1,66 +1,194 @@
-# Obsidian Integration Reference
+# Obsidian / Document Root 解析
 
-## 文档目录结构
+specode 的 spec 目录默认放在 Obsidian vault 内（也支持纯文件系统目录）。本文件给出三平台 `obsidian.json` 路径、三层根目录解析顺序、多 vault 选择策略、目录结构约定。
+
+## 0. 文档目录结构
 
 ```text
 <vault>/
 └── spec-in/
     └── <os>-<username>/          ← e.g. macos-alice, windows-bob, linux-carol
         └── specs/
-            ├── .active-specode.json
-            └── <requirement-name>/
-                ├── requirements.md       (or bugfix.md)
+            ├── .active-specode.json     ← v2 window index, slug-only
+            └── <slug>/
+                ├── requirements.md      ← 或 bugfix.md（互斥）
                 ├── design.md
-                ├── tasks.md              ← 含 `## 测试要点` 节
-                └── .config.json
+                ├── tasks.md
+                ├── acceptance-checklist.md
+                ├── implementation-log.md（可选）
+                └── .config.json         ← per-spec lock + iteration state
 ```
 
-路径段 `spec-in/<os>-<username>/specs` 由 `scripts/spec_vault.py` 的 `device_segment()` 自动生成，确保同一 vault 在多设备/多用户共享时各设备的 spec 独立存放。
+路径段 `spec-in/<os>-<username>/specs` 由 `spec_vault.py` 的 `device_segment()` 自动生成：
 
-## config.json 生命周期
+- `<os>` = `macos` / `windows` / `linux`。
+- `<username>` = 当前操作系统用户名（`getpass.getuser()`）。
+- 同一 vault 在多设备 / 多用户共享时各设备的 spec 独立存放（避免锁串扰、避免文件冲突）。
 
-`~/.config/specode/config.json` 在两种情况下写入：
+`.active-specode.json` schema（v2，slug-only）：
 
-- **首次 Obsidian 检测**：`resolve_spec_root()` 检测到 vault 后计算路径并自动保存。后续调用直接读取此文件，不再重新检测 Obsidian。
-- **显式设置**：用户运行 `/spec --set-vault` 或 `/spec --set-root`（任何时候可执行，立即覆盖旧值）。
+```json
+{
+  "version": 2,
+  "active_specs": [
+    {
+      "claude_session_id": "abc-def-1234-...",
+      "specId": "uuid",
+      "slug": "login-password-rule",
+      "phase": "tasks",
+      "status": "active",
+      "updated_at": "2026-05-19T10:05:00Z"
+    }
+  ]
+}
+```
 
-此文件不会自动创建于其他情况。若 Obsidian 未安装且未显式设置，`resolve_spec_root()` 返回 `None`，由 `spec_init.py` 抛出引导提示并终止（不再回退到项目目录或默认路径）。
+`status` 取值：`active` / `readonly` / `evicted` / `ended`。多窗口同时活跃时数组里有多条。
 
-## 跨会话路径读取
+## 1. 三层根目录解析（顺序固定）
 
-对于持久 session 和跨会话恢复（`/continue`），文档根目录从各 spec 自身的 `.config.json`（`documentRoot` 字段）直接读取，**不依赖** vault 检测或 `~/.config/specode/config.json`。vault 路径解析仅在创建新 spec 时需要。
+由 `spec_init.py:resolve_document_root` 与 `spec_vault.py resolve_spec_root` 共同实现：
 
-## 旧位置警告
+### 第 1 层：命令行 / 环境变量
 
-`/spec --set-vault` / `--set-root` 执行后，`spec_vault.py` 会扫描历史 fallback 位置（`<cwd>/specs`、`~/new project/specs`）。若发现遗留 spec 目录，输出 `⚠ 旧位置仍有 N 个 spec（不会自动迁移）` 警告，并列出最多 10 个 spec 路径。如需迁移，用户手动 `mv` 并更新各 spec 的 `.config.json.documentRoot` 字段。
+- 显式参数 `--root <path>` 最高优先级。
+- 环境变量 `SPECODE_ROOT` 次之。
+- 命中 → 直接用，**不**追加 `spec-in/<os>-<user>/specs` 子结构（用户给什么就用什么）。
 
-## 平台 Obsidian 配置文件路径
+### 第 2 层：用户级配置
 
-`spec_vault.py` 按当前平台读取 Obsidian 的全局配置文件以获取已注册 vault 列表：
+- 读 `~/.config/specode/config.json`（类 Unix 下也可走 `$XDG_CONFIG_HOME/specode/config.json`）。
+- 字段 `obsidianRoot` 命中 → 自动追加 `spec-in/<os>-<user>/specs` 后使用。
+- `rootOverride` 命中（由 `set --root` 写入）→ 直接用，不追加子结构。
+
+### 第 3 层：自动检测 Obsidian vault
+
+- 按当前平台读 Obsidian 全局配置 `obsidian.json`：
 
 | Platform | Path |
-|----------|------|
-| macOS    | `~/Library/Application Support/obsidian/obsidian.json` |
-| Windows  | `%APPDATA%\obsidian\obsidian.json` |
-| Linux    | `~/.config/obsidian/obsidian.json` (or `$XDG_CONFIG_HOME/obsidian/obsidian.json`) |
+|---|---|
+| macOS | `~/Library/Application Support/obsidian/obsidian.json` |
+| Windows | `%APPDATA%\obsidian\obsidian.json` |
+| Linux | `~/.config/obsidian/obsidian.json` 或 `$XDG_CONFIG_HOME/obsidian/obsidian.json` |
 
-`obsidian.json` 中的 `vaults` 字段包含所有已注册 vault 的路径、时间戳和 `open` 状态。
+- 读取 `vaults` 字段（dict，value 含 `path` / `ts` / `open` 等），按 §2 规则选 vault。
 
-## 多 Vault 选择逻辑
+### 三层全 miss → 硬停 + 引导
 
-1. 过滤掉路径不存在的 vault。
-2. 优先选 `open: true` 的 vault，按时间戳降序取最新。
-3. 若有多个 `open: true` 的 vault，使用 `spec_choice.py` 让用户选择，然后通过 `spec_vault.py set --vault` 保存选择。
-4. 若无 `open` vault，取时间戳最大的一个。
+`spec_init.py` exit 3，输出 SKILL.md §Document Root Resolution 中的引导文案（中文，三种设置方式）。**不**回退到 cwd、不回退到 `~/specs`、不回退到项目目录。
 
-## spec_vault.py 命令参考
+这条规则保证 spec 永远不会"被静默散布到不可预期的位置"。
+
+## 2. 多 vault 选择规则
+
+`spec_vault.py detect` 输出 vault 列表时按以下规则排序：
+
+1. **过滤**：路径不存在的 vault 直接丢弃。
+2. **优先选 `open=true` 的**：按 timestamp（`ts` 字段）降序取最新。
+3. **若有多个 `open=true` 的 vault**：让用户在 chat 里**回复编号**选择（v0.6 不再用 `spec_choice.py`，详见 §3）。
+4. **若无 `open=true` 的 vault**：取 timestamp 最大的一个，并在 chat 提示"自动选 `<path>`；如需切换请运行 `/specode:spec --set-vault <other-path>`"。
+
+选定 vault 后调 `spec_vault.py set --vault <path>` 把结果持久化到 `~/.config/specode/config.json.obsidianRoot`（下次跳过自动检测）。
+
+## 3. 多 vault 选择的 UI 形式（v0.6 新）
+
+**不再走 `spec_choice.py`**（已删除）。改用"列表 + 用户回复编号"形式直接在 chat 输出：
 
 ```text
-sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_vault.py detect           ← 列出已安装的 vault，未检测到时给出手动指定提示
-sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_vault.py set --vault <p>  ← 绑定 vault（写入 config.json）
-sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_vault.py set --root <p>   ← 直接指定根目录（写入 config.json）
-sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_vault.py get              ← 显示当前解析到的根目录及来源
+=== 选择 Obsidian vault ===
+检测到多个已打开的 vault：
+
+  1. /Users/alice/Documents/main-vault           ← open=true, 最近活动 2026-05-19 09:55
+  2. /Users/alice/Documents/research-vault       ← open=true, 最近活动 2026-05-18 22:10
+  3. /Users/alice/Documents/archive-vault        ← open=false, 最近活动 2026-04-01 15:00
+
+请输入编号 [1-3]，或输入 vault 绝对路径。
 ```
 
-`set --vault <p>` 自动将 spec root 设为 `<p>/spec-in/<os>-<user>/specs`。
-`set --root <p>` 使用完全自定义路径，不附加 `spec-in/` 子目录结构。
+SKILL.md 硬约束：
+
+- **不要**在没有用户明示的情况下选一个默认 vault（即使第一个看起来最近）。
+- **不要**自己编 vault 路径；只能用 `spec_vault.py detect` 给出的清单。
+- 用户回复后下一轮调 `spec_vault.py set --vault <chosen-path>` 持久化。
+
+如果只有一个 `open=true` vault 或只有一个 vault 整体，**不**呈现列表，直接采用（但仍在 chat 简报一句"选择 vault `<path>`"，让用户有撤回机会）。
+
+## 4. `~/.config/specode/config.json` 生命周期
+
+写入时机（仅这两种）：
+
+1. **首次 Obsidian 检测后**：`resolve_spec_root()` 检测到 vault → 自动保存。后续调用直接读此文件，不再重新检测。
+2. **显式设置**：用户运行 `/specode:spec --set-vault <path>` 或 `--set-root <path>`，立即覆盖旧值。
+
+文件内容示例：
+
+```json
+{
+  "version": 1,
+  "obsidianRoot": "/Users/alice/Documents/main-vault",
+  "rootOverride": null,
+  "specRootCache": "/Users/alice/Documents/main-vault/spec-in/macos-alice/specs",
+  "lastDetectedAt": "2026-05-19T09:30:00Z"
+}
+```
+
+`specRootCache` 是计算结果缓存（vault + device_segment）；若 `obsidianRoot` 或 `rootOverride` 改动，CLI 同步刷新。
+
+不会在其他情况自动创建。Obsidian 未安装且未显式设置 → `resolve_spec_root()` 返回 `None` → `spec_init.py` 抛引导提示并 exit 3。
+
+## 5. 跨会话路径读取
+
+对于持久 session 和 `/specode:continue`：
+
+- 文档根目录从**各 spec 自身**的 `.config.json` 的 `documentRoot` 字段直接读取。
+- **不**依赖 vault 检测或 `~/.config/specode/config.json`。
+- vault 路径解析仅在**创建新 spec**（`/specode:spec <需求>`）时需要。
+
+这保证已落地 spec 即使在不同设备 / 不同 vault 配置下仍能稳定恢复。
+
+## 6. 旧位置警告
+
+`/specode:spec --set-vault` / `--set-root` 执行后，`spec_vault.py` 会扫描历史 fallback 位置：
+
+- `<cwd>/specs/`
+- `~/new project/specs/`
+- `~/specs/`
+
+发现遗留 spec 目录 → 输出：
+
+```text
+⚠ 旧位置仍有 N 个 spec（不会自动迁移）：
+  - /path/to/old/spec-1
+  - /path/to/old/spec-2
+  ...
+
+如需迁移，请手动 mv 并更新各 spec 的 .config.json.documentRoot 字段；
+否则旧位置 spec 在新 root 下不可见。
+```
+
+最多列出 10 个，多余的提示总数。**不**自动迁移（避免静默移动用户文件）。
+
+## 7. `spec_vault.py` 命令参考
+
+```text
+python3 plugins/specode/scripts/spec_vault.py detect
+    列出已安装的 vault；未检测到时给出手动指定提示
+
+python3 plugins/specode/scripts/spec_vault.py status
+    显示当前解析到的根目录及来源（cli / env / config / auto）
+
+python3 plugins/specode/scripts/spec_vault.py set --vault <path>
+    绑定 vault（写入 config.json.obsidianRoot；自动追加 spec-in/<os>-<user>/specs 子结构）
+
+python3 plugins/specode/scripts/spec_vault.py set --root <path>
+    直接指定根目录（写入 config.json.rootOverride；不追加 spec-in/<os>-<user>/specs）
+```
+
+退出码：0 ok / 3 用户引导（含 hard-stop 提示）。
+
+## 8. 跨文档引用
+
+- 三层解析的引导文案 → SKILL.md §Document Root Resolution。
+- 锁与多窗口接管 → `references/lock-protocol.md`。
+- 选择器三种类型与具体场景（非 vault 选择场景，如 takeover-options）→ `references/prompts.md`。
+- vault 内目录约定与 phase 序列的关系 → `references/workflow.md`。

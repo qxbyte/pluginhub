@@ -1,351 +1,341 @@
-# Spec Mode Workflow
+# Workflow — Phase 协议详解
 
-Operational reference for the rules defined in `SKILL.md`. Activation conditions, the hard rules, and command compliance live in SKILL.md and are **not** restated here.
+SKILL.md §Phase Order / §Workflow Selection 的运维细节版本。本文件**不**重复激活规则、状态行 footer、selector 三种类型与场景表 —— 那些在 SKILL.md 与 `references/prompts.md` 里。
 
-## 0. Activation Guard
+## 0. Phase 序列总图
 
-Activation rules are defined in `SKILL.md §Activation Guard` and apply here without exception. Do not re-state or paraphrase them. If the current request does not satisfy SKILL.md activation conditions, do not create a spec directory and do not run the phase-gated workflow.
-
-## 1. `/spec` Intake
-
-Parse user input as:
-
-```text
-/spec <requirement-or-path> [extra instructions]
-/spec --persist <requirement-or-path>
-/continue [spec-slug]
-/status
-/end
+```
+intake ──► requirements / bugfix ──► design ──► tasks ──► implementation ──► acceptance ──► iteration
+   │             │                      │          │             │                 │              │
+   │             ▼                      ▼          ▼             ▼                 ▼              ▼
+   │      acceptance-checklist.md   doc-confirm-*  tasks-execution  推进 [ ] → [~] → [x]  acceptance-gate  iteration 子循环
+   │      跟随式重写                 选择器         选择器                                  选择器
+   │
+   ├─ 需求有歧义 → clarification-wizard（类型 B）+ clarification-done（类型 A）
+   └─ workflow 不明 → workflow-choice（类型 A）
 ```
 
-Intake rules:
+phase 切换永远走 `spec_session.py phase-transition --spec <dir> --session <id> --from <p> --to <p>`。**不要**手动改 `<spec-dir>/.config.json.currentPhase`。
 
-- If `<requirement-or-path>` points to a readable file, summarize it and use it as the source.
-- If it is prose, use it directly.
-- **Spec name prefix parsing**: detect a leading `<名称>：<内容>` (full-width 冒号) or `<名称>: <内容>` (ASCII 冒号 + 空格) within the first ~30 chars; **不**对路径 / URL / 无冒号输入做拆分。匹配则：`<名称>` 作为 slug 来源（非英文需 agent 自行派生语义 slug，原文保留为 `requirementName`），`<内容>` 作为需求源文本。否则整段都是需求，agent 自行从内容推断 slug。
-- Extract requirement name (semantic English slug — see §1.2), root hints, workflow hints, constraints, validation expectations.
-- If the user only gives a root and no requirement, ask for the requirement.
-- **Pre-requirements clarification (Plan-mode)**: if the requirement has real ambiguity affecting scope, behavior, UX, data, validation, or acceptance, stay in `intake` phase and enter a clarification dialogue **before** writing any document. Do not invent missing details. Group questions compactly (≤5), end the turn, wait for user reply. After resolution, proceed to workflow selection. → 详见 SKILL.md §Pre-requirements Clarification。
-- Group unclear points into a compact confirmation list before generating the next document.
+## 1. `/specode:spec <需求>` Intake
 
-Persistent command rules:
+### 1.1 输入解析
 
-- `/spec <requirement>` — one-shot. Runs the workflow without updating `.active-specode.json`.
-- `/spec --persist <requirement>` — persistent. Initializes spec and starts an active session.
-- `/continue [slug]` — resume; multi-window aware (see §9).
-- `/status` — prints current session, spec path, phase, task counts, lock state.
-- `/end` — ends current session, releases the spec lock, **does not** delete docs.
-
-## 1.1 Natural-language Follow-up Routing
-
-Within an active persistent session, route natural-language follow-ups via document-first discipline (the iron rules live in SKILL.md §Document-first Discipline).
-
-> ⛔ **Post-`/continue` 同 turn 同步（非常重要）**：恢复一个已落地 spec 后，用户在聊天中提出的任何对需求或设计的调整——哪怕只是一句澄清——都必须**在同一轮 turn 内**写回 `requirements.md` / `bugfix.md` / `design.md` / `tasks.md`（需求/bug 行为变更并同 turn 更新 `tasks.md` 的 `## 测试要点` 节）。不允许累积到"下一轮"，不允许"先写代码后补文档"。
-
-
-| Intent | Action |
-|---|---|
-| Requirement change | Update `requirements.md` / `bugfix.md`, **same turn update `tasks.md` 的 `## 测试要点` 节**, then check whether `design.md` and其余 `tasks.md` 任务 are stale |
-| Design change | Update `design.md`, then check whether `tasks.md` is stale |
-| Task change | Update `tasks.md`, preserve `_需求：..._` traceability |
-| Execution request | Verify lock → load only active spec's docs → execute selected or next pending task |
-| Acceptance feedback | Update task/review state in `tasks.md`（含 `## 测试要点` 节） |
-| User said "/spec-accept" or "验收通过" | Run `spec_session.py iterate <spec-dir>` → phase becomes `iteration` |
-
-## 1.2 Mandatory Entry — `spec_init.py` is the ONLY way to create a new spec
-
-⛔ **Iron Rule #1 (see SKILL.md).** A new spec — whether one-shot `/spec` or `/spec --persist` — is created exclusively by calling `scripts/spec_init.py`. You **MUST NOT**:
-
-- `mkdir` any spec directory yourself
-- `Write` `requirements.md` / `bugfix.md` / `design.md` / `tasks.md` / `.config.json` to a path you constructed
-- Use `<project>/specode/`, `<project>/specs/`, `<cwd>/...`, `~/Git/<x>/...`, or any path you chose
-- Treat phrasing like "在项目下创建"、"在 git 目录下创建一个新项目" as a directive to place spec docs in the project. Those phrases describe **future code location**, not spec-document location.
-
-### Steps (agent responsibility)
-
-`scripts/spec_init.py` **requires `--name <slug>`**. The script does not infer slugs from Chinese — that responsibility falls on the agent:
-
-1. Read the user's requirement description
-2. Produce a short semantic English slug, lowercase, hyphen-separated, ≤64 chars (e.g. `login-password-rule`, `undo-redo`, `dark-mode`)
-3. Call `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_init.py --name <slug> --requirement-name "<中文显示名>" --source-text "..."`
-4. The script prints the resolved `specDir` (under doc_root, never under cwd). Fill content into the files **it created**.
-
-### Failure modes (do NOT improvise)
-
-- Exit code with `{"error": "no_spec_root", ...}` → stop and surface the message verbatim. Tell the user to run `/spec --set-vault <p>` or `/spec --set-root <p>`. **Do not** invent a fallback location.
-- Exit code with `{"error": "invalid_name", ...}` → `--name` was missing or normalized to empty. Pick a different slug and retry; do NOT bypass the script.
-
-## 2. Workflow Choice Prompt
-
-When workflow is unclear, present the **Workflow 类型选择** selector from `references/prompts.md`.
-
-| Option | When |
-|---|---|
-| Requirements | Behavior-first feature work — **recommended default** |
-| Technical Design | Architecture / low-level design / non-functional constraints are primary |
-| Bugfix | Defect / regression / failing test / incident |
-
-## 2.1 Document Confirmation Prompt
-
-After every generated document, in the **same response**:
-
-1. Do not paste the full document by default — rely on the client's file diff preview.
-2. Show file path, concise summary, key changes, unresolved questions.
-3. Run the **文档确认** selector from `references/prompts.md`.
-4. **End the turn.**
-
-Rules:
-
-- `确认` → next phase
-- `查看全文` → print full document, then re-show selector
-- `继续沟通` → apply feedback, re-show summary + selector
-- Repeat until `确认`
-
-After `tasks.md` is confirmed, run the **任务执行** selector from `references/prompts.md`.
-
-## 3. Directory Resolution
-
-Spec layout:
+接受三种形式：
 
 ```text
-<document-root>/
-├── .active-specode.json       ← v2 window index, slug-only
-└── <spec-slug>/
-    ├── requirements.md or bugfix.md
-    ├── design.md
-    ├── tasks.md                  ← 含 `## 测试要点` 节（供测试人员）
-    └── .config.json              ← per-spec lock + iteration state
+/specode:spec <需求文本>
+/specode:spec <需求文本> --root /path/to/dir
+/specode:spec <文件路径>
 ```
 
-Resolution priority (handled by `spec_init.py:resolve_document_root` / `spec_vault.resolve_spec_root`):
+`<需求文本>` 解析步骤：
 
-1. `--root` or `SPECODE_ROOT`
-2. `~/.config/specode/config.json` → `obsidianRoot`
-3. Auto-detect Obsidian vault → `<vault>/spec-in/<os>-<user>/specs`
+1. **名称前缀解析**：检测前 30 字符内是否含 `<名称>：<内容>`（全角 `：`）或 `<名称>: <内容>`（半角 `:` 必须有空格）。命中：
+   - 左半部分 → 显示名（中文允许；保留为 `requirementName`）
+   - 右半部分 → 源需求文本（`--source-text`）
+   - 不对路径 / URL / 无冒号输入做拆分
+2. **slug 推导**（由你负责，CLI 不会从中文推 slug）：
+   - 读完用户需求后，给一个**短 + 语义 + 英文 + 小写 + 连字符** ≤64 字符 slug
+   - 例：`login-password-rule`、`undo-redo`、`dark-mode`、`api-rate-limit`
+3. **文件路径模式**：若 `<需求>` 是一个可读文件路径，先 Read 该文件，把内容当成源文本继续走前两步。
+4. 提取根目录提示（`--root`）、工作流提示（如用户已说"做个 bugfix"）、约束、验证期望。
 
-**No further fallback.** All three miss → hard stop with guidance (see SKILL.md §Document Root Resolution).
+### 1.2 调 `spec_init.py`
 
-## 4. Requirements-first Flow
+```bash
+python3 plugins/specode/scripts/spec_init.py \
+  --name <slug> \
+  --requirement-name "<中文显示名>" \
+  --source-text "<原始需求文本>" \
+  --session <claude_session_id> \
+  [--root <override>] \
+  [--detect-vault]
+```
 
-1. Generate `requirements.md` with sections: 简介 / 词汇表 / 需求 / 用户故事 / EARS 验收标准 / 边界情况 / 非功能需求 / 待确认问题
-2. Stop for review; show path, summary, key changes, unresolved questions
-3. After confirm → generate `design.md` → review → confirm
-4. → generate `tasks.md`（含 `## 测试要点` 节，**同一文档**内由 SHALL 衍生，见 §4.1）→ review → confirm
-5. → ask whether to execute tasks
-6. Code → validate → accept
+CLI 行为：
 
-## 4.1 tasks.md 测试要点同步（铁律 / INV-4）
+1. 三层文档根目录解析（详见 `references/obsidian.md`）。
+2. 在 `<doc_root>/specs/<slug>/` 写 6 份骨架文档（按 `references/templates.md` 模板）+ `.config.json`（`specId` / `createdAt` / `phase=intake` / `lock` 字段指向 `--session`）。
+3. 更新 `<doc_root>/.active-specode.json` active-pointer。
+4. 强制双写 `~/.specode/sessions/<session_id>.json`（mode=active / active_spec_slug / phase=intake / lock_state=ok）。
+5. 三步任一失败 → 回滚 + exit 1（半成功是禁区）。
+6. 三层全 miss → exit 3 + 引导（SKILL.md §Document Root Resolution 给出引导文本）。
+7. 成功 → 输出 JSON：`{"spec_dir": "...", "specId": "...", "session_id": "<id>", "phase": "intake"}`。
 
-`tasks.md` 的 `## 测试要点` 节没有独立确认门，它跟随 `requirements.md` / `bugfix.md` 的变更，由 agent 在**同一轮 turn 内**更新。`Stop` hook 检测：本轮触碰 requirements/bugfix 但未触碰 tasks.md → 拒绝整轮 (INV-4)。
+### 1.3 进入 intake 阶段后
 
-**填充规则：**
+如果需求有歧义 → 进 §1.4 澄清子流程；否则跳到 §2 workflow 选择。
 
-- 读取 requirements.md / bugfix.md 中每一条 EARS `SHALL` 语句
-- 每条 SHALL → `## 测试要点` 一行 checkbox：`触发场景 → 预期结果（需求 X.Y）`
-- 操作步骤必须是测试人员可执行的具体动作（**禁止**"触发该能力"这种泛化描述）
-- 预期结果直接引用 SHALL 后的期望行为
-- **禁止保留**模板里"_agent 待填充_"等占位行
-- 写完代码标记 `[x]` 即可，跑通的场景不要删
+只给了 root 没给需求 → 用一句话问用户"请告诉我本次要做的需求"，end turn。
 
-**例**：需求"新增密码强度校验" → 一行：
-`- [ ] 输入少于 8 位密码点击提交 → 提示"密码长度不足"（需求 1.2）`
+### 1.4 Pre-requirements Clarification（Plan-mode）
 
-## 5. Technical-design-first Flow
+→ 详见 SKILL.md §Pre-requirements Clarification 与 `references/prompts.md` §Plan-mode 澄清问答示例。
 
-1. `design.md` first; choose level (high / low)
-2. Stop → confirm
-3. Derive `requirements.md` from approved design
-4. `tasks.md`（含 `## 测试要点` 节，由 SHALL 同 turn 衍生）
-5. Display + confirm each
-6. Ask whether to execute
+约束摘要：
 
-## 6. Bugfix Flow
+- 留在 `intake` phase。
+- **一次性** wizard 问完 2–5 个**无依赖**决策点；不要逐 turn 散问。
+- 子问题必须是"是 / 否 / 选哪条"具体问题；非互斥应拆类型。
+- 末项保留 `Type something`；wizard 整体保留 `Chat about this`。
+- inputs 不足以构成决策点 → 不要塞进 wizard。
+- 一个决策点都没有 → 跳到 `clarification-done`，不输出 wizard。
 
-1. `bugfix.md` with: Current / Expected / Unchanged / Reproduction / Evidence / Impact
-2. Investigate code before claiming root cause
-3. `design.md` with root cause / fix strategy / regression risks / testing strategy
-4. `tasks.md` with: reproduction test first → minimal fix → unchanged-behavior regression tests → final validation；`## 测试要点` 节同 turn 从 SHALL 衍生
-5. Display + confirm each
+用户回复后下一轮：
 
-## 7. Task Execution
+1. 解析回答 → 把解决的内容写入待生成的 requirements.md / bugfix.md 待用（不要 mutating 任何文件）。
+2. 呈现 `clarification-done`（类型 A，推荐选项 1 `进入下一阶段`）。
+3. End turn。
+4. 用户选 1 → 进 §2 workflow 选择；用户选 2 → 再发一轮 wizard。
 
-Before editing code:
+## 2. Workflow 选择
 
-1. Resolve active spec from command or active session
-2. **Three-check write guard** (see SKILL.md §Multi-Window + Lock): specId, boundary, lock
-3. Load every file in that spec directory only
-4. Find target task or next pending required task
-5. **Heartbeat**: `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_session.py heartbeat <spec-dir>`
-6. Update task marker `[~]`
-7. Implement only the linked scope
-8. Run validation
-9. Mark `[x]` only when validation passes
-10. If blocked, leave `[ ]` / `[~]` and note the blocker
+`workflow-choice` 选择器（类型 A） → 详见 `references/prompts.md` §(1)。
 
-Task markers:
+三档定义：
+
+| 选项 | 何时选 | 后续 phase 序列 |
+|---|---|---|
+| **Requirements first**（默认推荐） | 行为优先的新特性；先把 SHALL 写清楚，再补技术设计 | requirements → design → tasks → implementation → acceptance → iteration |
+| **Technical Design first** | 架构约束已知；先把 design.md 框架定下来，再反推 requirements | design → requirements → tasks → implementation → acceptance → iteration |
+| **Bugfix** | 缺陷修复 / 回归测试 | bugfix → design → tasks → implementation → acceptance → iteration |
+
+用户选完 → 调 `spec_session.py phase-transition --from intake --to requirements / design / bugfix` → 进入对应 phase。
+
+工作流选择写入 `<spec-dir>/.config.json.workflow` 字段（`requirements` / `design` / `bugfix` 之一）。
+
+## 3. Requirements-first Flow
+
+### 3.1 phase=requirements
+
+1. fork `spec-writer` agent（v0.6 引入；工具白名单 `Read, Write, Edit, Grep, Glob`，无 Bash）生成 `requirements.md`。章节模板见 `references/templates.md` §requirements.md。
+2. **同 turn** 重写 `acceptance-checklist.md`（跟随式，无独立确认门，见 §3.2）。
+3. 按 SKILL.md §Document Output Brevity 报路径 + 3–8 条变更要点 + 未决问题。
+4. 呈现 `doc-confirm-requirements`（类型 A，推荐选项 1 `确认`）。
+5. End turn 等用户选。
+6. 选 1 `确认` → phase-transition → design；选 2 `查看全文` → 完整 echo 文档后**再次**呈现同一 selector + end turn；选 3 `继续沟通` → 接收用户反馈 → 改文档 → 重出 step 3–4。
+
+### 3.2 acceptance-checklist 跟随式生成（铁律）
+
+`acceptance-checklist.md` **没有**独立确认门。它跟随 `requirements.md` / `bugfix.md` 变更，由你在**同一轮 turn 内**重写。
+
+填充规则：
+
+- 读 requirements.md / bugfix.md 中每一条 EARS `SHALL` 语句。
+- 每条 SHALL → checklist 表格一行：
+  - **功能点** = 该 SHALL 所属的需求名 / 编号。
+  - **操作步骤** = 测试人员可执行的**具体动作**（禁止"触发该能力"这种泛化叙述）。
+  - **预期结果** = 直接引用 SHALL 后的期望行为。
+  - **实际结果** = `待记录`。
+  - **结论** = `待验证`。
+- 禁止保留 templates.md 里"核心能力 / 异常输入 / 回归行为 / _agent 待填充_"等占位行。
+- 验证命令行可保留（从 tasks.md "验证：xxx" 提取）。
+
+例：需求"新增密码强度校验"→ 一行：
+
+```text
+| 1 | 密码强度 | 输入少于 8 位密码点击提交 | 系统提示"密码长度不足" | 待记录 | 待验证 |
+```
+
+`spec_lint.py` 在 `acceptance-checklist.mtime < requirements.mtime` 时报 WARNING；`spec_session.py load` 加载时显示 `⚠ 落后于 requirements.md`。
+
+### 3.3 phase=design
+
+1. fork spec-writer 生成 `design.md`（章节见 templates.md）。
+2. 报路径 + 摘要。
+3. `doc-confirm-design` 选择器。
+4. End turn 等确认 → 通过则 phase-transition → tasks。
+
+### 3.4 phase=tasks
+
+1. fork spec-writer 生成 `tasks.md`。要求：
+   - 嵌套 checkbox（顶层任务 / 子任务 / 检查点任务）。
+   - 每条具体任务**必须**带 `_需求：x.y_` 或 `_需求：可选_` traceability 标签。
+   - 可选任务用 `[*]` 标记；checkpoint 任务用 `[ ]` 但标题含"检查点"。
+   - 验收节固定四行：所有 required 任务完成 / 所有验证命令通过 / 跳过 optional 已记录 / 用户确认验收。
+2. 报路径 + 摘要（任务总数 / required 数 / optional 数）。
+3. `doc-confirm-tasks` 选择器 → 用户确认。
+4. 确认后立即呈现 `tasks-execution` 选择器（类型 A）：
+   - 选 1 `开始 required` → phase-transition → implementation，逐个推进 required。
+   - 选 2 `开始 required + optional` → phase-transition → implementation，required 后顺带 optional。
+   - 选 3 `用 task-swarm 多 agent 并发`（v0.7+）→ v0.6 不可用；告知用户回退选 1 / 2。
+   - 选 4 `暂不 coding` → 留在 tasks phase；告知用户随时 `/specode:end` 或后续 `/specode:continue` 继续。
+
+## 4. Technical-design-first Flow
+
+1. `design.md` first（spec-writer 生成，章节同 §3.3）。问用户做 high-level 还是 low-level design 时合并到一份。
+2. End turn → `doc-confirm-design` → 确认。
+3. 从已 approved 的 design.md 反推 `requirements.md` → **同 turn 重写** acceptance-checklist.md。
+4. `doc-confirm-requirements` → 确认。
+5. `tasks.md` 同 §3.4。
+6. `tasks-execution` 同 §3.4。
+
+## 5. Bugfix Flow
+
+1. `bugfix.md`（不写 `requirements.md`，二者**互斥**）。章节见 templates.md：
+   - 问题摘要 / 复现步骤 / 当前行为（错误行为，WHEN ... THEN ... [错误]） / 期望行为（WHEN ... SHALL [正确]）/ 保持不变的行为（WHEN ... SHALL CONTINUE TO ...）/ 影响范围 / 证据 / 约束 / 待确认问题。
+2. **同 turn** 重写 `acceptance-checklist.md`（按"期望行为"+"保持不变"两类 SHALL 各生成一行）。
+3. 调研代码后再断根因 —— 不要凭空断言根因。
+4. `doc-confirm-bugfix` → 确认。
+5. `design.md`：根因 / 修复策略 / 回归风险 / 测试策略。`doc-confirm-design` → 确认。
+6. `tasks.md`：**复现测试 first** → 最小修复 → 不变行为回归测试 → 最终验证。`doc-confirm-tasks` → `tasks-execution`。
+
+## 6. phase=implementation
+
+### 6.1 写代码前
+
+1. 解析 active spec：从 `sessions/<id>.json` 拿 `active_spec_dir`。
+2. **写前三重校验**（详见 `references/lock-protocol.md`）：specId / 边界 / 锁。任一失败 → 拒写。
+3. 加载 spec 目录下全部文档（**不**碰其他 spec）。
+4. 找目标任务（用户指定）或下一条 pending required 任务。
+5. **Heartbeat**：`spec_session.py heartbeat --spec <dir> --session <id>`（写文档前必调；距上次心跳 > 5 分钟也调）。
+6. 把任务标记从 `[ ]` 改成 `[~]`（in-progress）。
+
+### 6.2 写代码
+
+1. 做满足该任务对应 `_需求：x.y_` 的**最小**改动。不要顺手重构无关代码。
+2. 跑该任务对应的验证命令或最近的项目测试。
+3. 验证通过 → 把任务标记从 `[~]` 改成 `[x]`。
+4. 验证不通过 → 留 `[ ]` 或 `[~]`，在 chat 报告 blocker、在 `implementation-log.md` 追加一条 ≥30 字的记录（什么任务、什么 blocker、下一步怎么处理）。
+5. 任务被跳过 → 标 `[-]` 并在 chat / log 说明。
+
+### 6.3 turn 结束前自检
+
+看到 `on-stop` 注入的「🔄 代码-文档同步提醒（输出侧）」时：
+
+1. `tasks.md` 是否更新？（推进 `[ ]` → `[~]` → `[x]` / blocker）
+2. `implementation-log.md` 是否记录？（实现说明、设计偏离、关键决策）
+3. `design.md` 接口契约是否变化？（若改了，**同 turn** Edit）
+
+任一遗漏 → 在 chat 显式承诺"下一轮第一件事补齐 X"，并在下一轮立刻做到。
+
+### 6.4 任务标记语义
 
 ```
 [ ] pending      [~] in progress    [x] completed
 [-] skipped      [*] optional
 ```
 
-### 7.1 可选：委派给 task-swarm（多 agent 并发）
+## 7. phase=acceptance
 
-如果用户在"任务执行"selector 选择 `用 task-swarm 多 agent 并发`，specode 主会话**仍然是 orchestrator**（持锁、回写 tasks.md），但**实际编码**委派给 task-swarm skill：
+1. 触发：所有 required 任务标 `[x]`。
+2. phase-transition → acceptance。
+3. 跑 acceptance-checklist.md 的每一行操作步骤，把"实际结果"列从 `待记录` 改为实测值，"结论"列从 `待验证` 改为 `通过` / `未通过` / `跳过（含原因）`。
+4. 跑完后做一份**验收摘要**（chat）：文档清单 / 完成任务清单 / 验证命令与结果 / 跳过的验证 / 余留风险 / 未决问题。
+5. 呈现 `acceptance-gate`（类型 A）：
+   - 若全部 required 结论 = `通过` → 推荐选项 1 `验收通过，进入 iteration`。
+   - 否则 → 无推荐项。
+6. 用户选 1 → 调 `spec_session.py phase-transition --from acceptance --to iteration`（同时 `iterationRound += 1`，记 `iterationHistory`）。
+7. 用户选 2 `继续修改` → 留在 acceptance；视具体未达标项回退到 requirements / design / tasks（**走 phase-transition**，不要手改 `.config.json`）。
 
-1. 校验 `~/.claude/skills/task-swarm/` 存在；不存在则降级到默认 required tasks 模式
-2. 调用 task-swarm skill，传入 `<spec-dir>/tasks.md`，附 `--specode` 提示（task-swarm 也会自动嗅探）
-3. task-swarm 按一级阶段聚合派发 coder/reviewer/validator 子 agent
-4. 每个阶段完成后，**主会话**用 `verify-lock` 守卫后回写 tasks.md 的 `[x]`（INV-4 不触发，因为不改 requirements/bugfix）
-5. 全部完成后回到 §8 Acceptance 流程，与传统执行无差异
+## 8. phase=iteration
 
-→ 协议详情见 `references/task-swarm.md`
+iteration 是已交付 spec 的**常驻**状态。子循环规则见 `references/iteration.md`。
 
-## 8. Acceptance
+简要：
 
-Final acceptance must include:
+- 用户提"我想加一个 X 功能" → `spec_session.py iterate <spec-dir>` → 进入 `iteration.requirements` 子 phase → 在 requirements.md 末尾追加 `## 迭代 N 新增需求` 节，走 confirm → design → tasks → implementation → acceptance 子循环 → 回到 iteration。
+- 用户提"改 acceptance 里一条规则" → 直接编辑 acceptance-checklist.md，不走完整子循环。
+- 用户运行 `/specode:end` → 释放锁 + sessions mode=ended，spec 文档保留。
 
-- Documents created or updated
-- Tasks completed
-- Validation commands and results
-- Any skipped validation
-- `tasks.md` 的 `## 测试要点` 节作为测试人员的验证清单 + 已记录的执行结果（可直接在原 checkbox 行后追加 `→ 实际：xxx`）
-- Remaining risks or open questions
-- If persistent: footer with `/end`
+## 9. `/specode:continue` — 上下文加载 + 多窗口
 
-When all required tasks 已完成且 `## 测试要点` 所有 checkbox 均 `[x]`, agent runs the **验收通过** selector from `references/prompts.md`:
+`/specode:continue` 是"加载并报告"型命令。它**恢复上下文然后停**；不开始实现、不跑验证、不评估验收。
 
-- `验收通过` → run `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_session.py iterate <spec-dir>` → `iterationRound` 自增、phase 变为 `iteration`
-- `继续修改` → 留在 `acceptance` 阶段补测试点或回滚到 `implementation`
-
-## 9. `/continue` — Context Loading + Multi-Window
-
-`/continue` is a load-and-report command. It restores context and stops; it does not start implementation, run validation, or evaluate acceptance.
-
-### 9.1 No-arg form
+### 9.1 无参数形式
 
 ```text
-/continue
+/specode:continue
 ```
 
-Steps:
+步骤：
 
-1. Resolve configured root: `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_vault.py get --json --configured-only`
-   - If no configured root → ask user to run `/spec --set-vault` or `/spec --set-root` and stop
-2. List specs: `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_session.py list-specs --root <root> --json`
-3. List sessions: `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_session.py list --root <root> --json`
-4. Present using **Template C — List + Numeric Selection** in `references/prompts.md` (三段固定：当前会话 / 其他窗口 / 可继续的全部 specs；锁状态用固定词；结束语固定)
-5. After user picks → run 9.2 with that slug
+1. 调 `spec_vault.py status` 拿当前已配置 root（仅读 config.json，不重新检测）。
+   - 无配置 root → 提示用户运行 `/specode:spec --set-vault <path>` 或 `--set-root <path>` 后 end turn。
+2. 列 root 下全部 spec（`spec_session.py list-specs --root <root> --json`）+ 全部 session（`spec_session.py list --root <root> --json`）。
+3. 用"列表 + 用户回复编号"形式（参考 `references/prompts.md` §Plan-mode 部分的非 selector 列表格式）输出：
+   - 当前会话块（mode=active 时只一行 / 不存在则保留空标题）
+   - 其他窗口块（其他 session 持有的 spec）
+   - 可恢复的全部 spec 块（编号 1–N，含 slug / 显示名 / phase / m/n 任务计数 / 锁状态）
+4. 锁状态用固定词：`✓持有锁` / `⚠ 锁定于 <id 前 8 位>` / `○ 空闲` / `（已过期）`。
+5. End turn 让用户回复编号或 slug。
+6. 用户回复后下一轮进入 §9.2 with slug。
 
-### 9.2 With slug
+### 9.2 有 slug 形式
 
 ```text
-/continue <slug>
+/specode:continue <slug>
 ```
 
-Steps:
+步骤：
 
-1. Resolve `spec_dir = <root>/<slug>`
-2. `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_session.py acquire <spec-dir> --session <id>`
-   - **Exit 0** → owned, proceed to step 3
-   - **Exit 4 (LockHeld)** → 输出锁状态摘要，运行 **`/continue` 接管** 选择器（见 `references/prompts.md`）
-     - `强制接管` → `acquire --force`, warn that previous session was evicted
-     - `只读查看` → skip acquire, set read-only flag; do **not** update active-pointer's specSlug binding
-     - `取消` → exit
-3. `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_session.py load <spec-dir> --session <id>` — capture output
-4. `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_session.py continue <spec-dir> --session <id>` — bind session, write active pointer (skipped in read-only)
-5. Present loaded context:
+1. 解析 `spec_dir = <root>/specs/<slug>`。
+2. `spec_session.py acquire --spec <dir> --session <id>`：
+   - exit 0 → 持锁成功，进入 step 3。
+   - exit 4 `LockHeld` → 输出锁状态摘要 → 呈现 `takeover-options` 选择器（详见 SKILL.md §Multi-Window + Lock）→ end turn。
+     - 选 1 `强制接管` → `acquire --force` → 继续 step 3。
+     - 选 2 `只读查看` → 跳 acquire，调 `load` 拿数据，写 `sessions/<id>.json.mode=readonly` → 进 step 5。
+     - 选 3 `取消` → 退出。
+3. `spec_session.py load --spec <dir>` → 拿 phase / iteration round / tasks 计数 / 文档 mtime。
+4. `spec_session.py continue --spec <dir> --session <id>` → 绑定 sessions + 写 active-pointer（只读模式跳过这步）。
+5. 输出"已加载 spec"报告：
 
+```text
+已加载 spec：<slug>
+  specId：<id>
+  phase：<phase>
+  iteration：第 N 轮（若 > 0）
+  session：<session 前 8 位>（active / readonly）
+  lock：本会话持有 | ⚠ 锁定于 <other 前 8 位> | 空闲
+
+  requirements.md           ← N 条验收标准  |  修改：<time>
+  design.md                 ←               |  修改：<time>
+  tasks.md                  ← N/M 已完成，P 待处理  |  修改：<time>
+  acceptance-checklist.md   ← 验收操作清单  |  修改：<time>
 ```
-已加载 spec: <slug>
-  specId:   <id>
-  phase:    <phase>
-  iteration: 第 N 轮（若 > 0）
-  session:  <sessionId> (<status>)
-  lock:     本会话持有 | ⚠ 锁定于 <id> | 空闲
 
-  requirements.md           ← N 条验收标准  |  修改: <time>
-  design.md                 ←               |  修改: <time>
-  tasks.md                  ← N/M 已完成, P 待处理  |  修改: <time>
-```
+6. 状态行 footer。
+7. **End turn 等用户下一句**。不开始任务、不跑验证、不评估验收。
 
-6. Output footer (if persistent / read-only)
-7. **Stop and wait for user's next input.** Do not start tasks.
+> ⛔ 从此刻起，本会话进入"已落地 spec 的持续沟通"模式。用户后续任何对需求 / 设计 / 任务的调整 —— 哪怕只是聊一句 —— 都必须**同 turn 写回**对应文档（需求变更同 turn 重写 acceptance-checklist.md）。chat 累积到"下一轮再写"是禁区——next session 看不到。
 
-> ⛔ 从这一刻起，本会话进入"已落地 spec 的持续沟通"模式。后续任何对需求或设计的调整 **必须同 turn 写回对应文档**——见 §1.1 顶部铁律。聊天里说过但没写入文件的内容，下次 `/continue` 时全部丢失。
+## 10. Phase-gate 输出顺序（铁律）
 
-## 10. Boundary Anti-contamination Rules
+每个 phase-gate 的 turn 严格按此顺序：
 
-Enforced for every continue, switch, edit, end, and any spec document write:
+1. 先做工具调用（Write/Edit 文档 / Read 验证文档）。
+2. 在正文中输出：文档**绝对路径**、简短摘要、3–8 条关键变更要点、未决问题。
+3. 空一行 → 状态行 footer。
+4. 空一行 → 选择器骨架（类型按 §3.7.4 / SKILL.md §Selectors 表查）。
+5. 最后一行：`AWAITING_USER_CHOICE`。
+6. **End turn**。
 
-1. `specDir` must be inside `documentRoot` (`ensure_within_root`); refuse if not
-2. Active pointer `specId` must match `<spec-dir>/.config.json.specId`; refuse if not
-3. **Lock must be held by current session** (`verify-lock` returns `ok`); refuse if not
-4. Only files inside the selected spec folder are treated as active spec documents
-5. Changes to one spec never update another spec's documents, config, task state, or active pointer entry
-6. All writes use atomic temp + `os.replace()`; read-modify-write of `.config.json` is guarded by `_file_lock`
+用户回复 → 下一轮按用户选项做对应动作；选 `查看全文`（doc-confirm-* 选项 2）就完整 echo 文档后**再次**呈现同一 selector + end turn。
 
-→ 详见 `lock-protocol.md`（5 个 lock 子命令、接管协议、只读模式、被驱逐窗口行为）
+绝不在同一轮里"先 selector 再继续到下一阶段"——选择器是 hard end turn。
 
-## 11. iteration Phase
+## 11. 与 task-swarm 的交接（v0.7 引用方向）
 
-→ 详见 `iteration.md`（完整 phase 生命周期、子循环图、文档累积写法、`/spec-accept` 触发约定、`spec_session.py continue --phase` 默认 None 的原因）
+v0.6 中 `tasks-execution` 选项 3 `用 task-swarm 多 agent 并发` **不可用**，告诉用户回退选 1 / 2。
 
-## Phase Gates — Detailed Sub-steps
+v0.7 起选 3 → 主会话切到 task-swarm 编排模式（按 `commands/specode:task-swarm.md` 协议），所有 group 完成后回到 implementation → acceptance 通路。详见 `references/task-swarm.md`（v0.7 新增，v0.6 暂缺）。
 
-Output order within each confirmation step (strictly follow):
+## 12. CLI 命令参考
 
-1. Generate or update the document (write the file)
-2. **First**: in agent's text — document path, concise summary, key changed points, unresolved questions
-3. **Then**: confirmation options via `spec_choice.py`. TTY → user picks in curses. Non-TTY → the script prints the option block + `AWAITING_USER_CHOICE` sentinel on stdout and exits 0; relay the stdout block to the user verbatim. Do **not** re-run the script to "retry" or restate the options yourself in different wording.
-4. **End the turn.** Do not continue to the next phase in the same response
+| 命令 | 用途 |
+|---|---|
+| `spec_vault.py detect` | 列出已知 Obsidian vault |
+| `spec_vault.py status` | 当前 doc root + 来源 |
+| `spec_vault.py set --vault <p>` / `set --root <p>` | 永久绑定 vault / 根目录 |
+| `spec_init.py --name <slug> --requirement-name "..." --source-text "..." --session <id>` | 创建新 spec |
+| `spec_session.py acquire / release / heartbeat / verify-lock --spec <dir> --session <id>` | 锁管理 |
+| `spec_session.py phase-transition --spec <dir> --session <id> --from <p> --to <p>` | phase 切换（必走 CLI） |
+| `spec_session.py load --spec <dir>` | 只读加载状态摘要 |
+| `spec_session.py continue --spec <dir> --session <id>` | 接管 / 恢复 |
+| `spec_session.py end --session <id>` | `/specode:end` 入口 |
+| `spec_session.py status --session <id>` / `read-session --session <id>` | 状态查询（只读） |
+| `spec_lint.py` | acceptance-checklist 落后 / traceability 缺失 / EARS 缺动词 等 WARNING |
+| `spec_status.py` | `/specode:status` 命令入口（聚合输出） |
 
-The user's next reply drives the next action:
-
-- `"确认" / "1" / "confirm"` → proceed to next phase
-- `"查看全文" / "2"` → display full document, then show confirmation options again; end turn
-- `"继续沟通" / "3" / any feedback` → update document, show revised summary + options; end turn
-
-Full phase sequence:
-
-1. Generate or update `requirements.md` (feature) or `bugfix.md` (bugfix). Show summary + options. End turn. Wait for confirm.
-2. After confirm: generate or update `design.md`. Show summary + options. End turn. Wait for confirm.
-3. After confirm: generate or update `tasks.md`，**同一文档**内同 turn 把 `## 测试要点` 节按 SHALL 填好（跟随式，无单独确认门；INV-4 hook 强制）. Show summary + options. End turn. Wait for confirm.
-4. After confirm: show task execution options (required only / required + optional / hold). End turn. Wait for choice.
-5. After explicit execution choice: begin coding tasks, validate, accept.
-
-If user asks for one-pass generation, still show paths, summaries, key changes per document, and mark `Review Status: unreviewed`.
-
-## Implementation Execution — Full Steps
-
-1. Resolve and validate the active spec session if persistent mode is active
-2. **Three-check write guard** + heartbeat (see §7)
-3. Load all spec files from the selected `<document-root>/<requirement-name>/`
-4. Identify the selected task ID or next pending required task
-5. Mark the task in `tasks.md` as in-progress using `[~]`
-6. Make the smallest code change that satisfies the linked requirement
-7. Run the validation command or nearest relevant project test
-8. Mark `[x]` only after validation passes
-9. If validation cannot run, keep the task incomplete and record the reason
-10. Finish with an acceptance summary: changed files, completed tasks, validation result, remaining risks
-
-**Task menu semantics:**
-
-- "Run all tasks" = required tasks only unless the user opts in to optional tasks
-- "Run required and optional tasks" = includes optional
-- Stop at checkpoints if validation fails or user confirmation is needed
-
-## Interactive Selectors (Reference)
-
-Run at each decision point. In a TTY the script offers ↑/↓ + Enter. In a non-TTY shell (Claude Code Bash, CI) it prints the option block + `[specode:non-interactive] AWAITING_USER_CHOICE` sentinel on stdout and exits 0; agent forwards the stdout block to the user and ends the turn. Do not invent your own option text — always run the script first.
-
-All selector command blocks live in `references/prompts.md` — copy-paste them verbatim:
-
-- Workflow 类型选择
-- 文档确认（每份 spec 文档生成后）
-- 任务执行（tasks.md 确认后）
-- `/continue` 接管（spec 已被锁定时）
-- 澄清完成（Plan-mode 结束）
-- 验收通过（acceptance 完成时）
-
-Selectors are preferred over plain-text confirmation. Use plain text only when tool execution is unavailable. **Forbidden phrasings** (`够了`、`差不多`、`随便选` 等口语词) are listed at the bottom of `references/prompts.md`.
+CLI 退出码语义：0 ok / 1 lock_lost 或写失败 / 3 evicted / not_held / stale_lock 或 vault miss / 4 LockHeld。所有 hook 子命令始终 exit 0（仅注入提示，不阻断）。

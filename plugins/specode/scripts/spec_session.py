@@ -1,24 +1,51 @@
 #!/usr/bin/env python3
+"""spec_session.py — specode 会话 / 锁 / hook 注入统一入口（§3.3 / §3.4 / §3.5 / §3.6 / §3.7 / §3.8）。
+
+业务子命令（被 SKILL.md 引导主会话调用；都接 --session）：
+  acquire / release / heartbeat / verify-lock / phase-transition
+  load / continue / end / status / read-session
+
+hook 子命令（仅由 hooks/hooks.json 调用；全部 exit 0，仅注入提示）：
+  on-session-start / on-user-prompt / on-stop / on-session-end
+  on-task-completed（v0.7 stub；当前 exit 0）
+  on-heartbeat-quiet（v0.8 stub；当前 exit 0）
+  on-pre-tool-use（v0.8 stub；当前 exit 0）
+
+强制写入语义：
+  - 任何修改 sessions/<id>.json 或 <spec-dir>/.config.json 的命令必须 tempfile + os.replace + fsync。
+  - 写失败 → 整命令视失败、回滚已变更的另一份文件、exit 1。
+
+所有 hook 子命令永远 exit 0；任何异常一律 catch。
+
+stdlib-only。
+"""
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
-from contextlib import contextmanager
-from datetime import datetime, timezone
+import tempfile
+import time
+import traceback
 from pathlib import Path
-from typing import Any, Iterator
+from string import Template
+from typing import Any, Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import spec_telemetry  # noqa: E402
+THIS_DIR = Path(__file__).resolve().parent
 
+# -------------------------------------------------------------------------
+# 常量
+# -------------------------------------------------------------------------
 
-ACTIVE_FILE = ".active-specode.json"
-ACTIVE_VERSION = 2
-SESSION_RE = re.compile(r"[^a-zA-Z0-9_.-]+")
-PHASES = {
+STALE_LOCK_SECONDS = 30 * 60  # 30 分钟无 heartbeat 视为 stale
+
+VALID_PHASES = {
     "intake",
     "requirements",
     "bugfix",
@@ -27,913 +54,1436 @@ PHASES = {
     "implementation",
     "acceptance",
     "iteration",
-    "ended",
 }
-TASK_RE = re.compile(r"^\s*-\s*\[( |x|~|\*|-)\]\s+(.+)$", re.MULTILINE)
-TASK_LABELS = {" ": "pending", "x": "completed", "~": "in_progress", "*": "optional", "-": "skipped"}
-
-# Document filenames managed by the spec workflow. Used for dynamic column width
-# in `command_load` so adding a new document does not silently break alignment.
-DOC_FILENAMES = (
-    "requirements.md",
-    "bugfix.md",
-    "design.md",
-    "tasks.md",
-)
-DOC_COL_WIDTH = max(len(name) for name in DOC_FILENAMES) + 2
-
-# Lock staleness: a lock whose lastHeartbeatAt is older than this is silently
-# reclaimable by another session. Overridable via SPECODE_LOCK_STALE_SECONDS.
-LOCK_STALE_SECONDS = int(os.environ.get("SPECODE_LOCK_STALE_SECONDS") or 1800)
 
 
-def now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+# -------------------------------------------------------------------------
+# 时间工具
+# -------------------------------------------------------------------------
+
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _parse_ts(value: str | None) -> datetime | None:
-    if not value:
+def _parse_iso(s: Optional[str]) -> Optional[float]:
+    if not s:
         return None
     try:
-        return datetime.fromisoformat(value)
-    except ValueError:
+        # 朴素 ISO8601-UTC 解析
+        if s.endswith("Z"):
+            s2 = s[:-1] + "+00:00"
+        else:
+            s2 = s
+        import datetime as _dt
+        return _dt.datetime.fromisoformat(s2).timestamp()
+    except Exception:
         return None
 
 
-def normalize_session_id(raw: str | None) -> str:
-    value = raw or os.environ.get("TERM_SESSION_ID") or os.environ.get("SPEC_SESSION_ID") or "default"
-    value = SESSION_RE.sub("-", value.strip()).strip("-._")
-    return value[:80] or "default"
+# -------------------------------------------------------------------------
+# 原子写
+# -------------------------------------------------------------------------
 
-
-def read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
-    if not path.exists():
-        return default
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def write_json(path: Path, value: dict[str, Any]) -> None:
+def _atomic_write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temp.replace(path)
-
-
-@contextmanager
-def _file_lock(target: Path) -> Iterator[None]:
-    """Process-level advisory file lock. Cross-platform best-effort.
-
-    Used to guard read-modify-write sequences on .config.json and the active
-    pointer file against two parallel `spec_session.py` invocations racing.
-    """
-    target.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = target.with_suffix(target.suffix + ".lock")
-    handle = open(lock_path, "a+")
-    locked = False
+    fd, tmp = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
     try:
-        try:
-            import fcntl  # type: ignore[import-not-found]
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            locked = True
-        except (ImportError, OSError):
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
             try:
-                import msvcrt  # type: ignore[import-not-found]
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-                locked = True
-            except (ImportError, OSError):
-                # Platform without supported locking → proceed unguarded. Atomic
-                # rename in write_json still prevents torn writes.
+                os.fsync(fh.fileno())
+            except OSError:
                 pass
-        yield
-    finally:
-        if locked:
+        os.replace(tmp, path)
+        try:
+            dir_fd = os.open(str(path.parent), os.O_RDONLY)
             try:
-                try:
-                    import fcntl  # type: ignore[import-not-found]
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-                except (ImportError, OSError):
-                    import msvcrt  # type: ignore[import-not-found]
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                os.fsync(dir_fd)
+            except OSError:
+                pass
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def _atomic_write_json(path: Path, payload: Any) -> None:
+    _atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+# -------------------------------------------------------------------------
+# 数据层
+# -------------------------------------------------------------------------
+
+def _sessions_dir() -> Path:
+    return Path.home() / ".specode" / "sessions"
+
+
+def session_file_path(session_id: str) -> Path:
+    return _sessions_dir() / f"{session_id}.json"
+
+
+def read_session(session_id: str) -> Optional[dict]:
+    p = session_file_path(session_id)
+    if not p.exists():
+        return None
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return None
+    return None
+
+
+def write_session_atomic(session_id: str, data: dict) -> None:
+    _atomic_write_json(session_file_path(session_id), data)
+
+
+def read_spec_config(spec_dir: Path) -> Optional[dict]:
+    p = spec_dir / ".config.json"
+    if not p.exists():
+        return None
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return None
+    return None
+
+
+def write_spec_config_atomic(spec_dir: Path, data: dict) -> None:
+    _atomic_write_json(spec_dir / ".config.json", data)
+
+
+# -------------------------------------------------------------------------
+# Selector 提示词常量库（§3.7.7）
+# -------------------------------------------------------------------------
+
+SELECTOR_PROMPTS: dict[str, str] = {
+    "workflow-choice": """## ⛔ 必须呈现「工作流选择」选择器（类型 A 单列单选）
+
+active spec: <slug>（phase=<phase>）
+你即将进入需求/设计文档生成，先决定走哪条工作流。
+
+标题：工作流选择
+正式选项（**逐字使用**）：
+
+  1. Requirements first
+     行为优先的新特性：先把 SHALL 写清楚，再补技术设计。
+  2. Technical Design first
+     架构约束已知的新特性：先把 design.md 框架定下来，再反推 requirements。
+  3. Bugfix
+     缺陷修复 / 回归测试：用 bugfix.md（Current/Expected/Unchanged）替代 requirements.md。
+
+请按 §3.7.1 类型 A 骨架输出（编号 1-3 + 保留位 4 Type something + 5 Chat about this）。
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+    "clarification-wizard": """## ⛔ 必须呈现「需求澄清问答」选择器（类型 B 多项串行决策 / wizard）
+
+active spec: <slug>（phase=intake）
+源需求摘要：<source_text_head>
+
+本 wizard 用于在写 requirements.md / bugfix.md 之前**一次性**收齐影响 scope / behavior / UX /
+data / validation / acceptance 的所有阻塞性澄清项。
+
+请你结合源需求摘要、用户最近输入、`assets/templates/*.md` 模板的章节结构，**自行决定**
+本 wizard 包含哪些决策点（通常 2–5 个），每个决策点 2–4 个互斥选项。
+
+每个决策点必须满足：
+- 标题是一个"是 / 否 / 选哪条"的具体问题，不能是开放式叙述
+- 选项之间互斥；如果发现要"可多选"则该决策点拆错了类型——回到正文继续叙述
+- 末项保留 `Type something`（允许用户自定义）
+
+请按 §3.7.2 类型 B 骨架输出。整体保留 `Chat about this` 逃生口。
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+
+注：不要凭空 invent 业务规则；inputs 不足以构成决策点则不要放进 wizard。如果连一个决策点都没有
+（需求已足够清晰），直接跳到 `clarification-done`，不输出 wizard。
+""",
+    "clarification-done": """## ⛔ 必须呈现「需求澄清是否完成？」选择器（类型 A 单列单选）
+
+active spec: <slug>（phase=intake）
+用户刚刚回答了上一轮 wizard 的澄清问题。
+
+标题：需求澄清是否完成？
+正式选项（**逐字使用**）：
+
+  1. 进入下一阶段（推荐）
+     用户回答已经覆盖所有阻塞项，可开始写 requirements.md / bugfix.md。
+  2. 继续澄清
+     还有未解决的歧义，再发一轮 wizard。
+
+请按 §3.7.1 类型 A 骨架输出（编号 1-2 + 保留位 3 Type something + 4 Chat about this）。
+推荐选项编号：1
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+    "doc-confirm-requirements": """## ⛔ 必须呈现「requirements.md 文档确认」选择器（类型 A 单列单选）
+
+active spec: <slug>（phase=<phase>）
+刚生成 / 更新的文档：<spec_dir>/requirements.md
+关键变更摘要：
+  • <由模型自行从最近 Edit 工具调用中提取 3-8 条变更要点>
+
+标题：requirements.md 文档确认
+正式选项（**逐字使用**）：
+
+  1. 确认（推荐）
+     文档内容符合预期，进入下一 phase。
+  2. 查看全文
+     先在 chat 完整 echo 该文档（不进入下一 phase）。
+  3. 继续沟通
+     文档需要修改，告诉你具体怎么改。
+
+请按 §3.7.1 类型 A 骨架输出（编号 1-3 + 保留位 4 Type something + 5 Chat about this）。
+推荐选项编号：1
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+    "doc-confirm-bugfix": """## ⛔ 必须呈现「bugfix.md 文档确认」选择器（类型 A 单列单选）
+
+active spec: <slug>（phase=<phase>）
+刚生成 / 更新的文档：<spec_dir>/bugfix.md
+关键变更摘要：
+  • <由模型自行从最近 Edit 工具调用中提取 3-8 条变更要点>
+
+标题：bugfix.md 文档确认
+正式选项（**逐字使用**）：
+
+  1. 确认（推荐）
+     文档内容符合预期，进入下一 phase。
+  2. 查看全文
+     先在 chat 完整 echo 该文档（不进入下一 phase）。
+  3. 继续沟通
+     文档需要修改，告诉你具体怎么改。
+
+请按 §3.7.1 类型 A 骨架输出（编号 1-3 + 保留位 4 Type something + 5 Chat about this）。
+推荐选项编号：1
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+    "doc-confirm-design": """## ⛔ 必须呈现「design.md 文档确认」选择器（类型 A 单列单选）
+
+active spec: <slug>（phase=<phase>）
+刚生成 / 更新的文档：<spec_dir>/design.md
+关键变更摘要：
+  • <由模型自行从最近 Edit 工具调用中提取 3-8 条变更要点>
+
+标题：design.md 文档确认
+正式选项（**逐字使用**）：
+
+  1. 确认（推荐）
+     文档内容符合预期，进入下一 phase。
+  2. 查看全文
+     先在 chat 完整 echo 该文档（不进入下一 phase）。
+  3. 继续沟通
+     文档需要修改，告诉你具体怎么改。
+
+请按 §3.7.1 类型 A 骨架输出（编号 1-3 + 保留位 4 Type something + 5 Chat about this）。
+推荐选项编号：1
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+    "doc-confirm-tasks": """## ⛔ 必须呈现「tasks.md 文档确认」选择器（类型 A 单列单选）
+
+active spec: <slug>（phase=<phase>）
+刚生成 / 更新的文档：<spec_dir>/tasks.md
+关键变更摘要：
+  • <由模型自行从最近 Edit 工具调用中提取 3-8 条变更要点>
+
+标题：tasks.md 文档确认
+正式选项（**逐字使用**）：
+
+  1. 确认（推荐）
+     文档内容符合预期，进入下一 phase。
+  2. 查看全文
+     先在 chat 完整 echo 该文档（不进入下一 phase）。
+  3. 继续沟通
+     文档需要修改，告诉你具体怎么改。
+
+请按 §3.7.1 类型 A 骨架输出（编号 1-3 + 保留位 4 Type something + 5 Chat about this）。
+推荐选项编号：1
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+    "tasks-execution": """## ⛔ 必须呈现「任务执行选择」选择器（类型 A 单列单选）
+
+active spec: <slug>（phase=tasks）
+tasks.md 已确认。required 任务数：<n_required>，optional 任务数：<n_optional>。
+
+标题：任务执行选择
+正式选项（**逐字使用**）：
+
+  1. 开始 required
+     仅执行 required 任务，逐个推进 `[ ]` → `[~]` → `[x]`。
+  2. 开始 required + optional
+     required 完成后顺带处理 optional 任务。
+  3. 用 task-swarm 多 agent 并发（v0.7+）
+     委派给 task-swarm 编排器，多 coder 并发 + reviewer + validator。**v0.6 此选项不可用**，请回退选 1 / 2。
+  4. 暂不 coding
+     文档已落地但暂不开始实现。`/specode:end` 关闭会话。
+
+请按 §3.7.1 类型 A 骨架输出（编号 1-4 + 保留位 5 Type something + 6 Chat about this）。
+推荐选项编号：1
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+    "takeover-options": """## ⛔ 必须呈现「该 spec 已被其他窗口持有」选择器（类型 A 单列单选）
+
+active spec: <slug>（phase=<phase>）
+锁持有者: claude_session_id=<other_id_short>, 最近 heartbeat: <last_heartbeat>
+
+标题：该 spec 已被其他窗口持有
+正式选项（**逐字使用**）：
+
+  1. 强制接管
+     驱逐对方窗口的锁，本会话成为新锁主；对方下一次写操作会被 verify-lock 拒绝。
+  2. 只读查看
+     不持锁，加载文档进入只读模式；所有 Edit/Write 在 SKILL.md 层面被劝阻。
+  3. 取消
+     不接管，关闭本次 `/specode:continue`。
+
+请按 §3.7.1 类型 A 骨架输出（编号 1-3 + 保留位 4 Type something + 5 Chat about this）。
+推荐选项：无（让用户根据对方是否仍活跃自己判断）
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+    "acceptance-gate": """## ⛔ 必须呈现「验收结论」选择器（类型 A 单列单选）
+
+active spec: <slug>（phase=acceptance）
+acceptance-checklist.md 已填写。已通过：<n_pass>，未通过 / 待复核：<n_fail>。
+
+标题：验收结论
+正式选项（**逐字使用**）：
+
+  1. 验收通过，进入 iteration（推荐）
+     所有 SHALL 已满足；如有后续调整走 iteration 子循环。
+  2. 继续修改
+     仍有未达标项，回到 requirements / design / tasks 调整。
+
+请按 §3.7.1 类型 A 骨架输出（编号 1-2 + 保留位 3 Type something + 4 Chat about this）。
+推荐选项编号：1（当 n_fail=0）；其他情况无推荐。
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+    "iteration-scope": """## ⛔ 必须呈现「本轮 iteration 调整范围」选择器（类型 C 复选框多选）
+
+active spec: <slug>（phase=iteration）
+
+标题：本轮 iteration 调整范围
+正式选项（**逐字使用**）：
+
+  1. 改 requirements
+     新增 / 修改 EARS SHALL 条款。
+  2. 改 design
+     架构 / 接口 / 数据模型调整。
+  3. 改 tasks
+     新增任务或调整已有任务范围。
+  4. 重跑测试
+     不改文档，重新验证当前实现。
+
+请按 §3.7.3 类型 C 骨架输出（编号 1-4 + 保留位 5 Type something；含"全不选 = none / 整体讨论 = Chat about this"回复格式说明）。
+允许"全不选"（视为本轮 iteration 取消）。
+状态行 footer 在前，`AWAITING_USER_CHOICE` 末行，立即 end turn。
+""",
+}
+
+
+def _fill_selector(key: str, ctx: dict[str, str]) -> Optional[str]:
+    tpl = SELECTOR_PROMPTS.get(key)
+    if not tpl:
+        return None
+    out = tpl
+    for k, v in ctx.items():
+        out = out.replace(f"<{k}>", str(v))
+    return out
+
+
+# -------------------------------------------------------------------------
+# §3.5 状态行 footer 模板
+# -------------------------------------------------------------------------
+
+STATUS_FOOTER_TEMPLATE = """## 🪧 spec-mode 状态行（必须在本响应末尾输出）
+
+请在本次响应正文之后**额外**输出一行格式如下的状态行，紧贴响应末尾、之前空一行：
+
+─── spec-mode ─── spec: <slug> | session: <session_short> | phase: <phase> | /specode:end 退出
+
+如果是只读模式，请使用：
+
+─── spec-mode ─── spec: <slug> | session: <session_short> | phase: <phase> | [只读] | /specode:end 退出
+
+具体值：
+  slug:    <slug>
+  session: <session_short>
+  phase:   <phase>
+  mode:    <mode>
+
+状态行的唯一目的是让用户和你自己都看到当前仍在 spec 模式。**不要省略**；如果本轮响应是 selector（AWAITING_USER_CHOICE），把状态行放在 sentinel **之前**一行（空行隔开）。
+"""
+
+DOC_PRIORITY_REMINDER_ACTIVE = """## 📝 文档优先提醒（用户输入侧）
+
+active spec：<slug>（phase=<phase>）
+此 spec 的可写文档：
+  • requirements.md / bugfix.md
+  • design.md
+  • tasks.md
+  • acceptance-checklist.md
+  • implementation-log.md（如有）
+
+请评估用户本次输入是否涉及以下变更：
+
+- 需求 / 验收标准调整 → 先 Edit `requirements.md` 或 `bugfix.md`，**同 turn** 重写 `acceptance-checklist.md`
+- 架构 / 接口 / 数据模型决策 → 先 Edit `design.md`
+- 任务范围 / 状态推进 → 先 Edit `tasks.md`
+- 实现期间的设计偏离 / 关键决策 → 在 `implementation-log.md` 追加条目
+- 仅闲聊 / 状态查询 / 无关讨论 → 无需文档变更
+
+文档变更要**在同一轮 turn 内先于代码改动落盘**；不要把"待会儿写"留作 verbal commitment——chat 内容不会进入 next session。
+"""
+
+DOC_PRIORITY_REMINDER_READONLY = """## 📝 文档优先提醒（用户输入侧 / 只读模式）
+
+active spec：<slug>（phase=<phase>，**只读**）
+你当前没有持锁，**不应**对该 spec 的文档发起 Edit/Write。如需修改，请先：
+
+  1. 使用 `/specode:continue <slug>` 并在 selector 中选"强制接管"获取锁；
+  2. 或退出本会话后由锁主推进。
+
+只读模式下可以：阅读、回答用户基于已有文档的问题、协助分析；**不要**写 spec 文档或源码以"模拟落地"。
+"""
+
+CODE_DOC_SYNC_STOP = """## 🔄 代码-文档同步提醒（turn 结束侧）
+
+active spec：<slug>（phase=<phase>）
+
+本 turn 即将结束。如果你在本 turn 内修改了源代码，请自检以下三项：
+
+1. `tasks.md` 是否更新？ —— 推进任务标记（`[ ]` → `[~]` → `[x]` / blocked）
+2. `implementation-log.md` 是否记录？ —— 实现说明、设计偏离、技术决策
+3. `design.md` 接口契约是否变化？ —— 若改了，同步 Edit
+
+如有遗漏，请在 chat 显式承诺下一轮第一件事就是补齐。
+
+（本提醒**不阻断 turn**——是否补齐由你判断。但代价是 next session `/specode:continue` 时，未写入文档的变更**全部丢失**。）
+"""
+
+SPEC_MODE_CONTINUE_REMINDER = """## ⛔ 你仍处于 spec 模式
+
+spec=<slug>, phase=<phase>, mode=active
+
+下一 turn 必须继续遵守：
+  - selector / 文档优先 / 状态行 footer 三项纪律
+  - 通过 /specode:end 才能正式退出 spec 模式
+"""
+
+SPEC_MODE_READONLY_REMINDER = """## 🔒 你处于 spec 只读模式
+
+spec=<slug>, phase=<phase>, mode=readonly
+
+只读模式下：
+  - 不要 Edit/Write 该 spec 的任何文档或源码
+  - 状态行 footer 必须带 [只读] 标记
+  - 如需写入，请走 `/specode:continue` 选"强制接管"
+"""
+
+
+# -------------------------------------------------------------------------
+# §3.6 帮助 fast-path 文本（hook emit verbatim）
+# -------------------------------------------------------------------------
+
+HELP_OUTPUT_TEXT = """specode v0.6 — Specification-driven workflow for Claude Code
+
+命令一览：
+
+  /specode:spec <需求>                  开始新 spec（持久会话，需要 /specode:end 关闭）
+  /specode:continue [slug]              恢复 / 接管已有 spec（slug 缺省时列出可选）
+  /specode:end                          结束当前 spec 会话（释放锁、停止 hook 提醒）
+  /specode:status                       打印当前 session / spec / phase / lock 状态摘要
+  /specode:task-swarm                   v0.7+：在 tasks 阶段进入多 agent 并发编排
+  /specode:spec --vault-status          打印 doc_root 解析结果（env / config / auto）
+  /specode:spec --detect-vault          扫描三平台 Obsidian vault 配置
+  /specode:spec --set-vault <path>      持久化 vault 根目录到 ~/.config/specode/config.json
+  /specode:spec --set-root  <path>      同上（不强调 vault 概念）
+  /specode:spec -h | --help             显示本帮助
+
+会话与锁：
+  每次 Claude 会话拥有唯一 session_id，hook 会在 additionalContext 中持续注入。
+  CLI 调用必须传 --session <id>。当前 spec 锁记录在 <spec-dir>/.config.json。
+  忘记 /specode:end 时 SessionEnd hook 会兜底释锁；30 分钟无 heartbeat 视为 stale。
+
+工作流：
+  intake → workflow 选择 → requirements / bugfix / design → tasks → implementation
+        → acceptance → iteration（可循环）
+
+更多细节见 plugin 内 skills/specode/SKILL.md 与 DESIGN.md §3.
+"""
+
+HELP_FASTPATH_WRAPPER = """## ⛔ /specode:spec -h fast-path
+
+本轮唯一动作：把下列代码块**逐字**用 ```text 围栏包裹后输出，然后立即 end turn。
+禁止添加任何额外文字（"以下是帮助" / "希望对你有帮助" 等都不允许）。
+
+────────── HELP CONTENT BEGIN ──────────
+$content
+────────── HELP CONTENT END ──────────
+"""
+
+
+def _wrap_help_fastpath(content: str) -> str:
+    return Template(HELP_FASTPATH_WRAPPER).safe_substitute(content=content)
+
+
+# -------------------------------------------------------------------------
+# 锁状态机
+# -------------------------------------------------------------------------
+
+def _is_lock_stale(lock: dict) -> bool:
+    last = _parse_iso(lock.get("last_heartbeat_at") or lock.get("acquired_at"))
+    if last is None:
+        return True
+    return (time.time() - last) > STALE_LOCK_SECONDS
+
+
+def _session_short(sid: Optional[str]) -> str:
+    if not sid:
+        return "????????"
+    return sid[:8]
+
+
+# -------------------------------------------------------------------------
+# 业务子命令
+# -------------------------------------------------------------------------
+
+def _ensure_spec_dir(spec_dir_str: str) -> Path:
+    p = Path(spec_dir_str).expanduser().resolve()
+    if not p.exists() or not p.is_dir():
+        raise FileNotFoundError(f"spec_dir 不存在：{p}")
+    return p
+
+
+def _emit_json(payload: dict) -> None:
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+
+def _update_session_for_spec(session_id: str, spec_dir: Path, cfg: dict,
+                              mode: str = "active",
+                              lock_state: str = "ok",
+                              pending_selector: Optional[str] = ...) -> dict:
+    """构造 sessions/<id>.json 的常规更新。pending_selector=... 表示沿用 spec config 中的值。"""
+    existing = read_session(session_id) or {}
+    if pending_selector is ...:
+        pending = cfg.get("pending_selector")
+    else:
+        pending = pending_selector
+    payload = {
+        "claude_session_id": session_id,
+        "started_at": existing.get("started_at") or _now_iso(),
+        "last_activity_at": _now_iso(),
+        "ended_at": None,
+        "mode": mode,
+        "active_spec_slug": cfg.get("slug"),
+        "active_spec_dir": str(spec_dir),
+        "spec_id": cfg.get("specId"),
+        "phase": cfg.get("phase"),
+        "lock_state": lock_state,
+        "task_swarm_run_id": existing.get("task_swarm_run_id"),
+        "pending_selector": pending,
+    }
+    return payload
+
+
+def cmd_acquire(args: argparse.Namespace) -> int:
+    spec_dir = _ensure_spec_dir(args.spec)
+    cfg = read_spec_config(spec_dir)
+    if cfg is None:
+        sys.stderr.write(f"无法读取 {spec_dir}/.config.json\n")
+        return 1
+
+    now = _now_iso()
+    lock = cfg.get("lock") or {}
+    holder = lock.get("holder")
+
+    if holder and holder != args.session and not _is_lock_stale(lock) and not args.force:
+        _emit_json({
+            "ok": False,
+            "reason": "LockHeld",
+            "holder": holder,
+            "last_heartbeat_at": lock.get("last_heartbeat_at"),
+        })
+        return 4
+
+    # 备份用于回滚
+    prior_cfg = json.loads(json.dumps(cfg))
+    prior_session_blob: Optional[str] = None
+    sp = session_file_path(args.session)
+    if sp.exists():
+        try:
+            prior_session_blob = sp.read_text(encoding="utf-8")
+        except Exception:
+            prior_session_blob = None
+
+    cfg["lock"] = {
+        "holder": args.session,
+        "acquired_at": now,
+        "last_heartbeat_at": now,
+    }
+    try:
+        write_spec_config_atomic(spec_dir, cfg)
+    except Exception as e:
+        sys.stderr.write(f"写入 spec config 失败：{e}\n")
+        return 1
+
+    try:
+        session_payload = _update_session_for_spec(args.session, spec_dir, cfg,
+                                                   mode="active", lock_state="ok")
+        write_session_atomic(args.session, session_payload)
+    except Exception as e:
+        # 回滚 spec config
+        try:
+            write_spec_config_atomic(spec_dir, prior_cfg)
+        except Exception:
+            pass
+        sys.stderr.write(f"写入 sessions 失败，已回滚 spec config：{e}\n")
+        return 1
+
+    _emit_json({"ok": True, "holder": args.session, "acquired_at": now})
+    return 0
+
+
+def cmd_release(args: argparse.Namespace) -> int:
+    spec_dir = _ensure_spec_dir(args.spec)
+    cfg = read_spec_config(spec_dir)
+    if cfg is None:
+        sys.stderr.write(f"无法读取 {spec_dir}/.config.json\n")
+        return 0  # release 容忍：spec config 缺失视作已释放
+    prior_cfg = json.loads(json.dumps(cfg))
+    lock = cfg.get("lock") or {}
+    if lock.get("holder") == args.session:
+        cfg["lock"] = None
+        try:
+            write_spec_config_atomic(spec_dir, cfg)
+        except Exception as e:
+            sys.stderr.write(f"释放锁写入失败：{e}\n")
+            return 1
+    # 更新 sessions
+    try:
+        existing = read_session(args.session) or {}
+        existing["last_activity_at"] = _now_iso()
+        existing["lock_state"] = "released"
+        write_session_atomic(args.session, existing)
+    except Exception as e:
+        # 回滚 spec config
+        try:
+            write_spec_config_atomic(spec_dir, prior_cfg)
+        except Exception:
+            pass
+        sys.stderr.write(f"写入 sessions 失败，已回滚 spec config：{e}\n")
+        return 1
+    _emit_json({"ok": True, "released_at": _now_iso()})
+    return 0
+
+
+def cmd_heartbeat(args: argparse.Namespace) -> int:
+    spec_dir = _ensure_spec_dir(args.spec)
+    cfg = read_spec_config(spec_dir)
+    if cfg is None:
+        sys.stderr.write(f"无法读取 {spec_dir}/.config.json\n")
+        return 1
+    lock = cfg.get("lock") or {}
+    if lock.get("holder") != args.session:
+        _emit_json({"ok": False, "reason": "lock_lost", "holder": lock.get("holder")})
+        return 1
+    prior_cfg = json.loads(json.dumps(cfg))
+    now = _now_iso()
+    cfg["lock"]["last_heartbeat_at"] = now
+    try:
+        write_spec_config_atomic(spec_dir, cfg)
+    except Exception as e:
+        sys.stderr.write(f"heartbeat 写入失败：{e}\n")
+        return 1
+    try:
+        existing = read_session(args.session) or {}
+        existing["last_activity_at"] = now
+        existing["lock_state"] = "ok"
+        write_session_atomic(args.session, existing)
+    except Exception as e:
+        try:
+            write_spec_config_atomic(spec_dir, prior_cfg)
+        except Exception:
+            pass
+        sys.stderr.write(f"heartbeat sessions 写入失败，已回滚：{e}\n")
+        return 1
+    _emit_json({"ok": True, "last_heartbeat_at": now})
+    return 0
+
+
+def cmd_verify_lock(args: argparse.Namespace) -> int:
+    spec_dir = _ensure_spec_dir(args.spec)
+    cfg = read_spec_config(spec_dir)
+    if cfg is None:
+        sys.stderr.write(f"无法读取 {spec_dir}/.config.json\n")
+        return 3
+    lock = cfg.get("lock") or {}
+    holder = lock.get("holder")
+    if not holder:
+        _emit_json({"ok": False, "reason": "not_held"})
+        return 3
+    if holder != args.session:
+        if _is_lock_stale(lock):
+            _emit_json({"ok": False, "reason": "stale_lock", "holder": holder})
+            return 3
+        _emit_json({"ok": False, "reason": "evicted", "holder": holder})
+        return 3
+    _emit_json({"ok": True, "holder": holder, "last_heartbeat_at": lock.get("last_heartbeat_at")})
+    return 0
+
+
+def cmd_phase_transition(args: argparse.Namespace) -> int:
+    if args.frm not in VALID_PHASES or args.to not in VALID_PHASES:
+        sys.stderr.write(f"非法 phase：{args.frm} → {args.to}\n")
+        return 1
+    spec_dir = _ensure_spec_dir(args.spec)
+    cfg = read_spec_config(spec_dir)
+    if cfg is None:
+        sys.stderr.write(f"无法读取 {spec_dir}/.config.json\n")
+        return 1
+    lock = cfg.get("lock") or {}
+    if lock.get("holder") != args.session:
+        _emit_json({"ok": False, "reason": "lock_lost"})
+        return 1
+    if cfg.get("phase") != args.frm:
+        _emit_json({
+            "ok": False,
+            "reason": "phase_mismatch",
+            "current": cfg.get("phase"),
+            "expected_from": args.frm,
+        })
+        return 1
+    prior_cfg = json.loads(json.dumps(cfg))
+    prior_session = read_session(args.session)
+    cfg["phase"] = args.to
+    # 自动推断 pending_selector
+    auto = _auto_pending_selector(args.to, cfg)
+    cfg["pending_selector"] = auto
+    try:
+        write_spec_config_atomic(spec_dir, cfg)
+    except Exception as e:
+        sys.stderr.write(f"phase-transition 写 spec config 失败：{e}\n")
+        return 1
+    try:
+        payload = _update_session_for_spec(args.session, spec_dir, cfg,
+                                           mode="active", lock_state="ok",
+                                           pending_selector=auto)
+        write_session_atomic(args.session, payload)
+    except Exception as e:
+        try:
+            write_spec_config_atomic(spec_dir, prior_cfg)
+            if prior_session is not None:
+                write_session_atomic(args.session, prior_session)
+        except Exception:
+            pass
+        sys.stderr.write(f"phase-transition 写 sessions 失败，已回滚：{e}\n")
+        return 1
+    _emit_json({"ok": True, "phase": args.to, "pending_selector": auto})
+    return 0
+
+
+def _auto_pending_selector(phase: str, cfg: dict) -> Optional[str]:
+    """根据 phase 推断默认 pending_selector（命令层可显式覆写）。"""
+    workflow = cfg.get("workflow")
+    if phase == "intake":
+        return "workflow-choice"
+    if phase == "requirements":
+        return "doc-confirm-requirements"
+    if phase == "bugfix":
+        return "doc-confirm-bugfix"
+    if phase == "design":
+        return "doc-confirm-design"
+    if phase == "tasks":
+        return "doc-confirm-tasks"
+    if phase == "implementation":
+        return None
+    if phase == "acceptance":
+        return "acceptance-gate"
+    if phase == "iteration":
+        return "iteration-scope"
+    return None
+
+
+def cmd_load(args: argparse.Namespace) -> int:
+    spec_dir = _ensure_spec_dir(args.spec)
+    cfg = read_spec_config(spec_dir)
+    if cfg is None:
+        sys.stderr.write(f"无法读取 {spec_dir}/.config.json\n")
+        return 1
+    _emit_json({
+        "ok": True,
+        "spec_dir": str(spec_dir),
+        "config": cfg,
+    })
+    return 0
+
+
+def cmd_continue(args: argparse.Namespace) -> int:
+    spec_dir = _ensure_spec_dir(args.spec)
+    cfg = read_spec_config(spec_dir)
+    if cfg is None:
+        sys.stderr.write(f"无法读取 {spec_dir}/.config.json\n")
+        return 1
+    lock = cfg.get("lock") or {}
+    holder = lock.get("holder")
+    mode = "active"
+    lock_state = "ok"
+    pending = cfg.get("pending_selector")
+
+    if holder and holder != args.session and not _is_lock_stale(lock) and not args.force:
+        if args.readonly:
+            mode = "readonly"
+            lock_state = "readonly"
+        else:
+            # 提示走 takeover selector
+            cfg["pending_selector"] = "takeover-options"
+            try:
+                write_spec_config_atomic(spec_dir, cfg)
+            except Exception as e:
+                sys.stderr.write(f"写 spec config 失败：{e}\n")
+                return 1
+            try:
+                payload = _update_session_for_spec(args.session, spec_dir, cfg,
+                                                   mode="readonly", lock_state="readonly",
+                                                   pending_selector="takeover-options")
+                write_session_atomic(args.session, payload)
+            except Exception as e:
+                sys.stderr.write(f"写 sessions 失败：{e}\n")
+                return 1
+            _emit_json({
+                "ok": False,
+                "reason": "LockHeld",
+                "holder": holder,
+                "pending_selector": "takeover-options",
+                "spec_dir": str(spec_dir),
+            })
+            return 4
+    else:
+        # 抢锁（force / stale / 同 session / 无 holder）
+        prior_cfg = json.loads(json.dumps(cfg))
+        now = _now_iso()
+        cfg["lock"] = {
+            "holder": args.session,
+            "acquired_at": now,
+            "last_heartbeat_at": now,
+        }
+        try:
+            write_spec_config_atomic(spec_dir, cfg)
+        except Exception as e:
+            sys.stderr.write(f"写 spec config 失败：{e}\n")
+            return 1
+        try:
+            payload = _update_session_for_spec(args.session, spec_dir, cfg,
+                                               mode=mode, lock_state=lock_state,
+                                               pending_selector=pending)
+            write_session_atomic(args.session, payload)
+        except Exception as e:
+            try:
+                write_spec_config_atomic(spec_dir, prior_cfg)
             except Exception:
                 pass
-        handle.close()
-
-
-def load_config(spec_dir: Path) -> dict[str, Any]:
-    config_path = spec_dir / ".config.json"
-    if not config_path.exists():
-        raise SystemExit(f"Missing config: {config_path}")
-    config = read_json(config_path, {})
-    if not config.get("specId"):
-        raise SystemExit(f"Missing specId in config: {config_path}")
-    config.setdefault("lock", None)
-    config.setdefault("evictedSessions", [])
-    return config
-
-
-def save_config(spec_dir: Path, config: dict[str, Any]) -> None:
-    """Forced write of .config.json. Any caller that mutated config must persist."""
-    write_json(spec_dir / ".config.json", config)
-
-
-def document_root_for(spec_dir: Path, config: dict[str, Any]) -> Path:
-    root = config.get("documentRoot")
-    if root:
-        return Path(root).expanduser().resolve()
-    return spec_dir.resolve().parent
-
-
-def active_path(document_root: Path) -> Path:
-    return document_root.resolve() / ACTIVE_FILE
-
-
-def ensure_within_root(spec_dir: Path, document_root: Path) -> None:
-    spec_resolved = spec_dir.resolve()
-    root_resolved = document_root.resolve()
-    try:
-        spec_resolved.relative_to(root_resolved)
-    except ValueError as exc:
-        raise SystemExit(f"Spec dir is outside document root: {spec_resolved} not under {root_resolved}") from exc
-
-
-def _migrate_active_v1_to_v2(data: dict[str, Any], document_root: Path) -> dict[str, Any]:
-    sessions = data.get("sessions") or {}
-    migrated: dict[str, Any] = {}
-    for sid, entry in sessions.items():
-        slug = entry.get("slug") or (Path(entry["specDir"]).name if entry.get("specDir") else None)
-        migrated[sid] = {
-            "sessionId": sid,
-            "specSlug": slug,
-            "specId": entry.get("specId"),
-            "status": entry.get("status") or "active",
-            "boundAt": entry.get("startedAt") or entry.get("updatedAt"),
-            "lastActivityAt": entry.get("updatedAt") or entry.get("lastActivityAt"),
-        }
-    data["version"] = ACTIVE_VERSION
-    data["sessions"] = migrated
-    data["documentRoot"] = str(document_root.resolve())
-    return data
-
-
-def load_active(document_root: Path) -> dict[str, Any]:
-    path = active_path(document_root)
-    data = read_json(path, {})
-    if not data:
-        return {
-            "version": ACTIVE_VERSION,
-            "documentRoot": str(document_root.resolve()),
-            "updatedAt": None,
-            "sessions": {},
-        }
-    if data.get("version", 1) < ACTIVE_VERSION:
-        data = _migrate_active_v1_to_v2(data, document_root)
-    data.setdefault("version", ACTIVE_VERSION)
-    data.setdefault("sessions", {})
-    data["documentRoot"] = str(document_root.resolve())
-    return data
-
-
-def save_active(document_root: Path, data: dict[str, Any]) -> None:
-    data["documentRoot"] = str(document_root.resolve())
-    data["updatedAt"] = now()
-    write_json(active_path(document_root), data)
-
-
-def active_sessions(config: dict[str, Any]) -> list[str]:
-    sessions = config.get("sessions") or {}
-    return [
-        session_id
-        for session_id, session in sessions.items()
-        if session.get("status") == "active"
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Lock primitives (acquire / release / verify / force_acquire / heartbeat)
-# ---------------------------------------------------------------------------
-
-
-class LockHeld(SystemExit):
-    """Raised when acquire() finds the spec is held by a different session."""
-
-    def __init__(self, holder_id: str, last_heartbeat: str | None) -> None:
-        self.holder_id = holder_id
-        self.last_heartbeat = last_heartbeat
-        super().__init__(json.dumps({
-            "error": "lock_held",
-            "holderSessionId": holder_id,
-            "lastHeartbeatAt": last_heartbeat,
-        }, ensure_ascii=False))
-
-
-def _lock_is_stale(lock: dict[str, Any]) -> bool:
-    ts = _parse_ts(lock.get("lastHeartbeatAt") or lock.get("acquiredAt"))
-    if ts is None:
-        return True
-    elapsed = (datetime.now(timezone.utc) - ts).total_seconds()
-    return elapsed > LOCK_STALE_SECONDS
-
-
-def _record_eviction(config: dict[str, Any], holder: dict[str, Any], new_session: str, reason: str) -> None:
-    config.setdefault("evictedSessions", []).append({
-        "sessionId": holder.get("sessionId"),
-        "evictedAt": now(),
-        "evictedBy": new_session,
-        "reason": reason,
-    })
-
-
-def _acquire(spec_dir: Path, session_id: str, *, force: bool, agent: str | None) -> dict[str, Any]:
-    config_path = spec_dir / ".config.json"
-    with _file_lock(config_path):
-        config = load_config(spec_dir)
-        lock = config.get("lock") or None
-        if lock and lock.get("sessionId") == session_id:
-            lock["lastHeartbeatAt"] = now()
-            config["lock"] = lock
-            save_config(spec_dir, config)
-            return {"action": "renewed", "lock": lock, "config": config}
-        if lock:
-            if _lock_is_stale(lock):
-                _record_eviction(config, lock, session_id, "stale")
-            elif force:
-                _record_eviction(config, lock, session_id, "force_acquire")
-            else:
-                raise LockHeld(
-                    holder_id=lock.get("sessionId", "unknown"),
-                    last_heartbeat=lock.get("lastHeartbeatAt"),
-                )
-        new_lock = {
-            "sessionId": session_id,
-            "acquiredAt": now(),
-            "lastHeartbeatAt": now(),
-            "agent": agent or os.environ.get("SPECODE_AGENT") or "unknown",
-            "pid": os.getpid(),
-        }
-        config["lock"] = new_lock
-        save_config(spec_dir, config)
-        return {"action": "acquired" if not lock else "evicted", "lock": new_lock, "config": config}
-
-
-def _release(spec_dir: Path, session_id: str) -> dict[str, Any]:
-    config_path = spec_dir / ".config.json"
-    with _file_lock(config_path):
-        config = load_config(spec_dir)
-        lock = config.get("lock") or None
-        if lock and lock.get("sessionId") == session_id:
-            config["lock"] = None
-            save_config(spec_dir, config)
-            return {"action": "released", "lock": None}
-        return {"action": "noop", "lock": lock}
-
-
-def _heartbeat(spec_dir: Path, session_id: str) -> dict[str, Any]:
-    config_path = spec_dir / ".config.json"
-    with _file_lock(config_path):
-        config = load_config(spec_dir)
-        lock = config.get("lock") or None
-        if not lock or lock.get("sessionId") != session_id:
-            holder = lock.get("sessionId") if lock else None
-            raise SystemExit(json.dumps({
-                "error": "lock_lost",
-                "expectedSessionId": session_id,
-                "actualHolder": holder,
-            }, ensure_ascii=False))
-        lock["lastHeartbeatAt"] = now()
-        config["lock"] = lock
-        save_config(spec_dir, config)
-        return {"action": "heartbeat", "lock": lock}
-
-
-def _verify(spec_dir: Path, session_id: str) -> dict[str, Any]:
-    config = load_config(spec_dir)
-    lock = config.get("lock") or None
-    evicted = config.get("evictedSessions") or []
-    if lock and lock.get("sessionId") == session_id:
-        return {"status": "ok", "lock": lock}
-    if any(e.get("sessionId") == session_id for e in evicted):
-        latest = max(
-            (e for e in evicted if e.get("sessionId") == session_id),
-            key=lambda e: e.get("evictedAt", ""),
-        )
-        return {"status": "evicted", "lock": lock, "eviction": latest}
-    return {"status": "not_held", "lock": lock}
-
-
-def verify_and_heartbeat(spec_dir: Path, session_id: str) -> dict[str, Any]:
-    """Public wrapper: verify the caller still holds the lock and refresh heartbeat.
-
-    Returns the same dict shape as _verify. When status == "ok" the lock's
-    heartbeat is bumped as a side-effect. Callers (e.g. task_swarm.writeback)
-    should branch on the returned `status` field.
-    """
-    verify = _verify(spec_dir, session_id)
-    if verify.get("status") == "ok":
-        _heartbeat(spec_dir, session_id)
-    return verify
-
-
-def command_acquire(args: argparse.Namespace) -> int:
-    spec_dir = Path(args.spec_dir).expanduser().resolve()
-    session_id = normalize_session_id(args.session)
-    result = _acquire(spec_dir, session_id, force=args.force, agent=args.agent)
-    print(json.dumps({k: v for k, v in result.items() if k != "config"}, ensure_ascii=False, indent=2))
-    return 0
-
-
-def command_release(args: argparse.Namespace) -> int:
-    spec_dir = Path(args.spec_dir).expanduser().resolve()
-    session_id = normalize_session_id(args.session)
-    result = _release(spec_dir, session_id)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
-
-
-def command_heartbeat(args: argparse.Namespace) -> int:
-    spec_dir = Path(args.spec_dir).expanduser().resolve()
-    session_id = normalize_session_id(args.session)
-    result = _heartbeat(spec_dir, session_id)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
-
-
-def command_verify(args: argparse.Namespace) -> int:
-    spec_dir = Path(args.spec_dir).expanduser().resolve()
-    session_id = normalize_session_id(args.session)
-    result = _verify(spec_dir, session_id)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result["status"] == "ok" else 3
-
-
-# ---------------------------------------------------------------------------
-# Existing session lifecycle (start / continue / status / end / list / load)
-# ---------------------------------------------------------------------------
-
-
-def update_config_session(
-    spec_dir: Path,
-    config: dict[str, Any],
-    session_id: str,
-    status: str,
-    phase: str,
-    reason: str | None = None,
-) -> dict[str, Any]:
-    timestamp = now()
-    prev_phase = config.get("currentPhase")
-    prev_status = config.get("sessionStatus")
-    sessions = config.setdefault("sessions", {})
-    session = sessions.setdefault(session_id, {"startedAt": timestamp})
-    session["status"] = status
-    session["currentPhase"] = phase
-    session["lastActivityAt"] = timestamp
-    if status == "active":
-        session.setdefault("startedAt", timestamp)
-        session["endedAt"] = None
-        session["endedReason"] = None
-    else:
-        session["endedAt"] = timestamp
-        session["endedReason"] = reason or "ended"
-
-    config["currentSessionId"] = session_id
-    config["sessionStatus"] = status
-    config["currentPhase"] = phase
-    config["lastActivityAt"] = timestamp
-    config["persistentMode"] = bool(active_sessions(config))
-    if status != "active" and not config["persistentMode"]:
-        config["endedAt"] = timestamp
-        config["endedReason"] = reason or "ended"
-    else:
-        config["endedAt"] = None
-        config["endedReason"] = None
-    save_config(spec_dir, config)
-
-    slug = config.get("slug") or spec_dir.name
-    if status == "ended":
-        spec_telemetry.emit(
-            "spec.end",
-            spec_slug=slug,
-            spec_dir=str(spec_dir),
-            session_id=session_id,
-            ended_phase=prev_phase,
-            reason=reason or "ended",
-        )
-    elif prev_phase != phase:
-        spec_telemetry.emit(
-            "spec.phase_transition",
-            spec_slug=slug,
-            spec_dir=str(spec_dir),
-            session_id=session_id,
-            from_phase=prev_phase,
-            to_phase=phase,
-            prev_status=prev_status,
-            status=status,
-        )
-    return config
-
-
-def entry_for(spec_dir: Path, config: dict[str, Any], session_id: str) -> dict[str, Any]:
-    return {
-        "sessionId": session_id,
-        "specSlug": config.get("slug") or spec_dir.name,
-        "specId": config["specId"],
-        "status": "active",
-        "boundAt": now(),
-        "lastActivityAt": now(),
-    }
-
-
-def resolve_active(document_root: Path, session_id: str) -> tuple[Path, dict[str, Any], dict[str, Any]]:
-    active = load_active(document_root)
-    entry = active.get("sessions", {}).get(session_id)
-    if not entry or entry.get("status") != "active":
-        raise SystemExit(f"No active spec session '{session_id}' under {document_root}")
-    slug = entry.get("specSlug") or entry.get("slug")
-    if not slug:
-        raise SystemExit(f"Active pointer entry for '{session_id}' has no specSlug")
-    spec_dir = (document_root / slug).resolve()
-    config = load_config(spec_dir)
-    ensure_within_root(spec_dir, document_root)
-    if config.get("specId") != entry.get("specId"):
-        raise SystemExit(
-            f"Active pointer specId mismatch for session '{session_id}'. "
-            f"Refusing to continue to avoid cross-spec contamination."
-        )
-    return spec_dir, config, entry
-
-
-def _bind_session(spec_dir: Path, config: dict[str, Any], session_id: str, phase: str) -> dict[str, Any]:
-    document_root = document_root_for(spec_dir, config)
-    ensure_within_root(spec_dir, document_root)
-    config = update_config_session(spec_dir, config, session_id, "active", phase)
-    active = load_active(document_root)
-    active["sessions"][session_id] = entry_for(spec_dir, config, session_id)
-    save_active(document_root, active)
-    return active["sessions"][session_id]
-
-
-def command_start(args: argparse.Namespace) -> int:
-    session_id = normalize_session_id(args.session)
-    spec_dir = Path(args.spec_dir).expanduser().resolve()
-    config = load_config(spec_dir)
-    document_root = document_root_for(spec_dir, config)
-    ensure_within_root(spec_dir, document_root)
-
-    requested_phase = args.phase
-    if not requested_phase:
-        requested_phase = config.get("currentPhase") or "intake"
-    if requested_phase not in PHASES or requested_phase == "ended":
-        raise SystemExit(f"Invalid active phase: {requested_phase}")
-
-    if getattr(args, "acquire", True):
-        _acquire(spec_dir, session_id, force=getattr(args, "force", False), agent=getattr(args, "agent", None))
-        config = load_config(spec_dir)
-
-    entry = _bind_session(spec_dir, config, session_id, requested_phase)
-    print(json.dumps({"active": entry, "activeFile": str(active_path(document_root))}, ensure_ascii=False, indent=2))
-    return 0
-
-
-def command_status(args: argparse.Namespace) -> int:
-    session_id = normalize_session_id(args.session)
-    if args.spec_dir:
-        spec_dir = Path(args.spec_dir).expanduser().resolve()
-        config = load_config(spec_dir)
-        document_root = document_root_for(spec_dir, config)
-        ensure_within_root(spec_dir, document_root)
-        entry = load_active(document_root).get("sessions", {}).get(session_id)
-        if entry and entry.get("specId") != config.get("specId"):
-            raise SystemExit(
-                f"Active pointer specId mismatch for session '{session_id}'. "
-                f"Refusing to report a different spec."
-            )
-    else:
-        if not args.root:
-            raise SystemExit("status without spec_dir requires --root")
-        document_root = Path(args.root).expanduser().resolve()
-        spec_dir, config, entry = resolve_active(document_root, session_id)
-
-    lock = config.get("lock") or None
-    result = {
-        "sessionId": session_id,
-        "specDir": str(spec_dir),
-        "specId": config.get("specId"),
-        "requirementName": config.get("requirementName"),
-        "workflowType": config.get("workflowType"),
-        "specType": config.get("specType"),
-        "persistentMode": config.get("persistentMode", False),
-        "sessionStatus": (config.get("sessions") or {}).get(session_id, {}).get("status", config.get("sessionStatus")),
-        "currentPhase": (config.get("sessions") or {}).get(session_id, {}).get("currentPhase", config.get("currentPhase")),
-        "iterationRound": config.get("iterationRound"),
-        "activeFile": str(active_path(document_root)),
-        "activePointer": entry,
-        "lock": lock,
-        "lockHeldBy": (lock or {}).get("sessionId"),
-        "lockOwnedByCurrentSession": bool(lock and lock.get("sessionId") == session_id),
-    }
-    if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-    else:
-        print(f"Session: {result['sessionId']}")
-        print(f"Spec: {result['requirementName'] or Path(result['specDir']).name}")
-        print(f"Path: {result['specDir']}")
-        print(f"Status: {result['sessionStatus'] or 'unknown'}")
-        print(f"Phase: {result['currentPhase'] or 'unknown'}")
-        if result["iterationRound"]:
-            print(f"Iteration round: {result['iterationRound']}")
-        print(f"Persistent: {str(result['persistentMode']).lower()}")
-        if lock:
-            owned = "本会话" if result["lockOwnedByCurrentSession"] else f"其他: {result['lockHeldBy']}"
-            print(f"Lock: {owned}  (last heartbeat: {lock.get('lastHeartbeatAt')})")
-        else:
-            print("Lock: 空闲")
-        print(f"Active file: {result['activeFile']}")
-    return 0
-
-
-def command_end(args: argparse.Namespace) -> int:
-    session_id = normalize_session_id(args.session)
-    if args.spec_dir:
-        spec_dir = Path(args.spec_dir).expanduser().resolve()
-        config = load_config(spec_dir)
-        document_root = document_root_for(spec_dir, config)
-        ensure_within_root(spec_dir, document_root)
-    else:
-        if not args.root:
-            raise SystemExit("end without spec_dir requires --root")
-        document_root = Path(args.root).expanduser().resolve()
-        spec_dir, config, _entry = resolve_active(document_root, session_id)
-
-    update_config_session(spec_dir, config, session_id, "ended", "ended", args.reason)
-    _release(spec_dir, session_id)
-    active = load_active(document_root)
-    entry = active.get("sessions", {}).get(session_id)
-    if entry:
-        if entry.get("specId") and entry.get("specId") != config.get("specId"):
-            raise SystemExit(
-                f"Active pointer specId mismatch for session '{session_id}'. "
-                f"Refusing to end a different spec."
-            )
-        active["sessions"].pop(session_id, None)
-        save_active(document_root, active)
-
-    print(json.dumps({"sessionId": session_id, "specDir": str(spec_dir), "status": "ended"}, ensure_ascii=False, indent=2))
-    return 0
-
-
-def command_list(args: argparse.Namespace) -> int:
-    document_root = Path(args.root).expanduser().resolve()
-    active = load_active(document_root)
-    sessions = active.get("sessions", {})
-    if args.json:
-        print(json.dumps({"documentRoot": str(document_root), "sessions": sessions}, ensure_ascii=False, indent=2))
-    else:
-        print(f"Document root: {document_root}")
-        if not sessions:
-            print("No active spec sessions.")
-            return 0
-        for session_id, entry in sorted(sessions.items()):
-            print(
-                f"- {session_id}: {entry.get('specSlug') or entry.get('slug')} "
-                f"({entry.get('status')}, lastActivity: {entry.get('lastActivityAt')})"
-            )
-    return 0
-
-
-def command_list_specs(args: argparse.Namespace) -> int:
-    document_root = Path(args.root).expanduser().resolve()
-    if not document_root.exists():
-        raise SystemExit(f"Document root does not exist: {document_root}")
-
-    specs: list[dict[str, Any]] = []
-    for child in sorted(document_root.iterdir(), key=lambda item: item.name):
-        if not child.is_dir():
-            continue
-        config_path = child / ".config.json"
-        if not config_path.exists():
-            continue
+            sys.stderr.write(f"写 sessions 失败，已回滚 spec config：{e}\n")
+            return 1
+        # 更新 active-pointer
         try:
-            config = load_config(child)
-            ensure_within_root(child, document_root)
-        except SystemExit as exc:
-            specs.append({
-                "slug": child.name,
-                "specDir": str(child.resolve()),
-                "valid": False,
-                "error": str(exc),
+            root = Path(cfg.get("doc_root") or spec_dir.parent.parent)
+            active_path = root / ".active-specode.json"
+            _atomic_write_json(active_path, {
+                "active_spec_slug": cfg.get("slug"),
+                "active_spec_dir": str(spec_dir),
+                "specId": cfg.get("specId"),
+                "updatedAt": now,
+                "session_id": args.session,
             })
-            continue
-        lock = config.get("lock") or None
-        specs.append({
-            "slug": config.get("slug") or child.name,
-            "requirementName": config.get("requirementName"),
-            "specDir": str(child.resolve()),
-            "specId": config.get("specId"),
-            "workflowType": config.get("workflowType"),
-            "specType": config.get("specType"),
-            "currentPhase": config.get("currentPhase"),
-            "sessionStatus": config.get("sessionStatus"),
-            "iterationRound": config.get("iterationRound"),
-            "lastActivityAt": config.get("lastActivityAt"),
-            "lock": lock,
-            "lockHeldBy": (lock or {}).get("sessionId"),
-            "lockStale": bool(lock and _lock_is_stale(lock)),
-            "valid": True,
-        })
+        except Exception:
+            pass
 
-    if args.json:
-        print(json.dumps({"documentRoot": str(document_root), "specs": specs}, ensure_ascii=False, indent=2))
-    else:
-        print(f"Document root: {document_root}")
-        if not specs:
-            print("No specs found.")
-            return 0
-        for spec in specs:
-            if not spec.get("valid"):
-                print(f"- {spec.get('slug')}: invalid ({spec.get('error')})")
-                continue
-            lock_state = "空闲"
-            if spec["lockHeldBy"]:
-                lock_state = f"锁定于 {spec['lockHeldBy']}"
-                if spec["lockStale"]:
-                    lock_state += "（已过期）"
-            iteration = f", iter {spec['iterationRound']}" if spec.get("iterationRound") else ""
-            print(
-                f"- {spec.get('slug')}: {spec.get('requirementName') or spec.get('slug')} "
-                f"({spec.get('currentPhase') or 'unknown'}{iteration}, {lock_state})"
-            )
+    _emit_json({
+        "ok": True,
+        "spec_dir": str(spec_dir),
+        "mode": mode,
+        "phase": cfg.get("phase"),
+        "pending_selector": pending,
+    })
     return 0
 
 
-# ---------------------------------------------------------------------------
-# Document loading (used by /continue context restoration and read-only)
-# ---------------------------------------------------------------------------
+def cmd_end(args: argparse.Namespace) -> int:
+    existing = read_session(args.session)
+    if existing is None:
+        # 即使 sessions 文件不存在，也写一份 ended 状态，便于排查
+        existing = {
+            "claude_session_id": args.session,
+            "started_at": _now_iso(),
+        }
+    spec_dir_str = existing.get("active_spec_dir")
+    prior_cfg: Optional[dict] = None
+    spec_dir: Optional[Path] = None
+    if spec_dir_str:
+        try:
+            spec_dir = Path(spec_dir_str)
+            if spec_dir.exists():
+                cfg = read_spec_config(spec_dir)
+                if cfg is not None:
+                    prior_cfg = json.loads(json.dumps(cfg))
+                    lock = cfg.get("lock") or {}
+                    if lock.get("holder") == args.session:
+                        cfg["lock"] = None
+                        try:
+                            write_spec_config_atomic(spec_dir, cfg)
+                        except Exception as e:
+                            sys.stderr.write(f"释锁写入失败：{e}\n")
+                            return 1
+        except Exception as e:
+            sys.stderr.write(f"end 读取 spec config 出错：{e}\n")
 
-
-def task_section(text: str) -> str:
-    """Extract the ## 任务 section from tasks.md text, or return whole text."""
-    start = text.find("## 任务")
-    if start == -1:
-        return text
-    tail = text[start:]
-    end_match = re.search(r"\n##\s+", tail[len("## 任务"):])
-    if not end_match:
-        return tail
-    return tail[: len("## 任务") + end_match.start()]
-
-
-def _file_info(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {"exists": False}
-    mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
-    return {
-        "exists": True,
-        "modifiedAt": mtime,
-        "modifiedTs": path.stat().st_mtime,
-        "text": path.read_text(encoding="utf-8"),
-    }
-
-
-def command_load(args: argparse.Namespace) -> int:
-    spec_dir = Path(args.spec_dir).expanduser().resolve()
-    config = load_config(spec_dir)
-    document_root = document_root_for(spec_dir, config)
-    ensure_within_root(spec_dir, document_root)
-
-    req_info = _file_info(spec_dir / "requirements.md")
-    bug_info = _file_info(spec_dir / "bugfix.md")
-    design_info = _file_info(spec_dir / "design.md")
-    tasks_info = _file_info(spec_dir / "tasks.md")
-
-    req_doc = req_info if req_info["exists"] else bug_info
-    req_name = "requirements.md" if req_info["exists"] else "bugfix.md"
-    shall_count = 0
-    req_open_questions = False
-    if req_doc.get("exists"):
-        shall_count = req_doc["text"].count("SHALL")
-        req_open_questions = "待确认问题" in req_doc["text"]
-
-    design_open_questions = False
-    if design_info.get("exists"):
-        design_open_questions = "待确认问题" in design_info["text"]
-
-    counts: dict[str, int] = {label: 0 for label in TASK_LABELS.values()}
-    counts["total"] = 0
-    in_progress: list[str] = []
-    if tasks_info.get("exists"):
-        section = task_section(tasks_info["text"])
-        for match in TASK_RE.finditer(section):
-            status_label = TASK_LABELS.get(match.group(1), "pending")
-            counts["total"] += 1
-            counts[status_label] += 1
-            if status_label == "in_progress":
-                in_progress.append(match.group(2).strip())
-
-    lock = config.get("lock") or None
-    session_id = normalize_session_id(getattr(args, "session", None))
-    result: dict[str, Any] = {
-        "specDir": str(spec_dir),
-        "slug": config.get("slug") or spec_dir.name,
-        "specId": config.get("specId"),
-        "requirementName": config.get("requirementName"),
-        "currentPhase": config.get("currentPhase"),
-        "iterationRound": config.get("iterationRound"),
-        "sessionStatus": config.get("sessionStatus"),
-        "currentSessionId": config.get("currentSessionId"),
-        "lastActivityAt": config.get("lastActivityAt"),
-        "lock": lock,
-        "lockHeldBy": (lock or {}).get("sessionId"),
-        "lockOwnedByCurrentSession": bool(lock and lock.get("sessionId") == session_id),
-        "documents": {
-            req_name: {
-                "exists": req_doc.get("exists", False),
-                "modifiedAt": req_doc.get("modifiedAt"),
-                "shallCount": shall_count,
-                "hasOpenQuestions": req_open_questions,
-            },
-            "design.md": {
-                "exists": design_info.get("exists", False),
-                "modifiedAt": design_info.get("modifiedAt"),
-                "hasOpenQuestions": design_open_questions,
-            },
-            "tasks.md": {
-                "exists": tasks_info.get("exists", False),
-                "modifiedAt": tasks_info.get("modifiedAt"),
-                "counts": counts,
-                "inProgress": in_progress,
-            },
-        },
-    }
-
-    if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0
-
-    w = DOC_COL_WIDTH
-    slug = result["slug"]
-    phase = result["currentPhase"] or "unknown"
-    session_label = result["currentSessionId"] or "unknown"
-    s_status = result["sessionStatus"] or "unknown"
-    print(f"已加载 spec: {slug}")
-    print(f"  specId:  {result['specId']}")
-    print(f"  phase:   {phase}")
-    if result["iterationRound"]:
-        print(f"  iteration: 第 {result['iterationRound']} 轮")
-    print(f"  session: {session_label} ({s_status})")
-    if lock:
-        owner = "本会话持有" if result["lockOwnedByCurrentSession"] else f"⚠ 锁定于 {result['lockHeldBy']}"
-        print(f"  lock:    {owner}  (last heartbeat: {lock.get('lastHeartbeatAt')})")
-    else:
-        print("  lock:    空闲")
-    print()
-    req_d = result["documents"][req_name]
-    if req_d["exists"]:
-        q = " | 有待确认问题" if req_d["hasOpenQuestions"] else ""
-        print(f"  {req_name:<{w}} ← {req_d['shallCount']} 条验收标准{q}  |  修改: {req_d['modifiedAt']}")
-    else:
-        print(f"  {req_name:<{w}} ← 不存在")
-    design_d = result["documents"]["design.md"]
-    if design_d["exists"]:
-        q = " | 有待确认问题" if design_d["hasOpenQuestions"] else ""
-        print(f"  {'design.md':<{w}} ←{q}  |  修改: {design_d['modifiedAt']}")
-    else:
-        print(f"  {'design.md':<{w}} ← 不存在")
-    tasks_d = result["documents"]["tasks.md"]
-    if tasks_d["exists"]:
-        c = tasks_d["counts"]
-        prog = f", 进行中: {', '.join(tasks_d['inProgress'])}" if tasks_d["inProgress"] else ""
-        print(f"  {'tasks.md':<{w}} ← {c['completed']}/{c['total']} 已完成, {c['pending']} 待处理{prog}  |  修改: {tasks_d['modifiedAt']}")
-    else:
-        print(f"  {'tasks.md':<{w}} ← 不存在")
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# Iteration bookkeeping
-# ---------------------------------------------------------------------------
-
-
-def command_iterate(args: argparse.Namespace) -> int:
-    """Advance a spec into a new iteration round. Used at /spec-accept moment."""
-    spec_dir = Path(args.spec_dir).expanduser().resolve()
-    config_path = spec_dir / ".config.json"
-    with _file_lock(config_path):
-        config = load_config(spec_dir)
-        current_round = int(config.get("iterationRound") or 0)
-        history = config.setdefault("iterationHistory", [])
-        if current_round > 0:
-            for entry in reversed(history):
-                if entry.get("round") == current_round and "completedAt" not in entry:
-                    entry["completedAt"] = now()
-                    entry["newReqCount"] = args.new_req_count or 0
-                    break
-        new_round = current_round + 1
-        config["iterationRound"] = new_round
-        history.append({
-            "round": new_round,
-            "startedAt": now(),
-            "newReqCount": 0,
-        })
-        config["currentPhase"] = "iteration"
-        save_config(spec_dir, config)
-    print(json.dumps({"iterationRound": new_round, "specDir": str(spec_dir)}, ensure_ascii=False, indent=2))
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# CLI wiring
-# ---------------------------------------------------------------------------
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Manage persistent specode sessions.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    session_help = "Window/thread/session id. Defaults to $TERM_SESSION_ID or 'default'."
-
-    start = subparsers.add_parser("start", help="Bind a session to a spec and mark it active.")
-    start.add_argument("spec_dir")
-    start.add_argument("--session", help=session_help)
-    start.add_argument("--phase", choices=sorted(PHASES - {"ended"}), default="intake")
-    start.add_argument("--no-acquire", dest="acquire", action="store_false")
-    start.add_argument("--force", action="store_true", help="Force-acquire lock even if held by another session.")
-    start.add_argument("--agent", help="Agent name recorded into lock metadata.")
-    start.set_defaults(func=command_start, acquire=True)
-
-    cont = subparsers.add_parser("continue", help="Resume or switch the current session to a spec.")
-    cont.add_argument("spec_dir")
-    cont.add_argument("--session", help=session_help)
-    cont.add_argument("--phase", choices=sorted(PHASES - {"ended"}), default=None,
-                      help="Override phase. Defaults to .config.json.currentPhase.")
-    cont.add_argument("--no-acquire", dest="acquire", action="store_false")
-    cont.add_argument("--force", action="store_true", help="Force-acquire lock from another session.")
-    cont.add_argument("--agent", help="Agent name recorded into lock metadata.")
-    cont.set_defaults(func=command_start, acquire=True)
-
-    status = subparsers.add_parser("status", help="Show session/spec lifecycle status.")
-    status.add_argument("spec_dir", nargs="?")
-    status.add_argument("--root", help="Document root used when spec_dir is omitted.")
-    status.add_argument("--session", help=session_help)
-    status.add_argument("--json", action="store_true")
-    status.set_defaults(func=command_status)
-
-    end = subparsers.add_parser("end", help="End the active session without deleting spec documents.")
-    end.add_argument("spec_dir", nargs="?")
-    end.add_argument("--root", help="Document root used when spec_dir is omitted.")
-    end.add_argument("--session", help=session_help)
-    end.add_argument("--reason", default="user ended")
-    end.set_defaults(func=command_end)
-
-    list_cmd = subparsers.add_parser("list", help="List active sessions under a document root.")
-    list_cmd.add_argument("--root", required=True)
-    list_cmd.add_argument("--json", action="store_true")
-    list_cmd.set_defaults(func=command_list)
-
-    list_specs_cmd = subparsers.add_parser("list-specs", help="List spec folders under a configured document root.")
-    list_specs_cmd.add_argument("--root", required=True)
-    list_specs_cmd.add_argument("--json", action="store_true")
-    list_specs_cmd.set_defaults(func=command_list_specs)
-
-    load_cmd = subparsers.add_parser("load", help="Load and summarize spec documents for context restoration.")
-    load_cmd.add_argument("spec_dir")
-    load_cmd.add_argument("--session", help=session_help)
-    load_cmd.add_argument("--json", action="store_true")
-    load_cmd.set_defaults(func=command_load)
-
-    acquire_cmd = subparsers.add_parser("acquire", help="Acquire the spec lock for this session.")
-    acquire_cmd.add_argument("spec_dir")
-    acquire_cmd.add_argument("--session", help=session_help)
-    acquire_cmd.add_argument("--force", action="store_true", help="Force-acquire even if held by another session.")
-    acquire_cmd.add_argument("--agent", help="Agent name recorded into lock metadata.")
-    acquire_cmd.set_defaults(func=command_acquire)
-
-    release_cmd = subparsers.add_parser("release", help="Release the spec lock if held by this session.")
-    release_cmd.add_argument("spec_dir")
-    release_cmd.add_argument("--session", help=session_help)
-    release_cmd.set_defaults(func=command_release)
-
-    hb_cmd = subparsers.add_parser("heartbeat", help="Refresh lock lastHeartbeatAt; fail if lock lost.")
-    hb_cmd.add_argument("spec_dir")
-    hb_cmd.add_argument("--session", help=session_help)
-    hb_cmd.set_defaults(func=command_heartbeat)
-
-    verify_cmd = subparsers.add_parser("verify-lock", help="Check whether this session still holds the spec lock.")
-    verify_cmd.add_argument("spec_dir")
-    verify_cmd.add_argument("--session", help=session_help)
-    verify_cmd.set_defaults(func=command_verify)
-
-    iter_cmd = subparsers.add_parser("iterate", help="Advance the spec into a new iteration round.")
-    iter_cmd.add_argument("spec_dir")
-    iter_cmd.add_argument("--new-req-count", type=int, default=0)
-    iter_cmd.set_defaults(func=command_iterate)
-
-    args = parser.parse_args()
+    existing["mode"] = "ended"
+    existing["ended_at"] = _now_iso()
+    existing["lock_state"] = "released"
+    existing["pending_selector"] = None
     try:
-        return args.func(args)
-    except LockHeld as exc:
-        print(str(exc), file=sys.stderr)
-        return 4
+        write_session_atomic(args.session, existing)
+    except Exception as e:
+        # 回滚 spec config
+        if spec_dir is not None and prior_cfg is not None:
+            try:
+                write_spec_config_atomic(spec_dir, prior_cfg)
+            except Exception:
+                pass
+        sys.stderr.write(f"sessions 写入失败，已回滚：{e}\n")
+        return 1
+
+    _emit_json({"ok": True, "ended_at": existing["ended_at"]})
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    sess = read_session(args.session)
+    if sess is None:
+        _emit_json({"ok": False, "reason": "session_not_found", "session_id": args.session})
+        return 0
+    payload = {"ok": True, "session": sess}
+    spec_dir_str = sess.get("active_spec_dir")
+    if spec_dir_str:
+        try:
+            cfg = read_spec_config(Path(spec_dir_str))
+            if cfg is not None:
+                payload["spec_config"] = cfg
+        except Exception:
+            pass
+    _emit_json(payload)
+    return 0
+
+
+def cmd_read_session(args: argparse.Namespace) -> int:
+    sess = read_session(args.session)
+    if sess is None:
+        _emit_json({"ok": False, "reason": "session_not_found"})
+        return 0
+    _emit_json(sess)
+    return 0
+
+
+# -------------------------------------------------------------------------
+# Hook 子命令
+# -------------------------------------------------------------------------
+
+def _read_stdin_payload() -> dict:
+    """读 hook stdin payload。**不要 block**：如 stdin 不是管道，立刻返回 {}。"""
+    data: dict = {}
+    try:
+        if sys.stdin is None:
+            return data
+        # 判断是否 tty/无管道
+        try:
+            isatty = sys.stdin.isatty()
+        except Exception:
+            isatty = True
+        if isatty:
+            return data
+        raw = sys.stdin.read()
+        if not raw:
+            return data
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            return data
+    except Exception:
+        return data
+    return data
+
+
+def _emit_hook_additional_context(text: str, hook_event_name: str = "UserPromptSubmit") -> None:
+    """按 Claude Code hook 协议 emit additionalContext JSON。"""
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": hook_event_name,
+            "additionalContext": text,
+        }
+    }
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _bypass_active() -> bool:
+    return os.environ.get("SPECODE_GUARD", "").lower() == "off"
+
+
+def _safe_hook(fn):
+    """装饰器：hook 子命令的最外层异常吞并，恒 exit 0。"""
+    def wrapper(args: argparse.Namespace) -> int:
+        if _bypass_active():
+            return 0
+        try:
+            fn(args)
+        except SystemExit:
+            raise
+        except BaseException:
+            with contextlib.suppress(Exception):
+                # 写一份本地 trace 便于排查；忽略 IO 错误
+                err = traceback.format_exc()
+                sys.stderr.write(f"specode hook 异常已吞并：\n{err}\n")
+        return 0
+    return wrapper
+
+
+# ---- on-session-start ----
+
+@_safe_hook
+def hook_on_session_start(args: argparse.Namespace) -> None:
+    payload = _read_stdin_payload()
+    session_id = payload.get("session_id") or payload.get("sessionId") or args.session_override
+    if not session_id:
+        return
+    existing = read_session(session_id)
+    if existing is None:
+        new_payload = {
+            "claude_session_id": session_id,
+            "started_at": _now_iso(),
+            "last_activity_at": _now_iso(),
+            "ended_at": None,
+            "mode": "idle",
+            "active_spec_slug": None,
+            "active_spec_dir": None,
+            "spec_id": None,
+            "phase": None,
+            "lock_state": "released",
+            "task_swarm_run_id": None,
+            "pending_selector": None,
+        }
+        try:
+            write_session_atomic(session_id, new_payload)
+        except Exception:
+            pass
+        existing = new_payload
+    else:
+        existing["last_activity_at"] = _now_iso()
+        # 断线重连：如果原 ended，重新激活为 idle
+        if existing.get("mode") == "ended":
+            existing["mode"] = "idle"
+            existing["ended_at"] = None
+        try:
+            write_session_atomic(session_id, existing)
+        except Exception:
+            pass
+
+    mode = existing.get("mode") or "idle"
+    slug = existing.get("active_spec_slug") or "无"
+    text = (
+        "## Specode session 就绪\n\n"
+        f"当前 Claude session_id: {session_id}\n"
+        f"后续调用 specode CLI 时请始终用 `--session {session_id}` 传入。\n\n"
+        f"（此 session 当前 mode={mode}，spec={slug}；\n"
+        "  如需开始新 spec，使用 `/specode:spec <需求>`；\n"
+        "  如需恢复，使用 `/specode:continue [slug]`。）\n"
+    )
+    if mode == "active" and existing.get("active_spec_slug"):
+        text += "\n"
+        text += SPEC_MODE_CONTINUE_REMINDER.replace("<slug>", existing.get("active_spec_slug") or "?").replace("<phase>", existing.get("phase") or "?")
+
+    _emit_hook_additional_context(text, hook_event_name="SessionStart")
+
+
+# ---- on-user-prompt ----
+
+FAST_PATH_HELP = re.compile(r"^\s*/specode:spec\s+(-h|--help)\s*$", re.IGNORECASE)
+FAST_PATH_VAULT = re.compile(
+    r"^\s*/specode:spec\s+--(vault-status|detect-vault|sync-status)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _run_subcmd(argv: list[str]) -> str:
+    """运行 spec_vault.py 等子命令，捕获 stdout。失败返回错误描述。"""
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(THIS_DIR / argv[0])] + argv[1:],
+            capture_output=True, text=True, timeout=10,
+        )
+        out = proc.stdout.strip()
+        if proc.returncode not in (0, 3):
+            out = (out + "\n[exit=" + str(proc.returncode) + "]\n" + proc.stderr).strip()
+        return out or "(无输出)"
+    except Exception as e:
+        return f"(子命令执行失败: {e})"
+
+
+@_safe_hook
+def hook_on_user_prompt(args: argparse.Namespace) -> None:
+    payload = _read_stdin_payload()
+    session_id = payload.get("session_id") or payload.get("sessionId")
+    prompt = payload.get("prompt") or ""
+    if not session_id:
+        return
+
+    # fast-path: help
+    if FAST_PATH_HELP.match(prompt):
+        text = _wrap_help_fastpath(HELP_OUTPUT_TEXT.rstrip())
+        _emit_hook_additional_context(text, hook_event_name="UserPromptSubmit")
+        return
+
+    # fast-path: vault-status / detect-vault / sync-status
+    m = FAST_PATH_VAULT.match(prompt)
+    if m:
+        flag = m.group(1).lower()
+        if flag == "vault-status":
+            content = _run_subcmd(["spec_vault.py", "status"])
+        elif flag == "detect-vault":
+            content = _run_subcmd(["spec_vault.py", "detect"])
+        elif flag == "sync-status":
+            # v0.6 暂未实现 sync-status CLI；输出占位
+            content = json.dumps({
+                "note": "sync-status 在 v0.6 尚未实现；将随 v0.7 task-swarm 引入。",
+            }, ensure_ascii=False, indent=2)
+        else:
+            content = "(unknown vault fast-path)"
+        text = (
+            "## ⛔ /specode:spec --" + flag + " fast-path\n\n"
+            "本轮唯一动作：把下列代码块**逐字**用 ```text 围栏包裹后输出，然后立即 end turn。\n"
+            "禁止添加任何额外文字。\n\n"
+            "────────── CONTENT BEGIN ──────────\n"
+            f"{content}\n"
+            "────────── CONTENT END ──────────\n"
+        )
+        _emit_hook_additional_context(text, hook_event_name="UserPromptSubmit")
+        return
+
+    # 常规路径：按 mode 叠加
+    sess = read_session(session_id)
+    if sess is None:
+        return
+    sess["last_activity_at"] = _now_iso()
+    try:
+        write_session_atomic(session_id, sess)
+    except Exception:
+        pass
+
+    mode = sess.get("mode") or "idle"
+    if mode in ("idle", "ended"):
+        return
+
+    slug = sess.get("active_spec_slug") or "?"
+    phase = sess.get("phase") or "?"
+    spec_dir = sess.get("active_spec_dir")
+    pending = sess.get("pending_selector")
+    short = _session_short(session_id)
+
+    parts: list[str] = []
+
+    # (a) session_id 提醒
+    parts.append(
+        "## Specode session 提醒\n\n"
+        f"当前 Claude session_id: {session_id}\n"
+        f"调用任何 specode CLI 时请使用 `--session {session_id}`。\n"
+    )
+
+    # (b) selector 提示
+    if mode == "active" and pending:
+        ctx: dict[str, str] = {
+            "slug": slug,
+            "phase": phase,
+            "spec_dir": spec_dir or "?",
+            "source_text_head": "?",
+            "n_required": "?",
+            "n_optional": "?",
+            "other_id_short": "?",
+            "last_heartbeat": "?",
+            "n_pass": "?",
+            "n_fail": "?",
+        }
+        # 填入 spec config 中的派生值
+        if spec_dir:
+            try:
+                cfg = read_spec_config(Path(spec_dir)) or {}
+                src = cfg.get("source_text") or ""
+                if src:
+                    ctx["source_text_head"] = src[:60].replace("\n", " ")
+                lock = cfg.get("lock") or {}
+                other = lock.get("holder")
+                if other and other != session_id:
+                    ctx["other_id_short"] = _session_short(other)
+                    ctx["last_heartbeat"] = str(lock.get("last_heartbeat_at") or "?")
+            except Exception:
+                pass
+        sel = _fill_selector(pending, ctx)
+        if sel:
+            parts.append(sel)
+    elif mode == "readonly" and pending:
+        parts.append(
+            "## ℹ️ 只读模式：当前 pending_selector="
+            f"`{pending}` （仅信息提示，只读不能确认）\n"
+        )
+
+    # (c) 文档优先提醒
+    if mode == "active":
+        parts.append(
+            DOC_PRIORITY_REMINDER_ACTIVE
+            .replace("<slug>", slug)
+            .replace("<phase>", phase)
+        )
+    elif mode == "readonly":
+        parts.append(
+            DOC_PRIORITY_REMINDER_READONLY
+            .replace("<slug>", slug)
+            .replace("<phase>", phase)
+        )
+
+    # (d) 状态行 footer
+    if mode in ("active", "readonly"):
+        footer = (
+            STATUS_FOOTER_TEMPLATE
+            .replace("<slug>", slug)
+            .replace("<session_short>", short)
+            .replace("<phase>", phase)
+            .replace("<mode>", mode)
+        )
+        parts.append(footer)
+
+    # (e) 模式提醒
+    if mode == "active":
+        parts.append(
+            SPEC_MODE_CONTINUE_REMINDER
+            .replace("<slug>", slug)
+            .replace("<phase>", phase)
+        )
+    elif mode == "readonly":
+        parts.append(
+            SPEC_MODE_READONLY_REMINDER
+            .replace("<slug>", slug)
+            .replace("<phase>", phase)
+        )
+
+    if not parts:
+        return
+    text = "\n\n".join(p.rstrip() for p in parts) + "\n"
+    _emit_hook_additional_context(text, hook_event_name="UserPromptSubmit")
+
+
+# ---- on-stop ----
+
+@_safe_hook
+def hook_on_stop(args: argparse.Namespace) -> None:
+    payload = _read_stdin_payload()
+    session_id = payload.get("session_id") or payload.get("sessionId")
+    if not session_id:
+        return
+    sess = read_session(session_id)
+    if sess is None:
+        return
+    sess["last_activity_at"] = _now_iso()
+    try:
+        write_session_atomic(session_id, sess)
+    except Exception:
+        pass
+    mode = sess.get("mode") or "idle"
+    if mode in ("idle", "ended"):
+        return
+    slug = sess.get("active_spec_slug") or "?"
+    phase = sess.get("phase") or "?"
+    if mode == "active":
+        text_parts = [
+            CODE_DOC_SYNC_STOP.replace("<slug>", slug).replace("<phase>", phase),
+            SPEC_MODE_CONTINUE_REMINDER.replace("<slug>", slug).replace("<phase>", phase),
+        ]
+    else:
+        text_parts = [
+            SPEC_MODE_READONLY_REMINDER.replace("<slug>", slug).replace("<phase>", phase),
+        ]
+    text = "\n\n".join(p.rstrip() for p in text_parts) + "\n"
+    _emit_hook_additional_context(text, hook_event_name="Stop")
+
+
+# ---- on-session-end ----
+
+@_safe_hook
+def hook_on_session_end(args: argparse.Namespace) -> None:
+    payload = _read_stdin_payload()
+    session_id = payload.get("session_id") or payload.get("sessionId")
+    if not session_id:
+        return
+    sess = read_session(session_id)
+    if sess is None:
+        return
+    spec_dir_str = sess.get("active_spec_dir")
+    if spec_dir_str:
+        try:
+            spec_dir = Path(spec_dir_str)
+            if spec_dir.exists():
+                cfg = read_spec_config(spec_dir)
+                if cfg is not None:
+                    lock = cfg.get("lock") or {}
+                    if lock.get("holder") == session_id:
+                        cfg["lock"] = None
+                        with contextlib.suppress(Exception):
+                            write_spec_config_atomic(spec_dir, cfg)
+        except Exception:
+            pass
+    sess["mode"] = "ended"
+    sess["ended_at"] = _now_iso()
+    sess["lock_state"] = "released"
+    sess["pending_selector"] = None
+    with contextlib.suppress(Exception):
+        write_session_atomic(session_id, sess)
+    # 不输出 additionalContext
+
+
+# ---- v0.7/v0.8 占位 hook（exit 0 noop） ----
+
+@_safe_hook
+def hook_on_task_completed(args: argparse.Namespace) -> None:
+    # v0.7 实现；v0.6 占位
+    _ = _read_stdin_payload()
+    return
+
+
+@_safe_hook
+def hook_on_heartbeat_quiet(args: argparse.Namespace) -> None:
+    # v0.8；v0.6 占位
+    return
+
+
+@_safe_hook
+def hook_on_pre_tool_use(args: argparse.Namespace) -> None:
+    # v0.8；v0.6 占位
+    _ = _read_stdin_payload()
+    return
+
+
+# -------------------------------------------------------------------------
+# argparse 入口
+# -------------------------------------------------------------------------
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="spec_session.py", description="specode session / lock / hook entry")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("acquire")
+    p.add_argument("--spec", required=True)
+    p.add_argument("--session", required=True)
+    p.add_argument("--force", action="store_true")
+
+    p = sub.add_parser("release")
+    p.add_argument("--spec", required=True)
+    p.add_argument("--session", required=True)
+
+    p = sub.add_parser("heartbeat")
+    p.add_argument("--spec", required=True)
+    p.add_argument("--session", required=True)
+
+    p = sub.add_parser("verify-lock")
+    p.add_argument("--spec", required=True)
+    p.add_argument("--session", required=True)
+
+    p = sub.add_parser("phase-transition")
+    p.add_argument("--spec", required=True)
+    p.add_argument("--session", required=True)
+    p.add_argument("--from", dest="frm", required=True)
+    p.add_argument("--to", required=True)
+
+    p = sub.add_parser("load")
+    p.add_argument("--spec", required=True)
+
+    p = sub.add_parser("continue")
+    p.add_argument("--spec", required=True)
+    p.add_argument("--session", required=True)
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--readonly", action="store_true")
+
+    p = sub.add_parser("end")
+    p.add_argument("--session", required=True)
+
+    p = sub.add_parser("status")
+    p.add_argument("--session", required=True)
+
+    p = sub.add_parser("read-session")
+    p.add_argument("--session", required=True)
+
+    # hook 子命令（无必需参数；从 stdin 拿 session_id）
+    for name in (
+        "on-session-start",
+        "on-user-prompt",
+        "on-stop",
+        "on-session-end",
+        "on-task-completed",
+        "on-heartbeat-quiet",
+        "on-pre-tool-use",
+    ):
+        ph = sub.add_parser(name)
+        ph.add_argument("--session-override", default=None,
+                        help="测试用：覆盖 stdin payload 中的 session_id")
+        if name == "on-heartbeat-quiet":
+            ph.add_argument("--quiet", action="store_true")
+
+    return parser
+
+
+COMMANDS = {
+    "acquire": cmd_acquire,
+    "release": cmd_release,
+    "heartbeat": cmd_heartbeat,
+    "verify-lock": cmd_verify_lock,
+    "phase-transition": cmd_phase_transition,
+    "load": cmd_load,
+    "continue": cmd_continue,
+    "end": cmd_end,
+    "status": cmd_status,
+    "read-session": cmd_read_session,
+    "on-session-start": hook_on_session_start,
+    "on-user-prompt": hook_on_user_prompt,
+    "on-stop": hook_on_stop,
+    "on-session-end": hook_on_session_end,
+    "on-task-completed": hook_on_task_completed,
+    "on-heartbeat-quiet": hook_on_heartbeat_quiet,
+    "on-pre-tool-use": hook_on_pre_tool_use,
+}
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    fn = COMMANDS.get(args.cmd)
+    if fn is None:
+        parser.print_help()
+        return 1
+    return fn(args) or 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

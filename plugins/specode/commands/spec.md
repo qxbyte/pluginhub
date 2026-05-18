@@ -1,6 +1,6 @@
 ---
-description: specode 入口：持久会话(--persist)、Obsidian/根目录(--set-vault)、帮助(-h)
-argument-hint: "[--persist] <需求> | <名称>：<需求> | --set-vault <p> | --set-root <p> | --detect-vault | --vault-status | -h"
+description: 进入 specode 持久会话，开始新 spec 或调用子命令
+argument-hint: "<需求> | <名称>: <需求> | -h | --set-vault <p> | --set-root <p> | --detect-vault | --vault-status | --sync-status"
 ---
 
-/spec $ARGUMENTS
+/specode:spec $ARGUMENTS

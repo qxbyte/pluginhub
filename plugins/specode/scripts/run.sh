@@ -1,18 +1,22 @@
-#!/usr/bin/env sh
-# specode python launcher (POSIX shells: bash / zsh / dash / Git Bash / MSYS).
-#
-# Probes python3 → python → py (in that order) and execs the first one found,
-# forwarding all arguments. Enables cross-platform invocation from hooks.json
-# and SKILL/references command samples without hard-coding `python3`.
+#!/bin/sh
+# specode plugin python launcher (POSIX).
+# 依次探测 python3 / python / py，找到就 exec 并透传所有参数。
+# 全部失败时 exit 127 + stderr 提示。
 
-for cand in python3 python py; do
-  if command -v "$cand" >/dev/null 2>&1; then
-    if [ "$cand" = "py" ]; then
-      exec py -3 "$@"
-    fi
-    exec "$cand" "$@"
-  fi
-done
+set -u
 
-echo "specode: cannot find python interpreter (tried python3, python, py)" >&2
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$@"
+fi
+
+if command -v python >/dev/null 2>&1; then
+  exec python "$@"
+fi
+
+if command -v py >/dev/null 2>&1; then
+  exec py -3 "$@"
+fi
+
+printf '%s\n' "specode: 未找到可用的 Python 解释器（已尝试 python3 / python / py）。" >&2
+printf '%s\n' "        请安装 Python 3.8+ 并确保其位于 PATH 中后再次重试。" >&2
 exit 127

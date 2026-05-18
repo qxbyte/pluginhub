@@ -1,107 +1,137 @@
-"""Shared fixtures for specode tests.
+"""Shared pytest fixtures for specode plugin tests (v0.6.0).
 
-Tests use pytest but the plugin runtime stays stdlib-only. Install dev deps
-with `python3 -m pip install pytest` to run the suite.
+Bedrock rules:
+  * Tests MUST be hermetic: never read or write the real $HOME/.specode.
+  * Always redirect HOME / XDG_CONFIG_HOME / SPECODE_ROOT to tmp_path-based dirs.
+  * Scripts are invoked as CLIs via subprocess (NOT imported as modules).
+  * Each test uses a freshly-minted UUID session id to avoid cross-test pollution.
 """
 from __future__ import annotations
 
-import io
 import json
-import shutil
+import os
+import subprocess
 import sys
-import tempfile
+import uuid
 from pathlib import Path
-from typing import Iterator
+from typing import Optional
 
 import pytest
 
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPTS_DIR))
 
-import spec_state  # noqa: E402
-import spec_guard  # noqa: E402
+REPO_ROOT = Path("/Users/xueqiang/Git/specode")
+SCRIPTS_DIR = REPO_ROOT / "plugins" / "specode" / "scripts"
 
 
 @pytest.fixture
-def workspace() -> Iterator[dict]:
-    """Provide a self-contained temp dir with spec_dir + project_root.
+def repo_root() -> Path:
+    return REPO_ROOT
 
-    Yields a dict with paths and patches spec_state.find_active_spec to return
-    a synthetic info struct pointing into the workspace.
+
+@pytest.fixture
+def scripts_dir() -> Path:
+    return SCRIPTS_DIR
+
+
+@pytest.fixture
+def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Redirect $HOME to tmp_path so Path.home() resolves to an isolated dir.
+
+    Also drop any inherited SPECODE_ROOT / XDG_CONFIG_HOME so child processes
+    do not accidentally see user state. Tests that need those vars must set
+    them explicitly via monkeypatch.setenv.
     """
-    root = Path(tempfile.mkdtemp(prefix="specode-test-"))
-    spec_dir = root / "test-spec"
-    project_root = root / "project"
-    spec_dir.mkdir()
-    project_root.mkdir()
-    (project_root / "src").mkdir()
-    (spec_dir / "tasks.md").write_text(
-        "# Tasks\n\n- [ ] FILE: src/foo.py\n- [ ] FILE: src/bar.py\n"
-    )
-    (spec_dir / ".config.json").write_text(json.dumps({"specId": "test-id"}))
-
-    state = {
-        "root": root,
-        "spec_dir": spec_dir,
-        "project_root": project_root,
-        "current_phase": "implementation",
-        "session_id": "test-sess",
-        "slug": "test-spec",
-    }
-
-    def fake_find_active(prefer_session_id=None):
-        return {
-            "spec_slug": state["slug"],
-            "spec_dir": str(state["spec_dir"]),
-            "current_phase": state["current_phase"],
-            "session_id": state["session_id"],
-            "spec_id": "test-id",
-            "last_activity_at": "2026-05-15T00:00:00Z",
-        }
-
-    original = spec_state.find_active_spec
-    spec_state.find_active_spec = fake_find_active
-
-    yield state
-
-    spec_state.find_active_spec = original
-    shutil.rmtree(root, ignore_errors=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # USERPROFILE for hypothetical Windows runners
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    # Pin XDG_CONFIG_HOME under fake home so spec_vault's config never
+    # escapes to the real user's ~/.config.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    monkeypatch.delenv("SPECODE_ROOT", raising=False)
+    monkeypatch.delenv("SPECODE_GUARD", raising=False)
+    return tmp_path
 
 
-def call_hook(sub: str, payload: dict, capture_stderr=False, capture_stdout=False):
-    """Invoke spec_guard.main with a fabricated stdin payload.
+@pytest.fixture
+def specode_home(fake_home: Path) -> Path:
+    """The simulated ~/.specode/ directory (parent of sessions/)."""
+    return fake_home / ".specode"
 
-    Returns (exit_code, stdout, stderr).
+
+@pytest.fixture
+def doc_root(tmp_path: Path, fake_home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The simulated specode root (also written to SPECODE_ROOT env var).
+
+    Uses a sub-dir of tmp_path that is sibling to fake_home so the two
+    namespaces are well separated.
     """
-    sys.stdin = io.StringIO(json.dumps(payload))
-    out = io.StringIO()
-    err = io.StringIO()
-    if capture_stdout:
-        sys.stdout = out
-    if capture_stderr:
-        sys.stderr = err
-    try:
-        rc = spec_guard.main(["spec_guard", sub])
-    finally:
-        sys.stdout = sys.__stdout__
-        sys.stderr = sys.__stderr__
-    return rc, out.getvalue(), err.getvalue()
+    root = tmp_path / "vault" / "spec-in" / "test"
+    root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("SPECODE_ROOT", str(root))
+    return root
 
 
 @pytest.fixture
-def hook_caller():
-    return call_hook
-
-
-def make_edit_payload(target, project_root, session_id="test-sess"):
-    return {
-        "session_id": session_id,
-        "cwd": str(project_root),
-        "tool_name": "Edit",
-        "tool_input": {"file_path": str(target)},
-    }
+def make_session_id():
+    """Factory returning a fresh UUID string per call."""
+    def _make() -> str:
+        return str(uuid.uuid4())
+    return _make
 
 
 @pytest.fixture
-def edit_payload():
-    return make_edit_payload
+def run_script(scripts_dir: Path, fake_home: Path):
+    """Run a specode CLI script under the test-controlled environment.
+
+    Usage:
+        cp = run_script("spec_vault.py", "status")
+        cp = run_script("spec_session.py", "on-user-prompt", stdin=json.dumps(...))
+    """
+    def _run(script_name: str, *args: str, stdin: Optional[str] = None,
+             extra_env: Optional[dict] = None) -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        # Make sure HOME redirection sticks (subprocesses inherit current env
+        # which already has the monkeypatched HOME, but we re-assert for safety).
+        env["HOME"] = str(fake_home)
+        env["USERPROFILE"] = str(fake_home)
+        env.setdefault("XDG_CONFIG_HOME", str(fake_home / ".config"))
+        if extra_env:
+            env.update(extra_env)
+        cmd = [sys.executable, str(scripts_dir / script_name), *args]
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            input=stdin if stdin is not None else "",
+            env=env,
+            timeout=30,
+        )
+    return _run
+
+
+# --------------------------------------------------------------------------
+# helper: create a working spec dir + session file the way spec_init would
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def init_spec(run_script, doc_root: Path, make_session_id):
+    """Initialise a spec via spec_init.py and return (slug, session_id, spec_dir, payload).
+
+    Useful for tests of spec_session that need a real spec to operate on.
+    """
+    def _init(slug: str = "demo-spec", requirement_name: str = "Demo Spec",
+              source_text: str = "测试用源需求文本",
+              session_id: Optional[str] = None):
+        sid = session_id or make_session_id()
+        cp = run_script(
+            "spec_init.py",
+            "--name", slug,
+            "--requirement-name", requirement_name,
+            "--source-text", source_text,
+            "--session", sid,
+        )
+        assert cp.returncode == 0, f"spec_init failed: {cp.stderr}\n{cp.stdout}"
+        payload = json.loads(cp.stdout)
+        spec_dir = Path(payload["spec_dir"])
+        return slug, sid, spec_dir, payload
+    return _init

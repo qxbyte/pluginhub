@@ -1,211 +1,335 @@
 ---
 name: specode
-description: Specification-driven workflow for requirements, technical design, task lists, implementation, acceptance, and ongoing spec iteration. Use when the user explicitly invokes /spec, explicitly says to use spec mode, or the current conversation has an active persistent specode session that has not been ended. Do not use for ordinary coding, planning, requirements, design, or documentation requests unless spec mode is explicitly requested or already active.
+description: Specification-driven workflow driven by spec-mode discipline. All hooks are advisory injections — never blocking. Activates only when the user explicitly invokes `/specode:spec`, `/specode:continue`, `/specode:status`, `/specode:end`, `/specode:task-swarm`, or explicitly asks to use spec mode. While active, every user-facing turn must respect the phase order, selector format, code-doc sync reminders, and the status footer.
 ---
 
-# Spec Mode
+# specode — Spec-Mode 工作流（v0.6）
 
-File-first specification-driven workflow for CLI agents (Codex, Claude Code). Generated Markdown documents are the source of truth; coding starts only after requirements, design, and tasks are confirmed.
+文件优先的规范驱动工作流。`requirements.md` / `bugfix.md` / `design.md` / `tasks.md` / `acceptance-checklist.md` / `implementation-log.md` 是事实源；代码改动总是滞后于文档落地。所有 hook 都是**提示式注入**，永远不阻断；当 hook 注入失败或缺失时，本 SKILL.md 的硬约束仍然完整有效。
 
 ## Activation Guard
 
-This skill is opt-in only. Activate **only** when the user's current message contains one of:
+只在以下任一情况激活：
 
-- `/spec`, `/continue`, `/status`, `/end`
-- `/spec -h` / `--help`
-- `/spec --persist`, `/spec --freeform`, `/spec --strict`
-- `/spec --set-vault`, `/spec --set-root`, `/spec --detect-vault`, `/spec --vault-status`, `/spec --sync-status`
-- `使用 spec 模式` / `启用 spec 模式` / `用 spec 模式` / `use spec mode`
+- 用户当前输入包含 `/specode:spec`、`/specode:continue`、`/specode:status`、`/specode:end`、`/specode:task-swarm` 中任意一个。
+- 用户显式说"使用 spec 模式" / "启用 spec 模式" / "用 spec 模式" / "use spec mode"。
+- 当前会话的 `~/.specode/sessions/<claude_session_id>.json` 中 `mode=active` 或 `mode=readonly`（即上一个 turn 仍在 spec 模式内）。
 
-**Hard rules:**
+**不要**为普通编码、随手 planning、随口提需求 / 设计 / 任务清单 / bugfix / 实现 / 文档请求激活本 skill。激活后即按 §Session Lifecycle 走完命令解析与持久会话创建。
 
-1. `/spec` always activates the spec workflow — even when the requested work is to inspect or modify the `specode` skill itself.
-2. **Command compliance**: when any spec command is triggered, follow the corresponding workflow exactly. Do not skip phases, phase gates, or confirmation steps for any reason. Commands are absolute; the assistant's judgment cannot override a command.
-3. **Persistent session exception**: if a persistent specode session is active for the current conversation, route follow-up messages through this skill until the user runs `/end`.
+如果 `mode=ended` 或 sessions 文件不存在，且当前输入不命中上面任一触发条件 → **不要激活**，按普通对话处理。
 
-Do **not** activate for ordinary coding, planning, requirements, design, task lists, bugfixes, implementation, or documentation requests. In those cases, work normally — do not create spec folders.
+## Session Lifecycle
 
-## ⛔ Iron Rules — Top of Mind
+### 持久会话是唯一模式
 
-These rules are checked at **every turn** of every specode session. Never violate them. Never defer them. If the user pushes back, acknowledge — then comply with the rule first, discuss after.
+所有 `/specode:spec <需求>` 都创建持久 spec session，**不再有 `--persist` 标志**。一次性运行已不支持；如需快速试验，写完文档后立即 `/specode:end` 即可。
 
-**Enforcement levels (0.4.0+)**: rules 1, 5–9 below are **hard-enforced** by hooks (violation = `exit 2`, tool call denied). Rules 2, 3, 4, 6 are **advisory** — sticky warnings on the ledger, surfaced in the next turn's status block. Advisory does NOT mean optional: a sticky warning that lingers across turns signals real code-doc drift and accumulating risk. Resolve them by writing the missing doc (auto-clears INV-1/2/4) or `/spec --dismiss-advisories` if intentional.
+`/specode:spec <需求>` 的展开：
 
-1. ⛔ **New spec via `spec_init.py` only — no manual scaffolding.** Any new spec (one-shot `/spec` or `/spec --persist`) MUST be created by calling `spec_init.py --name <slug> --requirement-name "<显示名>" --source-text "<需求>"`. The script alone resolves the document root (three-tier, see §Document Root Resolution) and writes `.config.json`. You **MUST NOT**:
-   - `mkdir` a spec directory anywhere yourself (not in cwd, not under `~/Git/<x>/`, not in any path you constructed)
-   - `Write` `requirements.md` / `bugfix.md` / `design.md` / `tasks.md` / `.config.json` to a path you chose
-   - Interpret phrasing like "在项目下创建"、"在 git 目录下创建一个新项目"、"放本地" as a directive to place spec docs in the project / cwd. Those phrases describe **future code location**, not spec-document location. Spec docs always live under the resolved doc_root; code lives wherever the user wants. **Never conflate the two.**
+1. 解析需求文本前缀 `<名称>：<内容>` 或 `<名称>: <内容>`（半角 `:` 必须带空格）；命中则左半部分作为显示名 / slug 来源，右半部分作为需求源文本。否则整段都是源文本，由你从内容推导 slug。
+2. 推导出 ≤64 字符、小写、连字符分隔的语义英文 slug（如 `login-password-rule`、`undo-redo`、`dark-mode`）。
+3. 调 `spec_init.py --name <slug> --requirement-name "<显示名>" --source-text "<需求>" --session <session_id>`。CLI 完成三层根目录解析、目录创建、`<spec-dir>/.config.json` 与 `~/.specode/sessions/<session_id>.json` 双写、active-pointer 更新。
+4. CLI 返回 JSON（`spec_dir` / `specId` / `session_id` / `phase=intake`）后进入 intake 阶段。
 
-   Workflow: derive slug → call `spec_init.py` → fill content into the files it created. If `spec_init.py` exits with `no_spec_root`, **stop and surface the guidance verbatim**; do not invent a fallback location.
+`/specode:continue [slug]` 的展开：
 
-2. ⛔ **Document-first.** Any change to requirements / design / tasks discussed in chat MUST be written to the corresponding spec document **in the same turn**, *before* further discussion or implementation. Verbal-only changes are invisible to the next session and silently drift from the persisted spec.
+1. 无 slug → 列出当前 root 下全部可恢复 spec（按 §Multi-Window + Lock 的"列表 + 用户回复编号"形式），让用户选；选完进入有 slug 分支。
+2. 有 slug → 解析 `spec_dir`，调 `spec_session.py acquire --spec <dir> --session <id>`。
+   - 成功（exit 0）→ 调 `spec_session.py continue --spec <dir> --session <id>`（绑定 sessions 文件 + 写 active-pointer）→ 调 `spec_session.py load --spec <dir>` 拿到 spec 状态摘要 → 输出"已加载 spec" 报告 + 状态行 footer → **end turn**。绝不开始任何任务、不评估验收。
+   - LockHeld（exit 4）→ 输出锁状态摘要（持有者 session_id 前 8 位 + 最近 heartbeat 时间）→ 呈现 `takeover-options` 选择器（类型 A，详见 §Selectors）→ end turn 等待用户选 1 强制接管 / 2 只读 / 3 取消。
 
-3. ⛔ **Post-`/continue` sync — 非常重要.** After `/continue` you are resuming an **already-landed** spec. **Every** subsequent adjustment to requirements or design — even a single clarifying sentence from the user — MUST be reflected in `requirements.md` / `bugfix.md` / `design.md` / `tasks.md`, **in the same turn**. Do not wait for "later", do not batch into "next round", do not say "I'll update it after the code". Write **now**. The user said it → write it. The next session can only see what was persisted; chat is ephemeral.
+`/specode:end` 的展开：
 
-4. ⛔ **tasks.md 测试要点 follow-mode.** `requirements.md` or `bugfix.md` modified → update the `## 测试要点` section of `tasks.md` in the **same turn**, derived from the new SHALL statements. This is INV-4 (enforced at `Stop`): touching requirements/bugfix without touching tasks.md → hook denies the turn.
+1. 调 `spec_session.py end --session <id>`：CLI 释放当前会话持有的 spec 锁（写 `<spec-dir>/.config.json` lock=null）、把 `sessions/<id>.json` 写为 `{mode: "ended", ended_at: <now>, ...}`。
+2. 写入失败 → exit 1，向用户报告失败，**不要假装结束**（in-memory 半成功是禁区）。
+3. 成功 → 简报"spec 会话已结束（slug=<slug>）"。**从下一 turn 起 hook 看到 mode=ended 立即停止注入**，本 SKILL.md 也不再激活。
 
-5. ⛔ **Write-before-verify-lock.** Before any `Edit`/`Write` on a spec document, call `sh ${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT}/scripts/spec_session.py verify-lock <spec-dir> --session <id>`. Returns `evicted` → stop work immediately and tell the user the spec was taken over by another session.
+`/specode:status` 的展开：调 `spec_session.py status --session <id>` 或 `spec_status.py`，简报当前 session / spec / phase / lock / tasks 计数。只读，不触发心跳。
 
-6. ⛔ **Phase gate compliance.** No skipping confirmation steps. No auto-selecting at gates. No "this seems simple, let's skip ahead". Commands are absolute; the assistant's judgment cannot override them.
+### session_id 的获取与传递
 
-7. ⛔ **Forced writes.** Every config / document mutation must be persisted on the spot. When a write fails (IOError / permission / `lock_lost`), abort the operation — never continue with in-memory unpersisted state.
+- `SessionStart` hook 在每次 Claude Code 会话启动时向你注入 `additionalContext`，包含本会话的 `claude_session_id` 字符串。
+- `UserPromptSubmit` hook 在每轮用户提交前**重复**注入当前 `session_id`，避免你在长上下文里忘记。
+- 你**调任何 specode CLI** 时必须把 `--session <session_id>` 作为参数传入。CLI 若收到的 session_id 与 sessions 文件不一致或不存在 → exit 1，并提示你重读最近的 hook 注入。
+- 永远**不要**自己 invent session_id；永远不从用户输入解析 session_id；永远不在 chat 里 echo 完整 session_id 给用户（状态行 footer 只取前 8 位）。
 
-8. ⛔ **Selector via `spec_choice.py` only — never hand-roll options.** Every phase-gate selector (workflow choice / 文档确认 / 任务执行 / `/continue` 接管 / 验收 / 澄清完成) MUST be produced by running the exact `spec_choice.py` command from `references/prompts.md` and relaying its stdout **verbatim**. You **MUST NOT** type the option list from memory, paraphrase it, drop options, reorder them, or translate the labels. Hand-rolling silently hides newer options the script knows about (e.g. omitting `用 task-swarm 多 agent 并发` from the 任务执行 selector and forcing the user into the default path). If you don't have the exact command in context, Read `references/prompts.md` first — never improvise.
+### 强制双写语义
 
-9. ⛔ **Non-interactive Bash (INV-11).** Every `Bash` command runs in a no-TTY harness. Commands that wait on stdin (`Ok to proceed?`, `[Y/n]`, `$EDITOR` open, password prompt) will hang forever. The `bash_guard` hook hard-denies the most common offenders — but you MUST default to non-interactive form yourself:
-   - `npm create xxx -- --yes` / `npx --yes xxx` / `npm init -y` / `yarn create xxx --yes`
-   - `git commit -m "..."` (never bare `git commit` — opens `$EDITOR`)
-   - `apt-get install -y xxx` (or prefix `DEBIAN_FRONTEND=noninteractive`)
-   - `gh pr create --title "..." --body "..."`
-   - `ssh -o BatchMode=yes ...` (fails fast on auth prompt instead of waiting)
-   - **Never** run `vim`/`nano`/`less`/`top` etc. — use Read/Edit tools or pipe to `head`/`cat`
-   - **Never** start bare REPL (`python3` alone, `node` alone) — use `python3 -c '<code>'`
-   - **Never** use `git rebase -i` / `git add -p` / `git add -i`
-   
-   When a Bash run completes with stdout containing a hang signature (`Ok to proceed?`, `[Y/n]`, etc.) or exit 124, a `PostToolUse` advisory is injected into your next turn — **do not retry the same command**; either rewrite to non-interactive form or report to the user with the exact command for them to run manually.
+`/specode:spec` / `/specode:continue` / `/specode:end` 的任何写操作都要同时写 `<spec-dir>/.config.json` + `~/.specode/sessions/<session_id>.json`，由 CLI 用 tempfile + `os.replace()` + `os.fsync()` 保证原子性。**任一写失败 → CLI 整体 exit 1 + 回滚已变更字段**，你在 chat 里如实报告失败原因，不要把 in-memory 状态当成已落地。
 
-These rules trigger detectable signals (lint, `/continue` ⚠ markers, verify-lock exit codes). Treat any of those signals as a regression on your part, not a tool quirk.
+## Status Footer
 
-## Command Entry (Summary)
+active spec 期间，**每一次响应末尾**必须额外输出一行状态行 footer，与正文之间空一行。模板：
 
 ```text
-/spec <requirement or path>             ← one-shot workflow
-/spec --persist <requirement or path>   ← persistent session (footer + /end)
-/continue [spec-slug] | /status | /end  ← session control
-
-/spec --set-vault <p> | --set-root <p> | --detect-vault | --vault-status
-/spec --freeform | --strict | --sync-status
-/spec -h                                ← help (hook-intercepted)
+─── spec-mode ─── spec: <slug> | session: <session_id 前 8 位> | phase: <phase> | /specode:end 退出
 ```
 
-→ **完整命令、子标志 dispatch、可选 spec 名前缀、会话模式、Helper Scripts、Hook 拦截**：`references/commands.md`
+只读模式追加 `[只读]` 字段：
 
-## Pre-requirements Clarification (Plan-mode)
+```text
+─── spec-mode ─── spec: <slug> | session: <session_id 前 8 位> | phase: <phase> | [只读] | /specode:end 退出
+```
 
-Before generating `requirements.md` / `bugfix.md`: evaluate whether the user's requirement is unambiguous enough to translate into EARS SHALL statements **without invention**.
+约束：
 
-- **Clear enough** → proceed to workflow selection and document generation.
-- **Real ambiguity** affecting scope / behavior / UX / data / validation / acceptance → enter clarification dialogue first. Phase stays in `intake`. **Do not write any spec document yet.**
+- 状态行是**机器友好格式**：用 `─── spec-mode ───` 三符号包裹，不允许换成其他装饰、不允许加 emoji。
+- session 字段只显示 session_id 前 8 位（够用且可读）。
+- 当本 turn 输出 selector 时，状态行放在 selector **之前**一行，再空一行接 selector；`AWAITING_USER_CHOICE` sentinel 仍是 selector 段的最后一行。
+- `mode=ended` / 不在 spec 模式 → **不**输出状态行（避免误导用户以为还在 spec 模式）。
+- 缺失状态行视作流程违规——hook 不会因此阻断，但用户与下一轮 turn 都会察觉。
 
-每轮 ≤5 个【阻塞】项；用户答复后用 `references/prompts.md` §澄清完成 selector 决定 `进入下一阶段` 或 `继续澄清`。**Never** invent missing scope, business rules, UI behavior, data fields, or acceptance criteria.
+## Selectors
 
-→ 详见 `references/prompts.md` §Template B（开放式澄清问答）+ §澄清完成
+每个 phase-gate 节点必须输出**结构化的选择器文本**，由用户选编号后才能推进下一步。永远不要把选择器写成自由叙述（"你可以选 A 或者继续聊聊"）。
 
-## Document Root Resolution (Iron Law)
+### 三种类型
 
-Three-tier resolution. **No project fallback, no home fallback.**
+- **类型 A 单列单选（single-select）**：一个问题、互斥选项、单选。绝大多数 phase-gate 用 A。
+- **类型 B 多项串行决策（wizard）**：一组**无依赖**的子问题打包在一个 wizard 里，每个子问题独立编号，用户一次性回复全部。**仅用于 intake 阶段的"需求澄清问答"**——为了避免来回 5 轮 turn 把一组澄清点问完。
+- **类型 C 复选框多选（multi-select）**：非互斥选项可同时勾选。**v0.6 仅 iteration-scope 一个场景占位**，其他场景不要用 C。
 
-1. `--root` argument or `SPECODE_ROOT` env (highest)
-2. `~/.config/specode/config.json` → `obsidianRoot`
-3. Auto-detect Obsidian vault → `<vault>/spec-in/<os>-<user>/specs` (and persist)
+三种类型的完整文本骨架见 `references/prompts.md`。下面只列共同铁规：
 
-All three miss → **hard stop**, output guidance, exit. `/spec` and `/continue` use the **same** resolution. **Spec documents are NEVER allowed outside the resolved doc_root**:
+- 必须以 `AWAITING_USER_CHOICE` 单独一行**结尾**——这是 turn 终止 sentinel；输出后立即 end turn。
+- 每个选项带编号 + 标签 + 一行说明；类型 A / C 末尾固定两个保留位 `Type something` + `Chat about this`；类型 B 每个决策点末项 `Type something`、wizard 整体末段加 `Chat about this`。
+- 类型 A 至多 1 个 `（推荐）` 标记；无强推荐时全部不带。
+- 选项个数：类型 A 2–5 / 类型 B 决策点 2–5、每个决策点 2–4 项 / 类型 C 2–6。
 
-- ❌ `<project>/specs/`、`<project>/specode/`、`<project>/spec/`、`<project>/<任意名>/`
-- ❌ `~/Git/<x>/specode/`、`~/Git/<x>/specs/`
-- ❌ `<cwd>/specs/`
-- ❌ Any path of your own choosing
+### 8 个固定场景
 
-The directory name (`specs`, `specode`, anything else) does NOT matter — the **location** (under doc_root or not) is what matters. If the user says "在项目下"、"在这个目录下"、"放本地" referring to where to create the spec, treat that as **misinterpreting code scope as document scope** and clarify: code can live in the project; spec docs must live under the configured doc_root. If no doc_root is configured, run `/spec --set-vault <p>` or `/spec --set-root <p>` first, **not** invent a fallback.
+下表给出 (场景 key → 类型 → 触发 phase → 标题) 的固定映射；详细选项标签、推荐项、文本骨架与 hook 注入提示见 `references/prompts.md` §场景常量库。
 
-→ 详见 `references/obsidian.md`
+| 场景 key | 类型 | 触发 phase | 标题 |
+|---|---|---|---|
+| `workflow-choice` | A | 进入 requirements 前 | 工作流选择 |
+| `clarification-wizard` | B | intake，写需求前 | 需求澄清（共 N 个决策点） |
+| `clarification-done` | A | intake 澄清结束 | 需求澄清是否完成？ |
+| `doc-confirm-requirements` | A | requirements.md 生成后 | requirements.md 文档确认 |
+| `doc-confirm-bugfix` | A | bugfix.md 生成后 | bugfix.md 文档确认 |
+| `doc-confirm-design` | A | design.md 生成后 | design.md 文档确认 |
+| `doc-confirm-tasks` | A | tasks.md 生成后 | tasks.md 文档确认 |
+| `tasks-execution` | A | tasks.md 确认后 | 任务执行选择 |
+| `takeover-options` | A | `/specode:continue` 命中 LockHeld | 该 spec 已被其他窗口持有 |
+| `acceptance-gate` | A | acceptance 完成 | 验收结论 |
+| `iteration-scope` | C | iteration 子循环开始（v0.7 启用，v0.6 占位） | 本轮 iteration 调整范围 |
 
-## Multi-Window + Lock (Iron Law)
+### 看到 hook 注入"必须呈现 X 选择器"提示时的硬约束
 
-Different agent windows may work on **different** specs in parallel. The **same** spec is held by at most one session at a time via a write lock in its `.config.json`.
+`UserPromptSubmit` hook 在 phase-gate 节点会向你注入形如 `## ⛔ 必须呈现「<场景中文名>」选择器（类型 ?）` 的提示。看到该提示时：
 
-**Before any spec document write**, three checks:
+- 当前 turn **唯一**正确动作 = 按对应类型骨架输出该 selector + 状态行 footer + `AWAITING_USER_CHOICE` end turn。
+- 不允许把 selector 拆成两轮、不允许"先回答用户上一句再 selector"、不允许跳过 selector 直接做下一步操作。
+- 类型与场景的映射**固定**（见上表）—— 不允许"我觉得这里改用类型 C 更好"自行变换。
+- 没看到该提示但你自己判断到了 phase-gate（如 hook 失败 / 上下文里没看到 hook 文本）→ 按上表查类型并按骨架输出，不要因为"没人催"就跳过。
+- 保留位**必须留**：类型 A 末尾 `Type something` + `Chat about this`；类型 B 每决策点末项 `Type something` + wizard 整体末段 `Chat about this`；类型 C 末尾 `Type something` + 回复格式中的 `none` / `Chat about this`。
 
-1. **specId**: active-pointer.specId == .config.json.specId
-2. **boundary**: spec_dir is inside documentRoot (`spec_session.ensure_within_root`)
-3. **lock**: `spec_session.py verify-lock <spec-dir> --session <id>` returns `ok`
+→ 三种类型完整骨架、8 个场景的选项标签与推荐项详见 `references/prompts.md`。
 
-Any failure → refuse the write, surface the error, do not silently continue. `/continue <slug>` on a locked spec must offer three options: 强制接管 / 只读查看 / 取消. Heartbeat before every Edit/Write; stale lock = 30 min.
+## Code-Doc Sync Reminders
 
-→ 详见 `references/lock-protocol.md`
+### Spec 文档清单（6 份）
 
-## Phase Gates
+| 文档名 | 用途 | 何时该更新 |
+|---|---|---|
+| `requirements.md` | 需求-first 工作流的需求文档（EARS SHALL 写法） | 需求 / 验收标准调整 |
+| `bugfix.md` | bugfix 工作流的问题描述（与 requirements.md 互斥） | 缺陷范围 / 复现步骤 / 期望行为调整 |
+| `design.md` | 技术设计（架构 / 接口 / 数据模型） | 架构 / 接口 / 数据模型决策调整 |
+| `tasks.md` | 任务拆分 + 进度 + `_需求：x.y_` traceability | 任务范围调整 / 状态推进 `[ ]` → `[~]` → `[x]` |
+| `acceptance-checklist.md` | 验收检查表（跟随 requirements / bugfix） | requirements / bugfix 改动后**同 turn** 重写 |
+| `implementation-log.md` | 实现记录（可选） | 实施期间记录设计偏离、解决方案、关键决策 |
 
-Phase order (**no skipping**): requirements (or bugfix) → Confirm → design → Confirm → tasks → Confirm → ask whether to execute → Code → validate → accept → iteration.
+→ 6 份文档的章节模板与 EARS SHALL 写法详见 `references/templates.md`。
 
-At each gate, in the same response: (1) show document path, summary, key changes, unresolved questions; (2) invoke `spec_choice.py` — in non-interactive shells (Claude Code Bash, CI) the script prints the option block + `AWAITING_USER_CHOICE` sentinel on stdout and exits 0; relay stdout **verbatim** and end the turn; (3) **end the turn**.
+### Document-first 纪律（响应约束）
 
-Auto-selecting a default at a phase gate is **never** acceptable.
+每轮收到用户输入时，先评估是否触发文档变更：
 
-→ 详见 `references/workflow.md` §Phase Gates Detailed Sub-steps + `references/iteration.md`
+1. **看到「📝 文档优先提醒（输入侧）」** + 用户输入含需求 / 设计 / 任务 / 验收调整 → 本 turn **优先 Edit 对应文档**，**再**处理代码或解释。
+2. **看到「🔄 代码-文档同步提醒（输出侧）」** + 本 turn 触碰过 Write/Edit 源码 → turn 结束前补齐对应文档；若实在无法当 turn 补齐，在 chat 里**显式承诺**"下一轮第一件事是补齐 X 文档"，并在下一轮立刻做到。
+3. **没看到提醒**（hook 失败 / 无 active spec）→ 仍保持 document-first 纪律。这是 SKILL.md 的硬约束，不依赖 hook 触发。
+4. `acceptance-checklist.md` **跟随式重写**：requirements.md / bugfix.md 一旦改动，必须在**同一轮 turn 内**重写 acceptance-checklist.md，没有单独的"确认门"。详见 `references/workflow.md` §acceptance-checklist 跟随式生成。
+5. `implementation-log.md` 是"轻量级补救手段"：如果实在没法 turn 内重写 design.md / tasks.md，至少在 log 里追加一行（≥30 字），为下一会话留线索。空 log 等于没改过。
 
-## Document-first Discipline
+### 提醒不阻断 = 你自担风险
 
-Spec documents are the sole persistent memory. Any change not written to a document is invisible to the next session. See also Iron Rules #1, #2, #3, #6 at the top of this file.
+所有 hook 注入提醒永远 `exit 0`、永远不阻断工具调用。你可以选择无视提醒，但代价是：
 
-**Iron rules (apply from the moment a persistent session is active, **and** apply equally — and especially — after `/continue`):**
+- **未写入文档的 chat 承诺在 `/specode:end` / `SessionEnd` 后全部丢失**。下一次 `/specode:continue` 时只能看到落盘文件——chat 内容不在事实源里。
+- `spec_lint.py` 会在 `acceptance-checklist.mtime < requirements.mtime` 时报 WARNING；`tasks.md` 里没有 `_需求：x.y_` traceability 的任务也会报 WARNING。WARNING 只是提示，不强制阻断，但是用户可见。
+- 下一轮 hook 仍会注入提醒，错位不会自动愈合。
 
-1. **Requirement change** → update `requirements.md` / `bugfix.md` **first**, then continue
-2. **Design decision** → update `design.md` **first**, then implementation
-3. **Task status change** → update `tasks.md` **immediately** (`[~]` / `[x]` / blocked)
-4. **New task / sub-task** → append to `tasks.md` **before** starting it
-5. **requirements.md / bugfix.md modified** → must update `tasks.md` 的 `## 测试要点` 节 in the **same turn**（INV-4，Stop hook 强制；未同步则整轮被拒绝）
-6. **Write-before-verify**: before any `Edit`/`Write` on a spec document, call `spec_session.py verify-lock`. EVICTED → stop work and tell the user.
-7. **Post-`/continue` sync (非常重要)**: after `/continue`, the spec docs are already landed. Any further requirement/design adjustment from the user (including verbal-only "顺便改一下…") MUST be applied to the landed `requirements.md` / `design.md` / `tasks.md` **in the same turn it is raised**, before any code action. **Never** leave a chat-only change unwritten between turns — the next session will lose it. If multiple docs are affected by one change, update all of them in the same turn.
+## Help Fast-path
 
-These writes are non-negotiable. If the user asks to skip writing and proceed, acknowledge — then write first, proceed second. **Writes are forced**: if a write fails (IOError/permission), abort the operation; never continue with in-memory unpersisted state.
+当用户输入命中 `/specode:spec -h` 或 `/specode:spec --help`（容忍前后空白）：
 
-→ 详见 `references/workflow.md` §1.1（自然语言路由表）
+- `UserPromptSubmit` hook 会注入一段 `## ⛔ /specode:spec -h fast-path` 提示，里面包含**完整帮助文本**（由 hook 进程从内置常量或 plugin 自带的 `references/help-output.md` 读取）。
+- 本 turn **唯一动作** = 把帮助文本**逐字**用 \`\`\`text 围栏包裹后输出，立即 end turn。
+- 禁止任何额外修辞（"以下是帮助" / "希望对你有帮助" / "请告诉我您要做什么" 都不允许）。
+- 禁止自己改写帮助文本、禁止省略其中任何行、禁止改大小写。
+- `/specode:spec --vault-status` / `/specode:spec --detect-vault` / `/specode:spec --sync-status` 走同样的 fast-path：hook 直接执行对应 CLI（`spec_vault.py status` 等），把 stdout 包成 `additionalContext` 让你 verbatim 打印。
+
+如果没看到 hook 注入的 fast-path 文本（hook 失败 / 旧版本 / 全局 bypass `SPECODE_GUARD=off`），仍按一般原则简短回答"请运行 `python3 plugins/specode/scripts/spec_vault.py status` 查询"——绝不自创"帮助内容"。
 
 ## Workflow Selection
 
-Classify the request before creating documents:
+进入 requirements 前必须先呈现 `workflow-choice` 选择器（类型 A）让用户挑工作流类型：
 
-- Feature, behavior-first → **Requirements-first** (recommended default)
-- Feature, architecture-first → **Technical Design first**
-- Bug / regression / failing test → **Bugfix**
+| 选项 | 适用场景 |
+|---|---|
+| **Requirements first** | 行为优先的新特性：先把 EARS SHALL 写清楚，再补技术设计。**默认推荐**。 |
+| **Technical Design first** | 架构约束已知的新特性：先把 design.md 框架定下来，再反推 requirements。 |
+| **Bugfix** | 缺陷修复 / 回归测试：用 `bugfix.md`（Current / Expected / Unchanged）替代 `requirements.md`。 |
 
-Use `scripts/spec_choice.py` when the workflow matters and is unclear; non-interactive shells get the option block + `AWAITING_USER_CHOICE` sentinel on stdout. **Never silently choose for the user.**
+工作流一旦确认，本 spec 的 `<spec-dir>/.config.json.workflow` 字段记录为 `requirements` / `design` / `bugfix`。后续 phase 序列按选定的工作流走（详见 `references/workflow.md`）。
 
-## Help Output (Fast Path)
+不要在选 workflow 之前生成任何 spec 文档；不要凭印象把 workflow 设为某个默认值——必须用 selector 让用户主动选。
 
-When the prompt is exactly `/spec -h` or `/spec --help` — **fast path, no thinking, no file scanning beyond the one file below**:
+## Phase Order
 
-1. `Read` `references/help-output.md` (single file, no other context loading)
-2. Extract the **first** ` ```text ... ``` ` fenced block
-3. Output that block **verbatim** inside one ` ```text ` fence, then **stop**
+```
+intake → requirements / bugfix → design → tasks → implementation → acceptance → iteration
+```
 
-Forbidden in this path: thinking blocks, summaries, "here is the help", reading other references, loading other files, calling any script. The output is purely a file echo.
+Phase 与可写文档、可执行操作对照：
 
-The same fast-path applies to `/spec --vault-status`, `/spec --detect-vault`, `/spec --sync-status`: run the single mapped script in `references/commands.md` §Sub-flag Dispatch, output its stdout verbatim, stop. No additional commentary.
+| Phase | 可写文档 | 允许 Edit 源码？ | 主要操作 |
+|---|---|---|---|
+| `intake` | （无） | 否 | 解析需求 / 必要时 `clarification-wizard` / `workflow-choice` |
+| `requirements` 或 `bugfix` | `requirements.md` 或 `bugfix.md` + `acceptance-checklist.md`（同 turn） | 否 | `spec-writer` agent 生成文档；`doc-confirm-*` 选择器 |
+| `design` | `design.md` | 否 | spec-writer 生成；`doc-confirm-design` |
+| `tasks` | `tasks.md`（必须含 `_需求：x.y_` traceability） | 否 | spec-writer 生成；`doc-confirm-tasks` → `tasks-execution` |
+| `implementation` | `tasks.md`（推进 checkbox 状态）+ `implementation-log.md`（追加） + 源码 | **是** | 按 tasks.md 任务顺序写代码 + 跑测试 + 推进 `[ ]` → `[~]` → `[x]` |
+| `acceptance` | `acceptance-checklist.md`（填实际结果与结论列） | 不允许新功能改动；允许回退 / 测试修复 | 跑验收命令，逐行填 acceptance-checklist.md；最终 `acceptance-gate` |
+| `iteration` | 全部可写 | 是 | iteration 子循环（详见 `references/iteration.md`） |
+
+phase 切换永远走 `spec_session.py phase-transition --spec <dir> --session <id> --from <p> --to <p>` —— CLI 同步写 `<spec-dir>/.config.json` + `sessions/<id>.json`，原子写、失败回滚。**不要**手动改 `.config.json` 里的 `currentPhase` 字段。
+
+→ 详见 `references/workflow.md`（三档工作流的 phase 子步骤、phase-gate 输出顺序、`/specode:continue` 接管流程）。
+
+## Document Root Resolution
+
+`<doc-root>` 解析顺序（与 `spec_init.py:resolve_document_root` / `spec_vault.py resolve_spec_root` 一致）：
+
+1. **命令行 `--root <path>`** 或环境变量 `SPECODE_ROOT`。
+2. **`~/.config/specode/config.json` 的 `obsidianRoot`**（或类 unix 下 `$XDG_CONFIG_HOME/specode/config.json`）。
+3. **自动检测 Obsidian vault**：按平台读 `obsidian.json` → 过滤路径不存在的 vault → 优先选 `open=true` 且 timestamp 最新的；多 vault 时让用户在 chat 里回复编号。
+
+三层全 miss → **硬停 + 引导**：
+
+```text
+未找到 specode 文档根目录。请用以下任一方式设置：
+
+1. 临时指定（仅本次）：
+     /specode:spec --root /path/to/dir <需求>
+
+2. 永久绑定 Obsidian vault：
+     /specode:spec --set-vault /path/to/vault
+
+3. 永久绑定自定义根目录：
+     /specode:spec --set-root /path/to/dir
+
+设置后再次运行 /specode:spec <需求>。
+```
+
+**不要发明 fallback**（不要默认到 cwd / `~/specs` / 项目目录）—— 这条规则继承自 spec-mode，避免静默把 spec 散布在到处。
+
+vault 内的 spec 目录约定：`<vault>/spec-in/<os>-<user>/specs/<slug>/`，其中 `<os>-<user>` 由 CLI 按当前平台与用户名计算（如 `macos-alice`、`windows-bob`）。
+
+→ 三平台 `obsidian.json` 路径、vault 选择规则、`spec_vault.py` 命令参考详见 `references/obsidian.md`。
+
+## Multi-Window + Lock
+
+锁存放在每个 spec 自己的 `<spec-dir>/.config.json.lock` 字段（不放在 `.active-specode.json` 上），**持有者键 = `claude_session_id`**。同一 spec 同一时刻只允许一个 session 写入；多窗口可同时开**不同** spec。
+
+锁状态机 4 个状态：
+
+- `ok` — 当前会话持锁，可写。
+- `readonly` — 当前会话只读（不持锁），任何 Edit/Write 在 SKILL.md 层面被劝阻。
+- `evicted` — 当前会话被其他窗口强制接管驱逐；下一次写前 `verify-lock` 返回 `evicted` → 立即转入只读 + 通知用户。
+- `not_held / stale_lock` — 锁字段为 null 或心跳超过 30 分钟 → 下一次 `acquire` 静默接管。
+
+5 个核心命令 → 详见 `references/lock-protocol.md`：`acquire` / `release` / `heartbeat` / `verify-lock` / `phase-transition`。
+
+### 写前三重校验（铁律）
+
+任何 spec 文档写入前必须确认：
+
+1. **specId 校验**：active-pointer 里的 `specId == <spec-dir>/.config.json.specId`。
+2. **边界校验**：`<spec-dir>` 物理位于 `<doc-root>` 之下。
+3. **锁校验**：`spec_session.py verify-lock` 返回 `ok`。
+
+任一失败 → **拒绝写入**，向用户报告原因；不要静默继续。
+
+### 心跳触发点
+
+- **每次写 spec 文档前**调一次 `spec_session.py heartbeat --spec <dir> --session <id>`。
+- **每次回答用户消息前**如果距上次心跳超过 5 分钟，也调一次。
+- 只读命令（`load --json` / `status` / `read-session` / `spec_lint.py` / `spec_status.py`）**不**触发心跳。
+- v0.8 起 `UserPromptSubmit` 的 `on-heartbeat-quiet` hook 会自动静默续约——你不需要手动调用；但 v0.6 / v0.7 仍由你显式触发。
+
+### 多窗口接管三选项
+
+`/specode:continue <slug>` 命中 LockHeld（exit 4）时：
+
+1. 你先输出锁状态摘要：`持有者 session_id 前 8 位 + 最近 heartbeat 时间`。
+2. 呈现 `takeover-options` 选择器（类型 A），选项**逐字使用**：`1. 强制接管` / `2. 只读查看` / `3. 取消` + 保留位。无推荐项（让用户判断对方是否仍活跃）。
+3. End turn 等用户选。
+   - 选 1 → 调 `spec_session.py acquire --spec <dir> --session <id> --force`，告知用户对方下一次写操作会被 `verify-lock` 拒绝。
+   - 选 2 → **不**调 acquire，调 `spec_session.py load`，写 `sessions/<id>.json.mode=readonly`；后续所有 Edit/Write 在 SKILL.md 层面拒绝，状态行 footer 加 `[只读]`。
+   - 选 3 → 不做任何写动作，回到对话起点。
+4. 被驱逐窗口的下一次 `verify-lock` 返回 `evicted` → SKILL.md 引导该窗口转为只读 + 告知用户"你的会话已被 session `<newId 前 8 位>` 强制接管。当前 spec 在此窗口已转为只读。继续工作请用 `/specode:continue <slug>` 选择强制接管回来。"
+
+→ 锁字段 schema、stale 阈值、被驱逐窗口完整行为、原子性保证详见 `references/lock-protocol.md`。
+
+## Pre-requirements Clarification (Plan-mode)
+
+如果用户的 `/specode:spec <需求>` 输入存在影响 scope / behavior / UX / data / validation / acceptance 的真实歧义：
+
+- 留在 `intake` phase，**不要**先写 `requirements.md` / `bugfix.md`。
+- 不要凭空 invent 缺失的细节；不要假设。
+- 不要把一组澄清问题拆成多轮 turn 来回问——**一次性**通过 `clarification-wizard`（类型 B）呈现：2–5 个**无依赖**的决策点，每个 2–4 个互斥选项 + 末项 `Type something`，wizard 整体保留 `Chat about this` 逃生口。
+- 子问题与选项由你结合用户输入和 `references/templates.md` 的章节结构自行生成 —— inputs 不足以构成一个决策点就不要塞进去；连一个决策点都没有（需求已足够清晰）就直接跳到 `clarification-done`，不输出 wizard。
+- 用户回复后下一轮先解析回答，再呈现 `clarification-done`（类型 A），推荐选项是 `进入下一阶段`；用户选"继续澄清"再发一轮 wizard。
+
+→ 三种类型骨架与具体场景常量见 `references/prompts.md`。
 
 ## Output Language
 
-All user-facing output (summaries, questions, confirmations, status, errors) — **Chinese**.
-
-Exceptions (English / original form): technical terms, command names, file paths, code identifiers; content inside code blocks; skill's own rule files (`SKILL.md`, `references/`).
-
-If the user's requirement is in English, generated spec documents may use English; other agent output (summaries, confirmations) stays Chinese.
+- 描述性内容（说明、解释、总结、状态更新、问题确认、selector 选项标签与说明、状态行 footer 之外的正文）一律**中文**。
+- 技术名 / 命令 / 文件路径 / 函数名 / 变量名 / commit message / PR 标题 / 代码块内部 / 本 SKILL.md 与 references 文件名保持英文原样。
+- selector 选项标签用中文动词式短语（`确认` / `查看全文` / `继续沟通` / `强制接管` / `只读查看` / `取消`），命名与 `references/prompts.md` 一致。
+- 禁用口语 / 暧昧措辞（"够了" / "差不多" / "应该可以了" / "随便选" / "我猜" / "稍等"）—— 走 selector / 走 wizard / 直接给结果，三选一。
 
 ## Document Output Brevity
 
-When writing or updating a spec document (`requirements.md` / `bugfix.md` / `design.md` / `tasks.md` / `implementation-log.md`), **never reprint the full document content in chat**. The Write/Edit tool UI already shows a preview; the user can also open the file. Duplicating the full content in user-facing text is pure noise.
+**写完 spec 文档后不要在 chat 里 reprint 全文**。每份文档生成 / 更新后，正文中只输出：
 
-In chat, report only:
+- 文档**绝对路径**。
+- **3–8 条**变更要点（一行一条；引用章节名 / 增加的 SHALL 编号 / 新增任务编号）。
+- 未决问题（如有）。
+- 下一步操作建议。
 
-- File path (one line)
-- Section headings or 3–8 key change bullets (e.g., "added §4 data model / §5.B Mascot behavior / tightened §6 validation thresholds")
-- Open questions, if any
-- Next action (gate confirm / next phase / etc.)
+之后立刻呈现对应 `doc-confirm-*` 选择器。用户主动要求"查看全文"（selector 选项 2）才完整 echo 文档；否则一律省略。
 
-Never paste the document body, EARS SHALL clauses, code snippets, full task lists, or full design rationale. Comply if the user explicitly asks; otherwise default to **summary only**.
-
-This applies equally to first-time creation and to follow-up edits.
+- 不允许把 EARS SHALL 全列在 chat。
+- 不允许把 tasks.md 全部 checkbox 列在 chat。
+- 不允许把 design.md 的架构图 / 接口签名完整重述在 chat。
 
 ## References
 
-- `references/commands.md` — **命令完整参考**（入口、子标志 dispatch、可选 spec 名前缀、会话模式、Helper Scripts、Hook 拦截）
-- `references/workflow.md` — 完整 phase 协议、interactive selector 命令、`/continue` 上下文加载、EARS 示例
-- `references/prompts.md` — **统一 prompt 模板**（selector 用法、澄清格式、列表视图、禁用措辞）
-- `references/iteration.md` — iteration 阶段、子循环、文档累积规则
-- `references/lock-protocol.md` — 锁机制、接管、只读模式、驱逐
-- `references/obsidian.md` — vault 检测、目录树、config.json 生命周期
-- `references/templates.md` — 文档模板与样式约定
-- `references/help-output.md` — 帮助文本原文（hook 拦截输出源）
-- `references/task-swarm.md` — 任务执行阶段可选委派给 task-swarm（多角色 agent 并发；按阶段聚合 coder/reviewer/validator；防"自我认可"）
-- `references/task-swarm-example.md` — task-swarm 模式的 tasks.md 完整示例
+| 文件 | 用途 |
+|---|---|
+| `references/workflow.md` | phase 序列、三档工作流子步骤、phase-gate 输出顺序、`/specode:continue` 完整流程、`phase-transition` 命令使用 |
+| `references/lock-protocol.md` | 锁状态机（持有者键 = `claude_session_id`）、5 个核心命令、stale 阈值、接管三选项、被驱逐窗口行为、写前三重校验 |
+| `references/obsidian.md` | 三平台 `obsidian.json` 路径、vault 选择规则、多 vault 用户选编号、`<vault>/spec-in/<os>-<user>/specs/` 目录约定 |
+| `references/prompts.md` | 选择器三种类型骨架、8 个固定场景常量库（标题 + 选项标签 + 推荐项 + 触发 phase）、Plan-mode 澄清示例 |
+| `references/templates.md` | 6 份 spec 文档的章节模板、EARS 四种 SHALL 写法、`_需求：x.y_` traceability 规范 |
+| `references/iteration.md` | iteration 子循环规则、文档累积写法、`/specode:end` 与再次 acceptance 通过的退出条件 |
+
+跨文档引用一律相对路径（`references/workflow.md` 等）。
+
+---
+
+**最后一条铁律**：本 SKILL.md 不依赖任何前置阻断式 hook、不依赖任何"脚本输出 selector 文本"的中间层。所有规则靠 SKILL.md + references 自律 + hook 注入提醒 + CLI 确定性状态机协作执行。Hook 失败 / 全局 bypass / 上下文丢失时，本文件的硬约束仍然完整有效。
