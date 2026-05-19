@@ -166,7 +166,9 @@ def test_on_user_prompt_active_with_workflow_choice_emits_all_segments(
     ctx = _ctx(payload)
     # 5 segments expected
     assert sid in ctx                                        # session_id 提醒
-    assert "必须呈现「工作流选择」选择器（类型 A 单列单选）" in ctx
+    assert "选择器节点：工作流选择" in ctx
+    assert "AskUserQuestion" in ctx
+    assert "multiSelect: false" in ctx
     assert "Requirements first" in ctx
     assert "Technical Design first" in ctx
     assert "Bugfix" in ctx
@@ -206,7 +208,7 @@ def test_on_user_prompt_active_implementation_no_pending(
         stdin=json.dumps({"session_id": sid, "prompt": "更多 coding"})
     )
     ctx = _ctx(_parse_hook(cp.stdout))
-    assert "必须呈现" not in ctx          # no selector segment
+    assert "选择器节点：" not in ctx          # no selector segment
     assert "文档优先提醒" in ctx
     assert "状态行" in ctx
     assert "你仍处于 spec 模式" in ctx
@@ -261,7 +263,7 @@ def test_on_user_prompt_help_fastpath_only_emits_help(
     assert "fast-path" in ctx
     assert "specode v0.6" in ctx
     # Workflow-choice selector should NOT leak in
-    assert "必须呈现「工作流选择」选择器" not in ctx
+    assert "选择器节点：工作流选择" not in ctx
 
 
 def test_on_user_prompt_vault_status_fastpath(

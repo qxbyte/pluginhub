@@ -95,14 +95,18 @@ def selector_setup(fake_home, doc_root, make_session_id):
 def test_workflow_choice_snapshot(run_script, fake_home, selector_setup):
     sid = selector_setup("workflow-choice", phase="intake")
     ctx = _fetch_ctx(run_script, fake_home, sid)
-    assert "必须呈现「工作流选择」选择器（类型 A 单列单选）" in ctx
+    assert "选择器节点：工作流选择" in ctx
     assert "Requirements first" in ctx
     assert "Technical Design first" in ctx
     assert "Bugfix" in ctx
-    # 改为 AskUserQuestion 工具协议
+    # 改为 AskUserQuestion 工具协议 + YAML 缩进格式
     assert "AskUserQuestion" in ctx
-    assert "multiSelect" in ctx
-    assert '"label"' in ctx
+    assert "multiSelect: false" in ctx
+    assert "label:" in ctx
+    assert "options:" in ctx
+    # 三段式结构（目的/前置动作/约束）
+    assert "**目的**" in ctx or "目的" in ctx
+    assert "**约束**" in ctx or "约束" in ctx
     # 显式断言"禁止保留位"措辞存在
     assert "Type something" in ctx  # 在禁区说明里出现
     assert "Other" in ctx
@@ -111,7 +115,10 @@ def test_workflow_choice_snapshot(run_script, fake_home, selector_setup):
 def test_clarification_wizard_snapshot(run_script, fake_home, selector_setup):
     sid = selector_setup("clarification-wizard", phase="intake")
     ctx = _fetch_ctx(run_script, fake_home, sid)
-    assert "类型 B 多项串行决策" in ctx
+    assert "选择器节点：需求澄清问答" in ctx
+    assert "wizard" in ctx
+    assert "AskUserQuestion" in ctx
+    assert "multiSelect: false" in ctx  # wizard 内每个 question 都是单选
     assert "wizard" in ctx
     assert "决策点" in ctx
 
@@ -188,8 +195,11 @@ def test_acceptance_gate_snapshot(run_script, fake_home, selector_setup):
 def test_iteration_scope_snapshot(run_script, fake_home, selector_setup):
     sid = selector_setup("iteration-scope", phase="iteration")
     ctx = _fetch_ctx(run_script, fake_home, sid)
-    assert "本轮 iteration 调整范围" in ctx
+    assert "iteration 调整范围" in ctx
     assert "改 requirements" in ctx
     assert "改 design" in ctx
     assert "改 tasks" in ctx
     assert "重跑测试" in ctx
+    # 类型 C 关键：multiSelect=true
+    assert "AskUserQuestion" in ctx
+    assert "multiSelect: true" in ctx

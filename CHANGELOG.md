@@ -4,6 +4,74 @@
 
 _no entries yet_
 
+## 0.7.2 (2026-05-19)
+
+### Changed — SELECTOR_PROMPTS rewritten to three-section + YAML format
+
+All 11 entries in `spec_session.py SELECTOR_PROMPTS` have been rewritten
+to a **three-section + YAML-indented** format that matches the
+"directly paste into Claude Code and the tool fires" prompt style
+the maintainer validated in another window.
+
+Each constant now has the same structure:
+
+```
+## 选择器节点：<scenario>
+
+**目的**：<why this selector is appearing now; what user just did>
+
+**上下文**：active spec=<slug>, phase=<phase>, <other dynamic fields>
+
+**前置动作（chat 简报，≤N 行）**：<what to write to chat BEFORE calling the tool>
+
+**调用 `AskUserQuestion` 工具**：
+
+questions:
+  - question: "<full question>"
+    header: "<≤12 char chip>"
+    multiSelect: <true|false>
+    options:
+      - label: "<option A>"
+        description: "<rationale / trade-off>"
+      - label: "<option B>"
+        description: "..."
+
+**约束**：<scenario-specific dos and don'ts>
+```
+
+Why this change:
+- The previous wrapper text ("必须呈现「X」选择器（类型 A 单列单选）...") was diagnostic / declarative — the model still had to translate it into tool arguments mentally.
+- The new format **is itself a paste-and-fire tool prompt** — the YAML block can be lifted as-is into the model's mental model of the `AskUserQuestion` call.
+- Three sections make purpose / pre-action / call / constraints visually separate, so the model can't skip the chat briefing before tool call (doc-confirm-* constants explicitly require 3-8 bullets of summary).
+
+What this changes in behavior:
+- doc-confirm-* now explicitly mandates a chat briefing **before** the tool call (file path + 3-8 change bullets + open questions).
+- takeover-options explicitly forbids the "（推荐）" marker (user must judge based on other holder's liveness).
+- acceptance-gate conditionally moves the "（推荐）" marker (only when `n_fail=0`).
+- tasks-execution explicitly notes the 4 options have saturated the tool ceiling; Other for custom.
+- iteration-scope explicitly flags `multiSelect: true` as the **only** Type C usage in the protocol.
+
+`references/prompts.md` updated with a note that the Python-call form (`AskUserQuestion(questions=[...])`) and the YAML-indented form (used by the hook) are **semantically equivalent** — both mean "call the tool with these arguments".
+
+### Tests
+
+- `test_selector_prompts.py` snapshot assertions updated to match new
+  format (assert `选择器节点：`, `AskUserQuestion`, `multiSelect: false|true`,
+  YAML `options:` / `label:` markers, `Type something` + `Other` in
+  forbidden-list).
+- All 152 tests pass.
+
+### Migration
+
+None. Existing sessions / specs unaffected; hooks behavior otherwise
+unchanged. Plugin cache update sufficient:
+
+```sh
+claude plugin marketplace update specode
+claude plugin update specode
+# restart Claude Code
+```
+
 ## 0.7.1 (2026-05-19)
 
 ### Changed — selector protocol switched to AskUserQuestion

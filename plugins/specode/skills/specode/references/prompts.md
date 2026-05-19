@@ -233,10 +233,38 @@ AskUserQuestion(questions=[{
 
 ## hook 注入与模板替换
 
-`UserPromptSubmit` 的 `on-user-prompt` hook 在 `sessions/<id>.json.pending_selector` 命中某 key 时，把 `SELECTOR_PROMPTS[key]` 拿出来做字符串替换（`<slug>` / `<phase>` / `<spec_dir>` / `<source_text_head>` 等），包入 `additionalContext` 注入。模型看到注入后**唯一动作**：
+`UserPromptSubmit` 的 `on-user-prompt` hook 在 `sessions/<id>.json.pending_selector` 命中某 key 时，把 `SELECTOR_PROMPTS[key]` 拿出来做字符串替换（`<slug>` / `<phase>` / `<spec_dir>` / `<source_text_head>` 等），包入 `additionalContext` 注入。
 
-1. 在 chat 写 ≤8 行上下文简报（doc-confirm 类型必须含 3-8 条变更要点；接管类型必须含锁持有者信息）。
-2. 调 `AskUserQuestion` 工具，参数逐字采用 hook 给的模板。
+实际注入文本采用**三段式 + YAML 缩进**格式（与本文件 §A1-§C1 示例中的 Python-call 形式**等价**，仅书写风格不同；模型应将两种格式都视作"调 `AskUserQuestion` 工具"的同义指令）：
+
+```text
+## 选择器节点：<场景中文名>
+
+**目的**：<为什么呈现这个选择器；用户刚做了什么；下一步要决定什么>
+
+**上下文**：active spec=<slug>，phase=<phase>，<其他动态字段>
+
+**前置动作（chat 简报，≤N 行）**：<本轮工具调用前应先 chat 输出什么>
+
+**调用 `AskUserQuestion` 工具**（注意 multiSelect=...）：
+
+questions:
+  - question: "<完整问句>"
+    header: "<≤12 字 chip>"
+    multiSelect: <true|false>
+    options:
+      - label: "<选项 A>"
+        description: "<一句话>"
+      - label: "<选项 B>"
+        description: "<一句话>"
+
+**约束**：<列出本场景特定的禁区与硬规则>
+```
+
+模型看到注入后**唯一动作**：
+
+1. 在 chat 写 hook 提示中"前置动作"要求的简报内容（doc-confirm 类型必须含 3-8 条变更要点；接管类型必须含锁持有者信息）。
+2. 调 `AskUserQuestion` 工具，参数按 hook 给的 YAML 块**逐字**翻译为工具参数（不要翻译选项 label / description）。
 3. 工具返回后按用户选择推进下一步（调对应 CLI 子命令）。
 
 绝不允许：
