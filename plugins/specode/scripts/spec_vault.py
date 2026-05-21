@@ -1,295 +1,299 @@
 #!/usr/bin/env python3
+"""spec_vault.py — Obsidian vault 检测与 specode 根目录配置（详见 references/obsidian.md）。
+
+子命令：
+  detect            扫描三平台 obsidian.json，输出已知 vault 列表 (JSON)
+  status            输出当前 doc_root 与来源 (env / config / auto / none)
+  set --vault <p>   写 ~/.config/specode/config.json.obsidianRoot
+  set --root  <p>   同字段（不强调 vault 概念）
+
+退出码：0 ok / 3 用户引导（含 hard-stop 提示）。
+
+stdlib-only。
+"""
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
 import os
 import platform
-import re
 import sys
+import tempfile
+import time
 from pathlib import Path
-
-CONFIG_FILE = Path.home() / ".config" / "specode" / "config.json"
-
-
-def _safe_username() -> str:
-    """Return a filesystem-safe username, stripping domain prefix on Windows."""
-    try:
-        username = getpass.getuser()
-    except Exception:
-        username = os.environ.get("USERNAME") or os.environ.get("USER") or "user"
-    # Strip DOMAIN\user or domain/user prefix (Windows domain accounts)
-    username = re.sub(r"^[^/\\]+[/\\]", "", username)
-    # Replace characters that are invalid or awkward in directory names
-    username = re.sub(r"[^\w.-]", "-", username).strip("-")
-    return username or "user"
+from typing import Optional, Tuple
 
 
-def device_segment() -> Path:
-    """Return the vault-relative Path for this machine: spec-in/<os>-<user>/specs."""
-    os_map = {"Darwin": "macos", "Windows": "windows"}
-    os_name = os_map.get(platform.system(), platform.system().lower())
-    return Path("spec-in") / f"{os_name}-{_safe_username()}" / "specs"
+# -------------------------------------------------------------------------
+# 平台相关：obsidian.json 路径
+# -------------------------------------------------------------------------
 
-
-def obsidian_config_path() -> Path | None:
+def _obsidian_config_paths() -> list[Path]:
+    """返回当前平台下可能的 Obsidian obsidian.json 路径列表（按优先级）。"""
+    home = Path.home()
     system = platform.system()
+    paths: list[Path] = []
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "obsidian" / "obsidian.json"
-    if system == "Windows":
+        paths.append(home / "Library" / "Application Support" / "obsidian" / "obsidian.json")
+    elif system == "Windows":
         appdata = os.environ.get("APPDATA")
-        return Path(appdata) / "obsidian" / "obsidian.json" if appdata else None
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(xdg) if xdg else Path.home() / ".config"
-    return base / "obsidian" / "obsidian.json"
+        if appdata:
+            paths.append(Path(appdata) / "obsidian" / "obsidian.json")
+        paths.append(home / "AppData" / "Roaming" / "obsidian" / "obsidian.json")
+    else:
+        # Linux / others
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        if xdg:
+            paths.append(Path(xdg) / "obsidian" / "obsidian.json")
+        paths.append(home / ".config" / "obsidian" / "obsidian.json")
+        # Flatpak
+        paths.append(home / ".var" / "app" / "md.obsidian.Obsidian" / "config" / "obsidian" / "obsidian.json")
+    return paths
 
 
-def read_vaults() -> list[dict]:
-    config_path = obsidian_config_path()
-    if not config_path or not config_path.exists():
-        return []
-    try:
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        result = []
-        for _vid, v in (data.get("vaults") or {}).items():
-            path_str = v.get("path")
-            if path_str and Path(path_str).exists():
-                result.append({
-                    "path": path_str,
-                    "ts": v.get("ts", 0),
-                    "open": v.get("open", False),
-                })
-        return result
-    except Exception:
-        return []
-
-
-def pick_best_vault(vaults: list[dict]) -> dict | None:
-    if not vaults:
-        return None
-    open_vaults = sorted([v for v in vaults if v.get("open")], key=lambda v: v["ts"], reverse=True)
-    if open_vaults:
-        return open_vaults[0]
-    return sorted(vaults, key=lambda v: v["ts"], reverse=True)[0]
-
-
-def read_config() -> dict:
-    if CONFIG_FILE.exists():
+def _load_obsidian_vaults() -> list[dict]:
+    """读所有 obsidian.json，返回 vault 列表（含 path、open、mtime）。"""
+    results: list[dict] = []
+    seen: set[str] = set()
+    for cfg in _obsidian_config_paths():
         try:
-            return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            if not cfg.exists():
+                continue
+            with cfg.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
         except Exception:
-            return {}
+            continue
+        vaults = data.get("vaults", {})
+        if not isinstance(vaults, dict):
+            continue
+        for vid, info in vaults.items():
+            if not isinstance(info, dict):
+                continue
+            path = info.get("path")
+            if not path or not isinstance(path, str):
+                continue
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                mtime = float(info.get("ts", 0)) / 1000.0
+            except Exception:
+                mtime = 0.0
+            exists = False
+            try:
+                exists = Path(path).exists()
+            except Exception:
+                exists = False
+            results.append({
+                "id": vid,
+                "path": path,
+                "open": bool(info.get("open", False)),
+                "mtime": mtime,
+                "exists": exists,
+                "source_config": str(cfg),
+            })
+    # 按 (open desc, mtime desc) 排序
+    results.sort(key=lambda v: (0 if v.get("open") else 1, -float(v.get("mtime") or 0)))
+    return results
+
+
+# -------------------------------------------------------------------------
+# specode 配置文件 (~/.config/specode/config.json)
+# -------------------------------------------------------------------------
+
+def _specode_config_path() -> Path:
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg) if xdg else (Path.home() / ".config")
+    return base / "specode" / "config.json"
+
+
+def _load_specode_config() -> dict:
+    p = _specode_config_path()
+    if not p.exists():
+        return {}
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
     return {}
 
 
-def write_config(cfg: dict) -> None:
-    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = CONFIG_FILE.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(CONFIG_FILE)
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    """tempfile -> os.replace -> fsync。失败抛异常。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+            fh.flush()
+            try:
+                os.fsync(fh.fileno())
+            except OSError:
+                pass
+        os.replace(tmp, path)
+        # fsync parent dir 提高跨进程一致性（Windows 上无效，忽略）
+        try:
+            dir_fd = os.open(str(path.parent), os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            except OSError:
+                pass
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
-def resolve_spec_root() -> tuple[Path | None, str]:
-    """Return (resolved_path, source_tag) or (None, 'not_found').
+def _save_specode_config(cfg: dict) -> None:
+    _atomic_write_json(_specode_config_path(), cfg)
 
-    On first successful Obsidian detection, auto-saves the resolved path to
-    config.json so subsequent calls are stable even if Obsidian is not running.
+
+# -------------------------------------------------------------------------
+# 三层 resolve_doc_root
+# -------------------------------------------------------------------------
+
+def resolve_doc_root(override: Optional[str] = None) -> Tuple[Optional[Path], str]:
+    """三层根目录解析。
+
+    优先级：
+      1. override 参数（--root 或 SPECODE_ROOT 环境变量）
+      2. ~/.config/specode/config.json.obsidianRoot
+      3. 自动 vault 检测（取第一个 exists 且 open 的 vault，或第一个 exists 的）
+
+    返回 (Path|None, source)。source ∈ {'override', 'env', 'config', 'auto', 'none'}。
     """
+    # 1. override 优先：参数 > 环境变量
+    if override:
+        p = Path(override).expanduser()
+        return (p, "override")
+
     env_root = os.environ.get("SPECODE_ROOT")
     if env_root:
-        return Path(env_root).expanduser().resolve(), "env"
+        return (Path(env_root).expanduser(), "env")
 
-    cfg = read_config()
-    if cfg.get("obsidianRoot"):
-        return Path(cfg["obsidianRoot"]).expanduser().resolve(), "config"
+    # 2. config.json
+    cfg = _load_specode_config()
+    root = cfg.get("obsidianRoot") or cfg.get("docRoot")
+    if root and isinstance(root, str):
+        return (Path(root).expanduser(), "config")
 
-    vaults = read_vaults()
-    best = pick_best_vault(vaults)
-    if best:
-        root = Path(best["path"]) / device_segment()
-        cfg["vaultPath"] = best["path"]
-        cfg["obsidianRoot"] = str(root)
-        write_config(cfg)
-        return root, "obsidian"
+    # 3. auto-detect
+    vaults = _load_obsidian_vaults()
+    for v in vaults:
+        if v.get("exists"):
+            return (Path(v["path"]), "auto")
 
-    return None, "not_found"
-
-
-def configured_spec_root() -> tuple[Path | None, str]:
-    """Return the spec root explicitly recorded by specode config.json."""
-    cfg = read_config()
-    if cfg.get("obsidianRoot"):
-        return Path(cfg["obsidianRoot"]).expanduser().resolve(), "config"
-    return None, "not_found"
+    return (None, "none")
 
 
-def list_other_root_specs(current_root: Path) -> list[dict[str, object]]:
-    """Look for spec folders living under known historical fallback locations.
+# -------------------------------------------------------------------------
+# 子命令
+# -------------------------------------------------------------------------
 
-    Used to warn users after `--set-root` / `--set-vault` so they know specs
-    created under the old root are not auto-migrated.
-    """
-    candidates: list[Path] = []
-    cwd = Path.cwd().resolve()
-    candidates.append(cwd / "specs")
-    candidates.append(Path.home() / "new project" / "specs")
-    seen: list[dict[str, object]] = []
-    for candidate in candidates:
-        if not candidate.exists() or candidate.resolve() == current_root.resolve():
-            continue
-        for child in sorted(candidate.iterdir()):
-            if child.is_dir() and (child / ".config.json").exists():
-                seen.append({"slug": child.name, "path": str(child)})
-    return seen
-
-
-def command_detect(args: argparse.Namespace) -> int:
-    config_path = obsidian_config_path()
-    vaults = read_vaults()
-    best = pick_best_vault(vaults)
-    cfg = read_config()
-
-    if args.json:
-        print(json.dumps({
-            "platform": platform.system(),
-            "obsidianConfigPath": str(config_path) if config_path else None,
-            "obsidianConfigExists": bool(config_path and config_path.exists()),
-            "vaults": vaults,
-            "bestVault": best,
-            "specModeConfig": str(CONFIG_FILE),
-            "specModeConfigExists": CONFIG_FILE.exists(),
-            "currentConfig": cfg,
-        }, ensure_ascii=False, indent=2))
-        return 0
-
-    if not vaults:
-        print("未检测到 Obsidian 安装，或没有已注册的 vault。")
-        print(f"  Obsidian 配置路径: {config_path}")
-        print()
-        print("请选择以下方式之一：")
-        print("  1. 安装 Obsidian 后重试（推荐）")
-        print("  2. /spec --set-vault <vault路径>")
-        print("  3. /spec --set-root <自定义目录>")
-    else:
-        print(f"检测到 {len(vaults)} 个 vault：")
-        for v in vaults:
-            marker = "► " if v == best else "  "
-            status = "open" if v.get("open") else "closed"
-            print(f"{marker}{v['path']}  [{status}]")
-        if best:
-            print(f"\n将使用: {Path(best['path']) / device_segment()}")
-    return 0
-
-
-def command_set(args: argparse.Namespace) -> int:
-    cfg = read_config()
-    changed = False
-
-    if args.vault:
-        vault = Path(args.vault).expanduser().resolve()
-        segment = device_segment()
-        cfg["vaultPath"] = str(vault)
-        cfg["obsidianRoot"] = str(vault / segment)
-        changed = True
-        print(f"vault:     {vault}")
-        print(f"spec root: {vault / segment}")
-
-    if args.root:
-        cfg["obsidianRoot"] = str(Path(args.root).expanduser().resolve())
-        changed = True
-        print(f"spec root: {cfg['obsidianRoot']}")
-
-    if not changed:
-        print("未指定任何参数。可用选项：", file=sys.stderr)
-        print("  --vault <vault路径>    设置 Obsidian vault，spec 存入 vault/spec-in/<os>-<user>/specs", file=sys.stderr)
-        print("  --root  <目录>         直接指定 spec 文档根目录（完全自定义路径）", file=sys.stderr)
-        return 1
-
-    write_config(cfg)
-    print(f"\n配置已保存至: {CONFIG_FILE}")
-    print("  (此后每次 /spec 自动使用此路径；任何时候可再次运行 set 修改)")
-
-    new_root = Path(cfg["obsidianRoot"]).expanduser().resolve()
-    others = list_other_root_specs(new_root)
-    if others:
-        print()
-        print(f"⚠ 检测到旧位置仍有 {len(others)} 个 spec（不会自动迁移）：")
-        for entry in others[:10]:
-            print(f"    - {entry['slug']}   {entry['path']}")
-        if len(others) > 10:
-            print(f"    ... 还有 {len(others) - 10} 个")
-        print("  如需迁移，请手动 mv 并更新各 spec 的 .config.json.documentRoot 字段。")
-    return 0
-
-
-def command_get(args: argparse.Namespace) -> int:
-    if args.configured_only:
-        root, source = configured_spec_root()
-    else:
-        root, source = resolve_spec_root()
-    cfg = read_config()
-
-    if args.json:
-        print(json.dumps({
-            "specRoot": str(root) if root else None,
-            "source": source,
-            "config": cfg,
-            "configFile": str(CONFIG_FILE),
-        }, ensure_ascii=False, indent=2))
-        return 0
-
-    source_labels = {
-        "env": "SPECODE_ROOT 环境变量",
-        "config": "specode 配置文件",
-        "obsidian": "Obsidian 自动检测",
-        "not_found": "未配置",
+def cmd_detect(args: argparse.Namespace) -> int:
+    vaults = _load_obsidian_vaults()
+    payload = {
+        "platform": platform.system(),
+        "configs_checked": [str(p) for p in _obsidian_config_paths()],
+        "vaults": vaults,
+        "count": len(vaults),
     }
-    if root:
-        print(f"spec 文档根目录: {root}")
-        print(f"来源: {source_labels.get(source, source)}")
-        others = list_other_root_specs(root)
-        if others:
-            print()
-            print(f"⚠ 旧位置仍有 {len(others)} 个 spec（不会自动迁移）：")
-            for entry in others[:10]:
-                print(f"    - {entry['slug']}   {entry['path']}")
-            if len(others) > 10:
-                print(f"    ... 还有 {len(others) - 10} 个")
-    else:
-        print("未配置 spec 文档根目录。")
-        print()
-        print("请选择以下方式之一：")
-        print("  1. 安装 Obsidian 后重试（推荐）")
-        print("  2. /spec --set-vault <vault路径>")
-        print("  3. /spec --set-root <自定义目录>")
-    print(f"配置文件: {CONFIG_FILE} ({'存在' if CONFIG_FILE.exists() else '不存在'})")
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     return 0
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Obsidian vault detection and specode root configuration.",
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
+def cmd_status(args: argparse.Namespace) -> int:
+    root, source = resolve_doc_root()
+    payload: dict = {
+        "doc_root": str(root) if root else None,
+        "source": source,
+        "exists": bool(root and root.exists()),
+        "config_path": str(_specode_config_path()),
+        "env_SPECODE_ROOT": os.environ.get("SPECODE_ROOT"),
+    }
+    if source == "none":
+        payload["hint"] = (
+            "未检测到 specode 根目录。可任选其一：\n"
+            "  1) 运行 `spec_vault.py set --vault <path>` 写入持久配置；\n"
+            "  2) 在环境变量中 export SPECODE_ROOT=<path>；\n"
+            "  3) 在 Obsidian 中打开任意 vault 后再次运行 detect。"
+        )
+        sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        return 3
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    return 0
 
-    detect_p = sub.add_parser("detect", help="检测已安装的 Obsidian vault。")
-    detect_p.add_argument("--json", action="store_true")
-    detect_p.set_defaults(func=command_detect)
 
-    set_p = sub.add_parser("set", help="设置 spec 文档根目录或 vault 路径。")
-    set_p.add_argument("--vault", help="Obsidian vault 路径。spec root = vault/spec-in/<os>-<user>/specs。")
-    set_p.add_argument("--root", help="直接指定 spec 文档根目录（完全自定义路径）。")
-    set_p.set_defaults(func=command_set)
+def cmd_set(args: argparse.Namespace) -> int:
+    target = args.vault or args.root
+    if not target:
+        sys.stderr.write("用法：spec_vault.py set --vault <path>   或   set --root <path>\n")
+        return 3
+    p = Path(target).expanduser().resolve()
+    if not p.exists():
+        sys.stderr.write(f"路径不存在：{p}\n请确认目录已创建后再次执行。\n")
+        return 3
+    if not p.is_dir():
+        sys.stderr.write(f"路径不是目录：{p}\n")
+        return 3
+    cfg = _load_specode_config()
+    cfg["obsidianRoot"] = str(p)
+    cfg["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        _save_specode_config(cfg)
+    except Exception as e:
+        sys.stderr.write(f"写入 {_specode_config_path()} 失败：{e}\n")
+        return 1
+    sys.stdout.write(json.dumps({
+        "ok": True,
+        "doc_root": str(p),
+        "config_path": str(_specode_config_path()),
+    }, ensure_ascii=False, indent=2) + "\n")
+    return 0
 
-    get_p = sub.add_parser("get", help="显示当前解析到的 spec 文档根目录。")
-    get_p.add_argument("--json", action="store_true")
-    get_p.add_argument("--configured-only", action="store_true", help="只读取 specode config.json 中记录的根目录，不自动检测或回退。")
-    get_p.set_defaults(func=command_get)
 
-    args = parser.parse_args()
-    return args.func(args)
+# -------------------------------------------------------------------------
+# entry
+# -------------------------------------------------------------------------
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="spec_vault.py", description="specode vault detection & root configuration")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("detect", help="探测平台 obsidian.json，列出已知 vault")
+    sub.add_parser("status", help="输出当前 doc_root 与来源")
+
+    p_set = sub.add_parser("set", help="写入 ~/.config/specode/config.json")
+    g = p_set.add_mutually_exclusive_group(required=True)
+    g.add_argument("--vault", help="设置 vault 根目录")
+    g.add_argument("--root", help="设置 doc 根目录（不强调 vault 概念）")
+
+    args = parser.parse_args(argv)
+    if args.cmd == "detect":
+        return cmd_detect(args)
+    if args.cmd == "status":
+        return cmd_status(args)
+    if args.cmd == "set":
+        return cmd_set(args)
+    parser.print_help()
+    return 3
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

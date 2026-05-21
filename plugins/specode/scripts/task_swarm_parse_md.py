@@ -1,313 +1,242 @@
-"""tasks.md parser for task-swarm.
+#!/usr/bin/env python3
+"""task_swarm_parse_md.py — 解析 tasks.md 为 stage 列表，并按文件冲突切 group（references/task-swarm.md §2）。
 
-Extracts the dispatch plan from a specode-style tasks.md:
-  - top-level stages (`- [ ] N. 标题`)
-  - leaf tasks (`  - [ ] N.M 标题`)
-  - checkpoint stages (top-level + title contains "检查点")
-  - leaf metadata: `文件:` / `验证:` / `_需求:x.y_`
-  - `@swarm:full | coder-only | skip` tags + heuristic defaults
+输入：tasks.md 路径
+输出：
+    parse_tasks_md(path) -> list[Stage]
+    group_by_file_conflict(stages, max_parallel=N) -> list[list[Stage]]
 
-Outputs a structured plan: stage list, deps (sequential by default), parallel
-groups (stages with disjoint file sets), warnings.
-
-This module is pure-function: input is tasks.md text, output is dict (JSON-safe).
+stdlib-only。
 """
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field, asdict
-from typing import Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
 
 
-# ---------- regex ----------
-
-# Top-level stage: `- [ ] N. 标题` (allow [x] / [~] / [*] markers).
-STAGE_RE = re.compile(r"^- \[([ x~*\-])\] (\d+)\. (.+?)\s*$")
-
-# Leaf task: 2-space indent + `- [ ] N.M 标题`.
-LEAF_RE = re.compile(r"^  - \[([ x~*\-])\] (\d+\.\d+) (.+?)\s*$")
-
-# Metadata lines under a leaf (4-space indent).
-FILE_RE = re.compile(r"^    - (?:文件|files?)[：:]\s*(.+?)\s*$", re.IGNORECASE)
-VERIFY_RE = re.compile(r"^    - (?:验证|verify)[：:]\s*(.+?)\s*$", re.IGNORECASE)
-REQ_RE = re.compile(r"^    - _(?:需求|requirements?)[：:]\s*(.+?)_\s*$", re.IGNORECASE)
-
-# `@swarm:xxx` tags anywhere in a leaf title or metadata.
-TAG_RE = re.compile(r"@swarm:(\w[\w-]*)")
-
-VALID_TAGS = {"full", "coder-only", "skip"}
-
-CHECKPOINT_KEYWORDS = ("检查点", "checkpoint")
-
-
-# ---------- data classes ----------
+# -------------------------------------------------------------------------
+# 数据结构
+# -------------------------------------------------------------------------
 
 @dataclass
-class Leaf:
-    num: str                       # "1.1"
-    title: str
-    files: list[str] = field(default_factory=list)
-    verify: str = ""
-    requirement: str = ""
-    tags_raw: list[str] = field(default_factory=list)   # ["full", "coder-only", ...]
-    policy: str = "default"        # final decision: full | coder-only | skip | default
-    optional: bool = False         # came from `[*]` marker
-    line: int = 0                  # original line number (1-based)
+class StageItem:
+    """tasks.md 中一个 - [ ] N.M ... 行（叶子子任务）。"""
+    number: str  # 例如 "1.1" / "2.3"
+    title: str  # 不含 @writes/@reads/_需求_ 等标签的纯标题
+    writes: list[str] = field(default_factory=list)
+    reads: list[str] = field(default_factory=list)
+    requirements: list[str] = field(default_factory=list)  # 形如 "1.1" / "1.2"
+    depends_on: list[str] = field(default_factory=list)  # 形如 "2.1"
+    raw_line: str = ""  # 原始行，writeback 时用作精确定位
+    checkbox: str = " "  # 当前 checkbox 字符（空格 / x）
+    line_no: int = 0  # 在 tasks.md 中的 1-based 行号
 
 
 @dataclass
 class Stage:
-    num: int
-    title: str
-    kind: str                      # "stage" | "checkpoint"
-    leaves: list[Leaf] = field(default_factory=list)
-    deps: list[int] = field(default_factory=list)   # stage numbers
-    files_union: list[str] = field(default_factory=list)
-    optional: bool = False
-    checkpoint_for: int | None = None
-    line: int = 0
+    """tasks.md 中一个 ## 阶段 N: ... 段，包含若干 StageItem。"""
+    number: int  # 1, 2, 3, ...
+    title: str  # 标题（不含 "阶段 N: " 前缀）
+    items: list[StageItem] = field(default_factory=list)
+    header_line_no: int = 0  # 标题所在行号
+    end_line_no: int = 0  # 段最后一行（下个阶段标题前 / 文末）
+
+    @property
+    def writes(self) -> list[str]:
+        """聚合该 stage 全部 item 的 @writes 集合。"""
+        out: list[str] = []
+        for it in self.items:
+            for w in it.writes:
+                if w not in out:
+                    out.append(w)
+        return out
+
+    @property
+    def reads(self) -> list[str]:
+        """聚合该 stage 全部 item 的 @reads 集合。"""
+        out: list[str] = []
+        for it in self.items:
+            for r in it.reads:
+                if r not in out:
+                    out.append(r)
+        return out
+
+    @property
+    def depends_on(self) -> list[int]:
+        """聚合该 stage 全部 item 的 @depends-on（取数字段，转为 int stage 号）。"""
+        out: list[int] = []
+        for it in self.items:
+            for d in it.depends_on:
+                # 接受 "2" / "2.1" 两种格式；统一取主 stage 号
+                head = d.split(".", 1)[0].strip()
+                try:
+                    n = int(head)
+                except ValueError:
+                    continue
+                if n != self.number and n not in out:
+                    out.append(n)
+        return out
 
 
-@dataclass
-class Plan:
-    stages: list[Stage] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+# -------------------------------------------------------------------------
+# 解析
+# -------------------------------------------------------------------------
 
-    def to_dict(self) -> dict:
-        return {
-            "stages": [asdict(s) for s in self.stages],
-            "warnings": list(self.warnings),
-        }
+_STAGE_HEADER_RE = re.compile(r"^\s*##\s+阶段\s+(\d+)\s*[:：]\s*(.+?)\s*$")
+_ITEM_RE = re.compile(r"^\s*-\s+\[(?P<box>[ xX])\]\s+(?P<num>\d+(?:\.\d+)+)\s+(?P<rest>.*)$")
+_WRITES_RE = re.compile(r"@writes\s*[:：]\s*([^\s@_]+)")
+_READS_RE = re.compile(r"@reads\s*[:：]\s*([^\s@_]+)")
+_DEPENDS_RE = re.compile(r"@depends-on\s*[:：]\s*([^\s@_]+)")
+_REQ_RE = re.compile(r"_需求[：:]\s*([^_]+?)_")
 
 
-# ---------- parsing ----------
+def _split_csv(s: str) -> list[str]:
+    return [p.strip() for p in re.split(r"[,，]", s) if p.strip()]
 
-def parse_tasks_md(text: str) -> Plan:
-    """Parse tasks.md text → Plan.
 
-    Lenient — unknown lines are ignored. Errors that affect dispatch (missing
-    files for full-mode leaves, malformed numbers) are surfaced as warnings.
+def parse_tasks_md(path: Path) -> list[Stage]:
+    """解析 tasks.md，返回 Stage 列表。
+
+    解析规则：
+        - 阶段标题：`## 阶段 N: <标题>` 或 `## 阶段 N：<标题>`
+        - 子任务：`- [ ] N.M <标题> @writes:a.py,b.py @reads:c.py @depends-on:2.1 _需求：1.1,1.2_`
+        - tag 之间分隔符可空格；中文/英文冒号都识别
+        - 非阶段块行（介绍、备注）忽略
     """
-    plan = Plan()
-    current_stage: Stage | None = None
-    current_leaf: Leaf | None = None
-
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
-    for idx, raw in enumerate(lines, start=1):
-        # Stage match must come first since leaves are also dashes.
-        m_stage = STAGE_RE.match(raw)
-        if m_stage:
-            current_leaf = None
-            marker, num_s, title = m_stage.group(1), m_stage.group(2), m_stage.group(3)
-            num = int(num_s)
-            kind = "checkpoint" if any(kw in title for kw in CHECKPOINT_KEYWORDS) else "stage"
-            stage = Stage(
-                num=num,
-                title=title.strip(),
-                kind=kind,
-                optional=(marker == "*"),
-                line=idx,
+
+    stages: list[Stage] = []
+    current: Optional[Stage] = None
+
+    for idx, line in enumerate(lines, start=1):
+        m = _STAGE_HEADER_RE.match(line)
+        if m:
+            if current is not None:
+                current.end_line_no = idx - 1
+                stages.append(current)
+            current = Stage(
+                number=int(m.group(1)),
+                title=m.group(2).strip(),
+                header_line_no=idx,
             )
-            plan.stages.append(stage)
-            current_stage = stage
             continue
-
-        m_leaf = LEAF_RE.match(raw)
-        if m_leaf and current_stage is not None:
-            marker, leaf_num, title = m_leaf.group(1), m_leaf.group(2), m_leaf.group(3)
-            tags = TAG_RE.findall(title)
-            # Strip tag suffixes from the title for cleanliness.
-            clean_title = TAG_RE.sub("", title).rstrip()
-            leaf = Leaf(
-                num=leaf_num,
-                title=clean_title,
-                tags_raw=list(tags),
-                optional=(marker == "*"),
-                line=idx,
-            )
-            current_stage.leaves.append(leaf)
-            current_leaf = leaf
+        if current is None:
             continue
-
-        if current_leaf is None:
+        im = _ITEM_RE.match(line)
+        if not im:
             continue
+        num = im.group("num")
+        rest = im.group("rest")
+        # 提取标签
+        writes = _split_csv(_WRITES_RE.search(rest).group(1)) if _WRITES_RE.search(rest) else []
+        reads = _split_csv(_READS_RE.search(rest).group(1)) if _READS_RE.search(rest) else []
+        depends_on = _split_csv(_DEPENDS_RE.search(rest).group(1)) if _DEPENDS_RE.search(rest) else []
+        reqs = _split_csv(_REQ_RE.search(rest).group(1)) if _REQ_RE.search(rest) else []
+        # 标题：去掉所有标签后剩余
+        title = rest
+        for r in (_WRITES_RE, _READS_RE, _DEPENDS_RE, _REQ_RE):
+            title = r.sub("", title)
+        title = re.sub(r"\s+", " ", title).strip()
+        current.items.append(StageItem(
+            number=num,
+            title=title,
+            writes=writes,
+            reads=reads,
+            requirements=reqs,
+            depends_on=depends_on,
+            raw_line=line,
+            checkbox=im.group("box"),
+            line_no=idx,
+        ))
 
-        m_file = FILE_RE.match(raw)
-        if m_file:
-            for fp in _split_files(m_file.group(1)):
-                current_leaf.files.append(fp)
-            # Tags can also live on the file line.
-            current_leaf.tags_raw.extend(TAG_RE.findall(raw))
-            continue
-        m_verify = VERIFY_RE.match(raw)
-        if m_verify:
-            current_leaf.verify = m_verify.group(1).strip()
-            current_leaf.tags_raw.extend(TAG_RE.findall(raw))
-            continue
-        m_req = REQ_RE.match(raw)
-        if m_req:
-            current_leaf.requirement = m_req.group(1).strip()
-            current_leaf.tags_raw.extend(TAG_RE.findall(raw))
-            continue
+    if current is not None:
+        current.end_line_no = len(lines)
+        stages.append(current)
 
-        # Plain tag line under a leaf (e.g., "    - @swarm:full").
-        tags_on_line = TAG_RE.findall(raw)
-        if tags_on_line:
-            current_leaf.tags_raw.extend(tags_on_line)
-
-    # Post-process: tag arbitration, deps, file unions.
-    _arbitrate_tags(plan)
-    _link_checkpoints(plan)
-    _compute_file_unions(plan)
-    _compute_deps(plan)
-    return plan
-
-
-def _split_files(raw: str) -> list[str]:
-    out: list[str] = []
-    for piece in re.split(r"[,，]", raw):
-        piece = piece.strip().strip("`").strip()
-        if piece:
-            out.append(piece)
-    return out
+    return stages
 
 
-# ---------- tag arbitration ----------
+# -------------------------------------------------------------------------
+# group 切分（references/task-swarm.md §2）
+# -------------------------------------------------------------------------
 
-def _arbitrate_tags(plan: Plan) -> None:
-    """Resolve `@swarm:*` tags + heuristic defaults per leaf.
+def group_by_file_conflict(
+    stages: list[Stage],
+    max_parallel: int = 4,
+) -> list[list[Stage]]:
+    """按 references/task-swarm.md §2 把 stage 切成 group：
 
-    Priority (high → low):
-      1. @swarm:skip wins unconditionally.
-      2. Explicit @swarm:full > @swarm:coder-only.
-      3. Explicit any-tag overrides heuristic.
-      4. Heuristic: optional ([*]) OR no `_需求:_` → coder-only.
-      5. Otherwise: default (stage-aggregated).
+    - 同 group 内任意两 stage 的 @writes 集合不相交且无 @depends-on 关系
+    - 跨 group 串行：上一 group 全部 pass 后才能开 next group
+    - 每 group 上限 = max_parallel
+    - stage 顺序保留（按 stage.number 排序）
 
-    Unknown tags → warning + ignored.
+    依赖关系：若 stage X depends_on Y，X 所在 group 的 index 必须严格大于 Y 所在 group 的 index。
     """
-    for stage in plan.stages:
-        for leaf in stage.leaves:
-            explicit: set[str] = set()
-            for t in leaf.tags_raw:
-                if t in VALID_TAGS:
-                    explicit.add(t)
-                else:
-                    plan.warnings.append(
-                        f"[WARN] T{leaf.num} 无效 @swarm: 标签 \"{t}\"，已忽略"
-                    )
-            # Dedup tags_raw to valid only (preserves what user wrote, normalized).
-            leaf.tags_raw = sorted(explicit)
+    if not stages:
+        return []
+    if max_parallel < 1:
+        max_parallel = 1
 
-            if "skip" in explicit:
-                if explicit - {"skip"}:
-                    plan.warnings.append(
-                        f"[INFO] T{leaf.num} 标签冲突 {sorted(explicit)} → 采用 skip"
-                    )
-                leaf.policy = "skip"
+    sorted_stages = sorted(stages, key=lambda s: s.number)
+    stage_group: dict[int, int] = {}  # stage.number -> group index
+    groups: list[list[Stage]] = []
+
+    for st in sorted_stages:
+        placed = False
+        # 计算依赖最低可放 group：所有依赖所在 group 的最大 index + 1
+        min_idx = 0
+        for dep in st.depends_on:
+            if dep in stage_group:
+                min_idx = max(min_idx, stage_group[dep] + 1)
+        # 尝试放入已有 group（>=min_idx）
+        for gi in range(min_idx, len(groups)):
+            g = groups[gi]
+            if len(g) >= max_parallel:
                 continue
-            if "full" in explicit and "coder-only" in explicit:
-                plan.warnings.append(
-                    f"[INFO] T{leaf.num} 标签冲突 @swarm:full + @swarm:coder-only → 采用 full"
-                )
-                leaf.policy = "full"
-                continue
-            if "full" in explicit:
-                leaf.policy = "full"
-                continue
-            if "coder-only" in explicit:
-                leaf.policy = "coder-only"
-                continue
-            # heuristic
-            if leaf.optional or not leaf.requirement:
-                leaf.policy = "coder-only"
-            else:
-                leaf.policy = "default"
+            # 检查与 group 内每个 stage 的冲突
+            ok = True
+            for other in g:
+                # 文件冲突
+                if set(st.writes) & set(other.writes):
+                    ok = False
+                    break
+                # 直接依赖（双向）
+                if other.number in st.depends_on or st.number in other.depends_on:
+                    ok = False
+                    break
+            if ok:
+                g.append(st)
+                stage_group[st.number] = gi
+                placed = True
+                break
+        if not placed:
+            groups.append([st])
+            stage_group[st.number] = len(groups) - 1
+    return groups
 
 
-# ---------- deps + parallelism ----------
+# -------------------------------------------------------------------------
+# 模块自测
+# -------------------------------------------------------------------------
 
-def _link_checkpoints(plan: Plan) -> None:
-    """Link each checkpoint stage to the previous non-checkpoint stage."""
-    last_stage_num: int | None = None
-    for stage in plan.stages:
-        if stage.kind == "stage":
-            last_stage_num = stage.num
-        else:
-            stage.checkpoint_for = last_stage_num
-
-
-def _compute_file_unions(plan: Plan) -> None:
-    for stage in plan.stages:
-        seen: set[str] = set()
-        union: list[str] = []
-        for leaf in stage.leaves:
-            if leaf.policy == "skip":
-                continue
-            for f in leaf.files:
-                if f not in seen:
-                    seen.add(f)
-                    union.append(f)
-        stage.files_union = union
-
-
-def _compute_deps(plan: Plan) -> None:
-    """Compute stage-level deps.
-
-    Default rule:
-      - A checkpoint stage depends on the stage it follows (checkpoint_for).
-      - Otherwise, deps stay empty (potential parallelism is determined by
-        file-union disjointness at dispatch time, not encoded here).
-
-    Future versions may parse explicit `@depends-on:N` tags from stage titles.
-    """
-    for stage in plan.stages:
-        if stage.kind == "checkpoint" and stage.checkpoint_for is not None:
-            stage.deps = [stage.checkpoint_for]
-
-
-# ---------- helpers used by orchestrator ----------
-
-def parallelizable(a: Stage, b: Stage) -> bool:
-    """Two stages may run in parallel if their file unions are disjoint and
-    neither depends on the other.
-    """
-    if a.num in b.deps or b.num in a.deps:
-        return False
-    fa = set(a.files_union)
-    fb = set(b.files_union)
-    return not (fa & fb)
-
-
-def stages_with_role(plan: Plan, role: str) -> Iterable[Stage]:
-    """Yield stages that need the given role to be dispatched.
-
-    - role='coder' or 'reviewer': stages with at least one non-skip leaf and
-      at least one leaf with policy in {full, default, coder-only}.
-      (coder-only leaves get coder but skip reviewer; the reviewer call still
-      happens for the stage if ANY default/full leaf is present.)
-    - role='validator': only stages of kind 'checkpoint'.
-    """
-    if role == "validator":
-        for s in plan.stages:
-            if s.kind == "checkpoint":
-                yield s
-        return
-    for s in plan.stages:
-        if s.kind != "stage":
-            continue
-        non_skip = [l for l in s.leaves if l.policy != "skip"]
-        if not non_skip:
-            continue
-        if role == "coder":
-            yield s
-            continue
-        if role == "reviewer":
-            if any(l.policy in {"full", "default"} for l in s.leaves):
-                yield s
-
-
-def parse_file(path) -> Plan:
-    from pathlib import Path
-    text = Path(path).read_text(encoding="utf-8")
-    return parse_tasks_md(text)
+if __name__ == "__main__":  # pragma: no cover
+    import sys
+    if len(sys.argv) < 2:
+        print("usage: task_swarm_parse_md.py <tasks.md>")
+        raise SystemExit(2)
+    stages = parse_tasks_md(Path(sys.argv[1]))
+    for s in stages:
+        print(f"## 阶段 {s.number}: {s.title} (lines {s.header_line_no}-{s.end_line_no})")
+        for it in s.items:
+            print(f"  - [{it.checkbox}] {it.number} {it.title} "
+                  f"writes={it.writes} reads={it.reads} deps={it.depends_on} req={it.requirements}")
+    groups = group_by_file_conflict(stages)
+    print("\nGroups:")
+    for gi, g in enumerate(groups):
+        print(f"  group {gi}: {[s.number for s in g]}")

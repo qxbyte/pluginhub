@@ -4,6 +4,1000 @@
 
 _no entries yet_
 
+## 0.10.1 (2026-05-20)
+
+### Changed — `/specode:spec -h` help 文本
+
+`plugins/specode/scripts/spec_session.py` 内 `HELP_OUTPUT_TEXT` 改为模板：
+
+- 版本号不再硬编码为 `v0.6`，改为运行时从 `.claude-plugin/plugin.json`
+  读 `version` 注入（失败降级 `unknown`），后续 bump 不再需要手动改 help。
+- 新增「会话日志（v0.10.0+）」段，简述 logs/ 默认行为、env / config
+  双开关优先级、`spec_log.py status / replay` 用法，作为新用户从 help
+  入口直达日志能力的导航。
+
+无业务行为变化；纯文档/渲染层调整。
+
+## 0.10.0 (2026-05-20)
+
+### Added — Session 日志收集（默认开启，可关）
+
+新增 `plugins/specode/scripts/spec_log.py` 模块 + 双 hook 通配监听
++ 各 CLI 入口集成，全程收集 spec 模式期间的事件流，便于排查
+"主代理为什么走偏 / 漏 fork spec-writer / 选错 selector" 等问题。
+
+收集的事件类型：
+
+- `hook_invoked` —— 每个 hook（SessionStart / UserPromptSubmit /
+  Stop / SessionEnd / PostToolUse Task / PreToolUse Edit|Write|MultiEdit /
+  on-heartbeat-quiet）触发时
+- `tool_pre` / `tool_post` —— 主代理每次 Bash / Read / Write / Edit /
+  Task 等工具调用前后（PreToolUse `*` + PostToolUse `*` 全通配新 hook）
+- `cli_call` / `cli_exit` —— specode 自身 CLI（spec_session /
+  spec_init / spec_status / task_swarm）被调用前后的 cmd / argv / exit_code
+- `hook_exception` —— hook 内部异常 trace（被 _safe_hook 吞并的，仍记日志）
+
+**存储**：`~/.specode/logs/<session_id>.jsonl`（每行一个 JSON event；
+无 session_id 的事件落 `_orphan.jsonl`）。
+
+**双开关**（默认开启）：
+
+```sh
+# 临时关闭（仅当前 shell）
+export SPECODE_LOG=off
+
+# 永久关闭：编辑 ~/.config/specode/config.json 加
+#   { "logging": false }
+```
+
+env 优先于 config；env 可取 `off / false / 0 / no` 关闭，`on / true / 1 / yes` 强制打开。
+
+**隐私保护**（默认）：
+
+- 字段名 redact 黑名单：`password / passwd / pwd / api_key / apikey /
+  token / access_token / refresh_token / secret / client_secret /
+  authorization / auth / cookie / private_key / ssh_key` 命中即替换为
+  `<redacted>`。可在 config 加 `redact_keys: ["custom_key", …]` 扩展。
+- 字符串字段超 500 字符自动截断（后缀 `...<truncated>`）。
+- 递归深度 >8 → `<deep_truncated>`。
+
+**回放 + 状态查询**：
+
+```sh
+# 按时序打印一个 session 的事件流
+sh "$CLAUDE_PLUGIN_ROOT/scripts/run.sh" \
+   "$CLAUDE_PLUGIN_ROOT/scripts/spec_log.py" replay --session <id>
+
+# 占用查询（输出 enabled / switch_source / 文件数 / 总字节）
+sh "$CLAUDE_PLUGIN_ROOT/scripts/run.sh" \
+   "$CLAUDE_PLUGIN_ROOT/scripts/spec_log.py" status
+```
+
+**rotation 策略**：不自动切片；超过 100MB 时 status 命令提示手动清
+（`rm -rf ~/.specode/logs/`）。session-bound 写入即可控制大小。
+
+**异常隔离**：日志收集任何异常都吞并（spec_log 内部 try/except + 各
+集成点用 contextlib.suppress 包裹），绝不阻断业务流程。失败时主代理
+看不到日志写入痕迹，但 spec / hook / CLI 本身行为完全一致。
+
+### Changed — hooks.json 新增 2 个全通配 hook
+
+`PostToolUse "*"` matcher 和 `PreToolUse "*"` matcher 各加一条 hook，
+分别调 `spec_session.py on-log-post-tool-use / on-log-pre-tool-use`。
+这两个新 hook 仅落日志，不注入 additionalContext，不影响主代理行为。
+原有 `PreToolUse Edit|Write|MultiEdit` 和 `PostToolUse Task` matcher
+保持不变（继续走 `on-pre-tool-use / on-task-completed` 的 advisory
+注入逻辑）。
+
+### Changed — 文档（SKILL.md / CONTRIBUTING.md / README × 2）
+
+- SKILL.md 加 §Session Logging 节，列出存储位置 / 双开关 / 隐私 /
+  回放 / 占用查询。
+- CONTRIBUTING.md 加 §Debugging with session logs 节，给开发者
+  排查问题用 replay 的命令示例 + 新 hook/CLI 子命令应在入口加
+  `_log_event` 的约定。
+- README / README.zh-CN 「Global bypass」节加 `SPECODE_LOG=off`；
+  各自新增 Session logging / 会话日志收集 小节简述用法 + 关闭方式。
+
+### Tests
+
+165 pass (152 previous + 13 new in `test_spec_log.py`)：write_event /
+disabled-via-env / disabled-via-config / redact-default-keys /
+redact-extended-via-config / truncate-long-string / replay /
+replay-missing / status × 3 / hook-invocation-writes-log /
+cli-call-writes-log. 原 152 个测试 0 个破——日志收集是完全 backward-
+compatible 的纯加项。
+
+### Migration
+
+无需迁移。0.10.0 启动后会开始往 `~/.specode/logs/` 写日志；不想要的
+按上面方式关掉。已有 sessions / specs / 锁 / state.json 全部不变。
+
+```sh
+# Adjust the CLI name for whichever host you use (claude / codebuddy).
+claude plugin marketplace update specode
+claude plugin update specode
+```
+
+## 0.9.3 (2026-05-20)
+
+### Added — 2 条新 Iron Rule（SKILL.md）
+
+0.9.2 真实跑测时观察到主代理在 `/specode:spec` 后多处违纪：自己 Write
+requirements.md（应该 fork spec-writer）+ 写完后又 Edit 改文档头
+`Status: Requirements Draft → Complete`（不该越权改 phase 状态）。
+现有 6 条 Iron Rule 没有强约束这两点，本版补：
+
+- **Iron Rule 7**：`requirements.md` / `bugfix.md` / `design.md` /
+  `tasks.md` 4 份核心文档必须 fork `spec-writer` subagent 写。主代理
+  用 Write / Edit 直接写这 4 份文档视为流程违规。subagent 的工具白
+  名单（无 Bash）是物理隔离边界，绕过它就是绕过 review/validator
+  兜底。`implementation-log.md` 例外，主代理可以直接追加。
+- **Iron Rule 8**：文档头 `Status` / `Review Status` 字段不允许主代
+  理手改。这些字段反映 phase / 评审状态，由 `phase-transition` CLI
+  与 selector 流程驱动改变。主代理写完 requirements.md 把
+  `Status: Requirements Draft` 改成 `Requirements Complete` 是越权
+  （这是 selector 走完后才该发生的事）；保持模板默认值不动。
+
+### Changed — `doc-confirm-tasks` 合并入 `tasks-execution`（8→7 个选择器）
+
+0.9.2 真实跑测时观察到 tasks phase 走两步选择器（先 doc-confirm-tasks
+确认 tasks.md、再 tasks-execution 选执行方式）冗余且易出错——主代理
+在第一步把标准 3 选项「确认 / 查看全文 / 继续沟通」简化成 2 选项
+「确认，继续 / 需要调整」，漏掉了 task-swarm 路径。
+
+本版合并为一步：
+
+- 废弃 `SELECTOR_PROMPTS["doc-confirm-tasks"]`，把「需要调整」作为
+  `tasks-execution` 的回退出口。tasks-execution 现 4 选项：
+  - 用 task-swarm 多 agent 并发（推荐）
+  - 顺序执行（同时处理 optional）
+  - 需要调整 tasks.md
+  - 暂不 coding
+- 不再区分「开始 required」vs「开始 required + optional」——默认两
+  种执行方式都把 optional 一起跑；要只跑 required 走 Other 输入。
+- `phase=tasks` 的 `pending_selector` 推导从 `"doc-confirm-tasks"`
+  改为 `"tasks-execution"`。
+- 同步：SKILL.md 8 场景表 → 7 场景表；selectors.md §A4
+  `tasks-execution` 模板镜像 + 表格删 doc-confirm-tasks 行；
+  workflow.md §3.3 / §5 流程改一步出图；test_selector_prompts.py
+  删 test_doc_confirm_tasks_snapshot；test_spec_session_hooks.py
+  pending_selector fixture 改 "tasks-execution"。
+
+### Changed — tasks.md 模板统一为 task-swarm 兼容格式
+
+0.9.2 真实跑测时观察到主代理选「用 task-swarm 多 agent 并发」后
+`task_swarm.py init` 报 `tasks.md 中未解析出任何 ## 阶段 N: 段`，
+被迫主代理自己 Write 覆盖 tasks.md（违反新 Iron Rule 7）。根因：
+spec-writer 生成的 tasks.md 用 `- [ ] 1. 阶段标题 / - [ ] 1.1 子任务`
+嵌套格式，但 `task_swarm.py parse_md.py` 期望 `## 阶段 N: 标题` 顶层
+段 + `- [ ] N.M ... @writes:... _需求：x.y_`。两边对不齐。
+
+本版统一为 task-swarm 兼容格式（顺序执行也兼容——task-swarm 标签被
+顺序执行 agent 当作注释忽略）：
+
+- `assets/templates/tasks.md` 完整重写：顶层 `## 阶段 N: ...`
+  + `- [ ] N.M ... @writes:... _需求：x.y_` + 格式约定头部说明。
+- `spec_init.py FALLBACK_TEMPLATES["tasks.md"]` 同步。
+- `references/templates.md §4` 模板示例 + 约束规则改写。
+- `agents/spec-writer.md phase=tasks` 子工作流明示新格式 + 不符合时
+  应回到 `tasks-execution` 选「需要调整」让 spec-writer 重写（**不
+  许主代理 Write 覆盖**，呼应 Iron Rule 7）。
+
+### Changed — `commands/task-swarm.md` 立即调用段澄清
+
+0.9.2 真实跑测时主代理调 `task_swarm.py` 时漏 `init` 子命令、把
+spec 目录传给 `--tasks`（应该传 tasks.md 绝对路径）。立即调用段示例
+原本用 `<abs>` 太抽象，本版改为 `<spec_dir>/tasks.md`，并在「注意」
+块明示：`init` 子命令必传、`--tasks` 是 tasks.md 路径而非 spec 目录、
+不符合格式时回到 selector 让 spec-writer 重写。
+
+### Tests
+
+152 pass（down from 153；删除 `test_doc_confirm_tasks_snapshot`
+随 selector 合并；其余 fixture / 断言同步更新）。
+
+### Migration
+
+无需迁移。`tasks-execution` 推荐项变成「task-swarm 多 agent 并发」，
+但仍保留「顺序执行」「需要调整」「暂不 coding」三个出口。已经写好的
+旧格式 tasks.md（无 `## 阶段 N:` 段）在选 task-swarm 时会报错；主
+代理按新 Iron Rule 7 + tasks-execution 「需要调整」入口让 spec-writer
+重写即可，不要手改。
+
+```sh
+# Adjust the CLI name for whichever host you use (claude / codebuddy).
+claude plugin marketplace update specode
+claude plugin update specode
+```
+
+## 0.9.2 (2026-05-19)
+
+### Removed — `DESIGN.md` 与 `IMPLEMENTATION-AUDIT.md` 从仓库移除
+
+两份文档都不再作为项目产物维护：
+
+- `DESIGN.md`（1515 行 / ~78KB）是 v0.5 → v0.8 重建期的设计文档，
+  写给设计者 / 维护者读，不是最终用户文档。0.8.0 / 0.9.x 系列演进
+  后部分章节已与代码漂移（如 §3.3 sessions schema 字段名、§3.9
+  spec_lint 规则数量），全文同步代价过高。
+- `IMPLEMENTATION-AUDIT.md`（327 行 / ~26KB）是 v0.7.0 时点的一次性
+  对账表，行号引用大多因为代码演进失效，且没有持续维护价值。
+
+历史信息仍可通过 `CHANGELOG.md` + git log 回溯。当前真实代码状态
+看 `SKILL.md` + `references/*.md`（与代码同步演进）。
+
+随之清理：
+
+- `plugins/specode/commands/status.md` —— 引用 `DESIGN.md §3.3` 改为
+  指向 SKILL.md §Session Lifecycle。
+- `plugins/specode/scripts/spec_session.py` —— `HELP_OUTPUT_TEXT`
+  末尾的 "DESIGN.md §3" 引用改为 "SKILL.md 与 references/"。
+- `plugins/specode/skills/specode/references/task-swarm.md` —— 章节
+  标题里 `（§11.X）` 全部去掉，开头 "对应 DESIGN.md §11" 删除。
+- `plugins/specode/scripts/*.py`（9 个文件）—— 所有 docstring / 注释
+  里指向 `DESIGN.md` 的 `§X.Y` 章节引用改为指向具体的
+  `references/*.md` 章节号，或简化为指向 SKILL.md。
+- `plugins/specode/commands/task-swarm.md` —— 3 处 `§11.X` 引用
+  对齐到 `references/task-swarm.md §X`。
+- `plugins/specode/skills/specode/references/selectors.md` —— 历史
+  反 pattern 列表里 `请按 §3.7.X 类型骨架输出` 改为 `请按
+  selectors.md 类型骨架输出`。
+
+### Changed — `CONTRIBUTING.md` 规范化重写
+
+- 删除头部过时的 0.6.0 note（提到 75 tests / 4 hooks / 6 references，
+  现在都不准确）。
+- 测试数字从 "75 tests" 更新到 "153 tests"，覆盖范围描述同步扩大
+  （加 task-swarm 全套 + selector_prompts + 集成 + 兼容性回归）。
+- 新增 **CLI invocation contract** 整节：明确所有 CLI 必须走
+  `run.sh` 包装 + `${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}`
+  完整路径模板（0.8.0 起的硬要求，避免主代理裸调对 cwd 失败）。
+- 新增 **On-disk schema fields** 整节：约束新写入用中性字段名
+  （`session_id` / `holder`，不再用 `claude_session_id`），读侧
+  必须三键 fallback；schema 字段命名变更走 minor 还是 major 的
+  semver 取决于是否带 read-side fallback。
+- semver 表加 hook event names 与 persisted schema fields 到
+  "API surface" 范围；schema rename + fallback 明示走 minor。
+- release 流程加 step 3 "pytest 一次"，明示双宿主 CLI 命令等价。
+- 全文去掉 v0.6 字样，去掉 host-specific 措辞。
+
+### Removed — `.gitignore` 加强
+
+补 `.pytest_cache/` 与 `.claude/` 两条防御性 ignore（目前都未被
+追踪，但 `git add -A` 可能在未来误抓）。
+
+### Tests
+
+153 pass，无净变化。本版仅 docs 删除 / docstring 调整 / `.gitignore`
+更新，无代码逻辑变化。
+
+### Migration
+
+无需迁移。如果你之前 fork 了仓库且依赖 `DESIGN.md` 做参考，请改
+看 Obsidian 备份或对应版本的 git tag。
+
+```sh
+# Adjust the CLI name for whichever host you use (claude / codebuddy).
+claude plugin marketplace update specode
+claude plugin update specode
+```
+
+## 0.9.1 (2026-05-19)
+
+### Changed — `tasks.md ## 测试要点` 降权为"参考清单"
+
+0.9.0 在把 acceptance-checklist.md 折叠进 tasks.md 时过度强调了
+新 `## 测试要点` 节——把它包装成「跟随式更新铁律」、acceptance-gate
+验收硬条件、`DOC_PRIORITY_REMINDER` 每轮注入提示、spec-writer 5 处
+「同 turn 更新」、workflow.md §3.2 整章纪律……约 50 处分布在 12
+个文件，与节点本身只是「给测试人员一份验证清单参考」的实际地位
+严重不匹配。
+
+本版降权：
+
+- **`acceptance-gate` selector**（`spec_session.py` 与
+  `selectors.md` 镜像）—— 验收推荐只看 `tasks.md` 是否全 `[x]`，
+  测试要点降为"chat 简报里顺带提一下"的参考信息，不参与判定。
+- **`DOC_PRIORITY_REMINDER_ACTIVE`**（hook 每轮注入文本）—— 删
+  "同 turn 更新测试要点"那一行，文档清单里加一句注解说明 tasks.md
+  末尾有这一节即可。
+- **SKILL.md** —— 5 份文档列表 / 文档表格里不再标"同 turn 重写
+  测试要点"硬纪律；tasks.md 行改为「spec-writer 在 tasks phase
+  按 SHALL 补几行供测试人员参考」。
+- **`references/workflow.md`** —— 删 §3.2 整章
+  「tasks.md 测试要点跟随式更新（铁律）」；删 §3.1 / §4 / §5
+  各处「同 turn 更新测试要点」步骤；§7 acceptance phase 不再
+  要求"逐行跑测试要点 + 全 [x] 才推荐验收通过"，回到只看 tasks.md
+  完成度；§9.2 持续沟通模式不再强调测试要点；流程图去掉
+  「测试要点跟随式更新」列。后续 §3.3 / §3.4 重编号为 §3.2 / §3.3。
+- **`references/templates.md`** —— 删 §4.2 整节「填充规则」；§4
+  tasks.md 模板的 `## 测试要点` 示例从带 `[ ]` 改成纯 bullets
+  （表明非待办清单）；`## 验收` 节删「测试要点全部跨过」那行；
+  增设 §4.2「填充提示」短节说明 spec-writer 在 tasks phase
+  按 SHALL 顺手补几行即可，模糊时可留 `_待补充_`。
+- **`agents/spec-writer.md`** —— 删整个「## tasks.md 测试要点
+  同 turn 更新」section；phase=requirements / phase=bugfix 流程
+  里删「同 turn 更新测试要点」步骤；phase=tasks 加一句「填末尾
+  `## 测试要点` 节，按 SHALL 补几行供测试人员参考」。
+- **`references/iteration.md`** —— iteration 期间不再要求改测试
+  要点；累积规则降为「按需追加」；ASCII 示例从 `[ ] / [x]` checkbox
+  改成纯 bullets。
+- **README / README.zh-CN / DESIGN / IMPLEMENTATION-AUDIT** —— 顶层
+  描述去掉「跟随式」「同 turn 更新」措辞。
+
+### 不变（保留）
+
+- `assets/templates/tasks.md` 模板里的 `## 测试要点` 节本身保留
+- `spec_init.py FALLBACK_TEMPLATES["tasks.md"]` 里的 `## 测试要点`
+  节本身保留（格式从 `- [ ]` 改回纯 bullets）
+- `obsidian.md` 目录树里的 `tasks.md ← 末尾自带 ## 测试要点 章节`
+  说明保留（信息性）
+- `spec-writer agent` 在 tasks phase 仍负责按 SHALL 顺手补充
+  测试要点行（但作为 tasks 文档的一部分，不是独立铁律）
+
+### Tests
+
+153 pass（无净变化）。本版仅 docs/prompts 文字调整，无代码逻辑改变。
+
+### Migration
+
+无需迁移。`acceptance-gate` 推荐判定从「tasks.md 全 [x] + 测试要点
+全跨过」简化为「tasks.md 全 [x]」——对已经在用 0.9.0 的用户来说，
+验收门只会变得**更容易**通过，不会出现"以前能过、现在卡住"的情形。
+
+```sh
+# Adjust the CLI name for whichever host you use (claude / codebuddy).
+claude plugin marketplace update specode
+claude plugin update specode
+```
+
+## 0.9.0 (2026-05-19)
+
+### Removed — `acceptance-checklist.md` retired, test points moved into `tasks.md`
+
+Spec document count dropped from 6 to 5. The standalone
+`acceptance-checklist.md` (which existed to give QA reviewers a
+verification checklist parallel to `tasks.md`) has been folded into
+a new `## 测试要点` section at the end of `tasks.md`. Reasons:
+
+- The checklist file duplicated information that already had a home
+  in `tasks.md` (`_需求：x.y_` traceability tags).
+- Maintaining two parallel docs encouraged drift — one would update
+  while the other lagged, and the `spec_lint` `checklist-lag` rule
+  papered over a symptom rather than fixing the duplication.
+- A single `## 测试要点` section keeps the QA-facing artifact next
+  to the engineering-facing tasks it validates, so changes propagate
+  in one Edit.
+
+Acceptance phase now decides "passed" based on `tasks.md` being all
+`[x]` plus every test-point line in `## 测试要点` being crossed
+(`[x]` or `[-]` with reason), instead of a separate checklist table.
+
+**Changes**:
+
+- `spec_init.py` — drops the `acceptance-checklist.md` template
+  string and its write step; `tasks.md` template now ships with a
+  `## 测试要点` section.
+- `spec_session.py` — `SELECTOR_PROMPTS["acceptance-gate"]`
+  rewritten (lists `n_done/n_total` + `n_fail` instead of pass/fail
+  count, and prompts the model to run `spec_lint.py` first); the
+  6-doc list in `spec_doc_names` (`list-specs`) shrinks to 5; the
+  document-first reminder text drops the checklist line.
+- `spec_lint.py` — `rule_checklist_lag` removed (3 rules remain:
+  traceability / log / EARS).
+- `agents/spec-writer.md` — the "same-turn rewrite of
+  `acceptance-checklist.md`" iron rule becomes "same-turn update of
+  the `## 测试要点` section in `tasks.md`".
+- `SKILL.md` — 6→5 doc list; new line under §Phase Order instructing
+  the model to invoke `spec_lint.py` once when entering acceptance.
+- `references/workflow.md` — §3.2 retitled and rewritten as
+  "tasks.md 测试要点 跟随式更新（铁律）"; acceptance phase steps
+  (§7) now include the `spec_lint` call and reference test-point
+  rows rather than checklist rows.
+- `references/templates.md` — §5 (`acceptance-checklist.md` template)
+  removed entirely; `tasks.md` template (§4) gains the `## 测试要点`
+  section + a new §4.2 with the fill rules; subsequent sections
+  renumbered (§6→§5, §7→§6, …).
+- `references/iteration.md` — iteration-time accumulation rules now
+  describe appending lines to `## 测试要点` instead of rewriting a
+  checklist table.
+- `references/obsidian.md` — spec directory tree drops the
+  checklist file.
+- `references/selectors.md` — A6 `acceptance-gate` constant
+  rewritten to mirror the new `SELECTOR_PROMPTS["acceptance-gate"]`.
+- README / README.zh-CN / DESIGN / IMPLEMENTATION-AUDIT updated to
+  reflect the 5-doc list and the new acceptance criterion.
+
+### Added — `spec_lint.py` wired into acceptance phase
+
+`spec_lint.py` existed as a standalone tool since 0.6.0 but no
+hook/command/agent ever invoked it. Now SKILL.md §Phase Order and
+the `acceptance-gate` selector text both instruct the main agent
+to call it once when entering acceptance and list any
+traceability / log / EARS warnings in the chat preamble. Lint is
+still advisory (`exit 0`), never blocking.
+
+### Removed (cont.)
+
+- `spec_lint.rule_checklist_lag` and the 1 corresponding pytest
+  case in `test_spec_lint.py` (`test_lint_checklist_lag_warns`).
+  5 cases remain: clean-spec + trace + log + ears + all-bad
+  multi-fire.
+- `acceptance-checklist.md` entry from `test_spec_init.py`
+  `DOC_FILENAMES` (6→5).
+
+### Tests
+
+153 pass (down from 154; the deleted `checklist-lag` case is the
+only loss — clean/trace/log/ears/all-bad coverage of the 3
+surviving rules stays).
+
+### Migration
+
+**Existing specs created before 0.9.0** keep their
+`acceptance-checklist.md` file on disk — no auto-delete. Treat
+those as historical artifacts; copy the still-useful lines into
+the new `## 测试要点` section in `tasks.md` and delete the file
+manually if you no longer need it. New specs created from 0.9.0
+onward never get the file.
+
+```sh
+# Adjust the CLI name for whichever host you use (claude / codebuddy).
+claude plugin marketplace update specode
+claude plugin update specode
+```
+
+## 0.8.1 (2026-05-19)
+
+### Changed — `references/prompts.md` renamed to `references/selectors.md`
+
+The file name `prompts.md` was too generic for a document whose
+content is "AskUserQuestion selector specification + 8 fixed scenario
+constant library". `selectors.md` matches the file's own title
+("Selectors — AskUserQuestion 调用规范") and aligns with the
+single-word file naming convention used by the other references
+(`workflow.md`, `templates.md`, `iteration.md`, …).
+
+Renamed via `git mv` so history follows. All 23 in-repo references
+were updated (SKILL.md, 5 cross-references in `references/*.md`,
+DESIGN.md, IMPLEMENTATION-AUDIT.md). Earlier `CHANGELOG.md` entries
+that mention `prompts.md` were **left untouched** because they
+reflect the actual file name at the time of those releases.
+
+### Added — type variant A+ registered (single-select + preview)
+
+`references/selectors.md` now documents the **A+ variant**: when an
+option carries a `preview` field, the host UI auto-switches to a
+side-by-side layout (vertical option list on the left, monospace
+markdown preview on the right that updates as the user moves the
+focus). Single-select only — `multiSelect=true` rejects `preview`.
+
+Currently **no fixed scenario uses A+** — this is template-only,
+registered ahead of any phase-gate that needs visual artifact
+comparison (UI mockups / code snippets / config variants). If a
+future scenario adopts A+, add the constant to
+`spec_session.py SELECTOR_PROMPTS` and append it to the 8-scenario
+table below the variant note.
+
+### Tests
+
+154 pass; no test changes.
+
+### Migration
+
+None.
+
+## 0.8.0 (2026-05-19)
+
+### Changed — host-neutral wording + sessions schema field rename
+
+Two coordinated cleanups so the plugin reads as host-agnostic and the
+on-disk schema uses neutral key names.
+
+**1. Description neutralization across docs and code.** All
+user-facing wording that singled out one host CLI was reworded to
+neutral terms ("host CLI" / "宿主" / "CLI agent"). Affected files:
+
+- `README.md` / `README.zh-CN.md` — install section lists CodeBuddy
+  before Claude Code; tagline says "for CLI coding agents".
+- `SKILL.md` + 6 `references/*.md` — "Claude Code 内置 X 工具" → "宿主
+  内置 X 工具"; "Claude 窗口" / "Claude 会话" → 中性词。
+- `DESIGN.md` / `CHANGELOG.md` / `CONTRIBUTING.md` /
+  `IMPLEMENTATION-AUDIT.md` — same treatment.
+- `plugin.json` / `marketplace.json` description fields drop the
+  "(Claude Code + CodeBuddy)" suffix.
+- `spec_session.py` `HELP_OUTPUT_TEXT`, hook context strings, error
+  messages neutralized.
+
+Technical contracts retained verbatim because they are platform-
+injected, not stylistic: `CLAUDE_PLUGIN_ROOT` env var (with the
+existing `:-${CODEBUDDY_PLUGIN_ROOT}` fallback), `.claude-plugin/`
+directory name (plugin discovery protocol), the `claude plugin …`
+install commands users actually type.
+
+**2. Sessions / state.json schema: `claude_session_id` → `session_id`.**
+All write sites now produce the new key. Read sites are
+backwards-compatible:
+
+- `read_session()` (`spec_session.py:135`) auto-migrates legacy files
+  by copying `claude_session_id` → `session_id` in-memory; the next
+  write lands the new key on disk.
+- `StateMachine.load()` (`task_swarm_state.py:149`) does the same for
+  `~/.specode/runs/<run_id>/state.json` (renames the dataclass field
+  too: `sm.claude_session_id` → `sm.session_id`).
+- Lock holder reads (`list-specs`, `on-heartbeat-quiet`) fall back
+  through `holder → session_id → claude_session_id` in priority
+  order. The lock field's actual persisted key has always been
+  `holder`; the rename does not touch `<spec-dir>/.config.json`.
+
+No manual migration needed. Existing `~/.specode/sessions/*.json`
+and `state.json` files keep working; they get rewritten in the new
+schema on the next mutating CLI call.
+
+### Changed — command md files carry copy-pasteable CLI templates
+
+Every command md under `plugins/specode/commands/` now opens with an
+**「立即调用」** section that embeds the full `sh
+"${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh"
+"${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/<name>.py"
+<args>` template the model should execute. Motivation: a recent
+session showed the model looping six times on bare `python3
+spec_session.py …` invocations against the wrong cwd, because the
+command md only listed `/specode:continue $ARGUMENTS` and the model
+never consulted SKILL.md for the wrapper rule before retrying.
+
+SKILL.md also gained a "**CLI 调用规约（强制）**" subsection and an
+Iron Rule explicitly banning bare `python3` invocations.
+
+### Added — backwards-compat regression tests
+
+Two new tests pin the auto-migration behavior so future refactors
+can't quietly drop legacy support:
+
+- `test_read_session_migrates_legacy_claude_session_id`
+  (`tests/test_spec_session_business.py`).
+- `test_load_migrates_legacy_claude_session_id`
+  (`tests/test_task_swarm_state.py`).
+
+### Removed
+
+- `migrate-from-spec-mode.sh` — one-shot migration script for users
+  upgrading from 0.1.0's `spec-mode` plugin name. Long past its
+  usefulness window; deleted.
+
+### Tests
+
+154 pass (152 previous + 2 new compat regressions). All existing
+fixtures updated to write the new `session_id` key directly.
+
+### Migration
+
+None. Plugin cache update sufficient:
+
+```sh
+# Adjust the CLI name for whichever host you use (claude / codebuddy).
+claude plugin marketplace update specode
+claude plugin update specode
+```
+
+## 0.7.3 (2026-05-19)
+
+### Changed — all selector references unified to YAML three-section format
+
+Following 0.7.2 (which rewrote SELECTOR_PROMPTS to the three-section
++ YAML format), this release brings the two **dynamic selectors** in
+`references/obsidian.md` and the **8 static scenarios** in
+`references/prompts.md` to the same format so every selector
+reference across the plugin is visually identical.
+
+Two dynamic selectors updated:
+
+- **§3 multi-vault selection** (when `spec_vault.py detect` finds >1
+  vault and no `obsidianRoot` is set yet) — was Python-call form;
+  now three-section YAML.
+- **§5.1 `/specode:continue` no-slug spec picker** (when
+  `spec_session.py list-specs` returns >0 specs) — was Python-call
+  form; now three-section YAML. Empty list still skips the tool and
+  prompts the user to run `/specode:spec <requirement>` instead.
+
+The 8 static scenarios in `prompts.md` (workflow-choice,
+clarification-{wizard,done}, doc-confirm-{requirements,bugfix,design,
+tasks}, tasks-execution, takeover-options, acceptance-gate,
+iteration-scope) were rewritten from Python-call form to **byte-for-
+byte the same YAML three-section format as SELECTOR_PROMPTS**, with
+the same wrapper section structure (目的 / 上下文 / 前置动作 / 工具参数 /
+约束). The previous "Python-call form and YAML form are equivalent"
+caveat is removed — there is now only one format.
+
+A worked example with three clarification points (login UX scenario)
+was added to §B1 to give the model a concrete reference for wizard
+construction.
+
+### Tests
+
+- All 152 tests pass; no test changes required (snapshots already
+  match the new format after 0.7.2).
+
+### Migration
+
+None. Plugin cache update sufficient:
+
+```sh
+claude plugin marketplace update specode
+claude plugin update specode
+```
+
+## 0.7.2 (2026-05-19)
+
+### Changed — SELECTOR_PROMPTS rewritten to three-section + YAML format
+
+All 11 entries in `spec_session.py SELECTOR_PROMPTS` have been rewritten
+to a **three-section + YAML-indented** format that matches the
+"directly paste into the host CLI and the tool fires" prompt style
+the maintainer validated in another window.
+
+Each constant now has the same structure:
+
+```
+## 选择器节点：<scenario>
+
+**目的**：<why this selector is appearing now; what user just did>
+
+**上下文**：active spec=<slug>, phase=<phase>, <other dynamic fields>
+
+**前置动作（chat 简报，≤N 行）**：<what to write to chat BEFORE calling the tool>
+
+**调用 `AskUserQuestion` 工具**：
+
+questions:
+  - question: "<full question>"
+    header: "<≤12 char chip>"
+    multiSelect: <true|false>
+    options:
+      - label: "<option A>"
+        description: "<rationale / trade-off>"
+      - label: "<option B>"
+        description: "..."
+
+**约束**：<scenario-specific dos and don'ts>
+```
+
+Why this change:
+- The previous wrapper text ("必须呈现「X」选择器（类型 A 单列单选）...") was diagnostic / declarative — the model still had to translate it into tool arguments mentally.
+- The new format **is itself a paste-and-fire tool prompt** — the YAML block can be lifted as-is into the model's mental model of the `AskUserQuestion` call.
+- Three sections make purpose / pre-action / call / constraints visually separate, so the model can't skip the chat briefing before tool call (doc-confirm-* constants explicitly require 3-8 bullets of summary).
+
+What this changes in behavior:
+- doc-confirm-* now explicitly mandates a chat briefing **before** the tool call (file path + 3-8 change bullets + open questions).
+- takeover-options explicitly forbids the "（推荐）" marker (user must judge based on other holder's liveness).
+- acceptance-gate conditionally moves the "（推荐）" marker (only when `n_fail=0`).
+- tasks-execution explicitly notes the 4 options have saturated the tool ceiling; Other for custom.
+- iteration-scope explicitly flags `multiSelect: true` as the **only** Type C usage in the protocol.
+
+`references/prompts.md` updated with a note that the Python-call form (`AskUserQuestion(questions=[...])`) and the YAML-indented form (used by the hook) are **semantically equivalent** — both mean "call the tool with these arguments".
+
+### Tests
+
+- `test_selector_prompts.py` snapshot assertions updated to match new
+  format (assert `选择器节点：`, `AskUserQuestion`, `multiSelect: false|true`,
+  YAML `options:` / `label:` markers, `Type something` + `Other` in
+  forbidden-list).
+- All 152 tests pass.
+
+### Migration
+
+None. Existing sessions / specs unaffected; hooks behavior otherwise
+unchanged. Plugin cache update sufficient:
+
+```sh
+# Adjust the CLI name for whichever host you use (claude / codebuddy).
+claude plugin marketplace update specode
+claude plugin update specode
+# restart the host CLI
+```
+
+## 0.7.1 (2026-05-19)
+
+### Changed — selector protocol switched to AskUserQuestion
+
+The 11 entries in `spec_session.py SELECTOR_PROMPTS` have been
+rewritten to instruct the model to call the host CLI's built-in
+**`AskUserQuestion`** tool instead of emitting a markdown list with
+a `AWAITING_USER_CHOICE` sentinel and asking the user to reply with
+a number.
+
+The three selector types map to `AskUserQuestion` parameters as
+follows:
+
+- **Type A (single-select)** — `questions=[1 q]` + `multiSelect=false`
+- **Type B (wizard)** — `questions=[2-4 q]`, each `multiSelect=false`
+  (each question shows as its own chip-tab)
+- **Type C (multi-select)** — `questions=[1 q]` + `multiSelect=true`
+
+Why this changes things:
+
+- The host tool renders arrow-key navigation + Enter to
+  submit + ESC to cancel + auto-provided "Other" for free-text
+  input. The user never types a number.
+- The historical reserved positions `Type something` / `Chat about
+  this` / `Submit` are deleted from the selector text — "Other" and
+  ESC are provided by the tool.
+- The `AWAITING_USER_CHOICE` sentinel is removed everywhere it
+  drove turn termination — calling the `AskUserQuestion` tool is
+  itself a turn terminator.
+- `references/prompts.md`, `SKILL.md` §Selectors, and the
+  multi-vault selector in `references/obsidian.md` §3 all now
+  describe selectors as `AskUserQuestion(questions=[...])`
+  invocations with explicit Python-style parameter blocks.
+- `references/workflow.md` §9.1 (`/specode:continue` with no slug)
+  and §10 (phase-gate output order) updated; the model no longer
+  outputs a numbered list and waits for a reply — it calls the
+  tool.
+
+The historical wording (`AWAITING_USER_CHOICE` / "请回复编号" /
+`Type something` / `Chat about this`) is now listed as **forbidden
+phrasing** in `references/prompts.md`'s compat section so the model
+can recognize and reject it if encountered in older docs.
+
+### Tests
+
+- `tests/test_selector_prompts.py::test_workflow_choice_snapshot`
+  updated to assert `AskUserQuestion` / `multiSelect` / `"label"`
+  fields appear, and that `Type something` / `Other` appear in the
+  forbidden-list section.
+- All 152 tests pass (75 v0.6 + 77 task-swarm = 152; no new tests
+  introduced in 0.7.1).
+
+### Migration
+
+No state migration needed. Existing `~/.specode/sessions/<id>.json`
+files are unaffected. Hooks behavior is otherwise unchanged.
+
+## 0.7.0 (2026-05-19)
+
+### Added
+
+- **task-swarm multi-agent orchestrator** (was originally targeted at
+  a separate v0.7). Six new scripts:
+  - `task_swarm.py` (1333 lines) — CLI: `init` / `status` / `plan` /
+    `advance` / `writeback` / `heartbeat` / `resolve`.
+  - `task_swarm_state.py` — StateMachine + `state.json` atomic
+    persistence + deadloop detection (3 consecutive same fail
+    signatures → group failed-deadloop, no infinite loop).
+  - `task_swarm_parse_md.py` — `tasks.md` parser + group splitting
+    by `@writes` file-conflict (no two stages in the same group
+    touch overlapping files).
+  - `task_swarm_outbox.py` — strict schema validators for coder
+    `result.md` / reviewer `review.md` (with evidence tags) /
+    validator `validation.md` (with fix targets).
+  - `task_swarm_writeback.py` — line-safe `tasks.md` writeback;
+    refuses any diff outside `[ ] → [x]` checkbox toggle + `> `
+    annotation block append.
+  - `task_swarm_prompt.py` — prerendered prompts for coder /
+    reviewer / validator subagents at every phase / round.
+- **`on-task-completed` hook (PostToolUse matcher=Task)** — when a
+  subagent returns during a task-swarm run, calls
+  `task_swarm.py plan` and injects the next-step advice into
+  `additionalContext` (9 state matrix per §11.6). Never blocks.
+- **`on-heartbeat-quiet` hook (UserPromptSubmit, second handler)** —
+  silently renews the spec lock on every user turn when
+  `mode=active`. Never injects `additionalContext`.
+- **`on-pre-tool-use` hook (PreToolUse matcher=Edit|Write|MultiEdit)** —
+  when in a task-swarm run and the target is the active spec's
+  `tasks.md`, injects an advisory reminding the model to go through
+  `task_swarm.py writeback` instead of direct edits. Never blocks.
+- **`spec_session.py list-specs --root <path>`** — replaces the
+  removed `spec_choice.py` discovery flow for `/specode:continue`
+  with no slug; returns a JSON of all specs in the doc root with
+  lock state / phase / mtime so the model can present a
+  numbered-list selector without Grep'ing the project directory.
+- **`spec-writer` agent** (already in 0.6) and **four task-swarm
+  agents** (planner / coder / reviewer / validator, already
+  shipping; tool isolation unchanged).
+- **References** added: `task-swarm.md` (full protocol incl.
+  §11.1–§11.7 spec) and `task-swarm-example.md` (3-stage / 8-task
+  worked example showing group split + traceability + annotation
+  block format).
+- **77 new tests** for the task-swarm pipeline; **152 tests total**
+  (75 v0.6 + 77 v0.7) all passing.
+
+### Changed
+
+- **`SKILL.md` slimmed from ~335 lines to ~194 lines** — heavy
+  detail moved to references; SKILL.md is now an activation contract
+  + dispatch table, not a manual.
+- **`/specode:continue` flow corrected** — model is now explicitly
+  forbidden from Grep'ing the project directory; must go through
+  `spec_vault.py status` → `spec_session.py list-specs`. See
+  `references/obsidian.md` §5.1.
+- **Multi-vault selection UI** now follows §3.7.1 Type A skeleton
+  with `AWAITING_USER_CHOICE` sentinel and `Type something` /
+  `Chat about this` reserved positions (was a freer list before).
+- **All version-difference wording removed** from runtime docs
+  (commands / agents / skills / references) — features are
+  documented as "what works", not "what is new in vX".
+
+### Removed
+
+Nothing further. All deletions from 0.5.0 remain: `spec_guard.py`,
+`spec_sync.py`, `bash_guard.py`, `task_swarm_guard.py`, all INV-1
+through INV-11, `spec_choice.py`, sentinel short-circuit, audit
+log, telemetry.
+
+### Hook inventory (final)
+
+| Event | Handler | Behavior |
+|---|---|---|
+| `SessionStart` | `on-session-start` | Initializes sessions file; emits session_id reminder |
+| `UserPromptSubmit` | `on-user-prompt` | Fast-path / selector / doc-first / status-footer / mode reminder |
+| `UserPromptSubmit` | `on-heartbeat-quiet` | Silently renews lock on every active turn |
+| `PreToolUse` | `on-pre-tool-use` | Reminds (never blocks) on direct `tasks.md` edits during task-swarm runs |
+| `Stop` | `on-stop` | Code-doc sync reminder + spec-mode continuation reminder |
+| `PostToolUse` (matcher=Task) | `on-task-completed` | task-swarm next-step advice |
+| `SessionEnd` | `on-session-end` | Writes mode=ended + releases lock as fallback |
+
+All hooks `exit 0`. `SPECODE_GUARD=off` short-circuits all of them.
+
+## 0.6.0 (2026-05-19)
+
+### Added — full re-implementation on the 0.5.0 skeleton
+
+0.5.0 stripped the project back to a skeleton. 0.6.0 rebuilds the runtime
+**without** any of the previous INV / exit-2 enforcement, on top of a new
+"advisory hooks + selector prompts + session-bound state" foundation.
+
+- **Session lifecycle bound to host `session_id`.** New per-session state
+  file at `~/.specode/sessions/<session_id>.json` with fields
+  `mode` (active / readonly / ended), `active_spec_slug`, `phase`,
+  `lock_state`, `pending_selector`, ... — all writes are atomic
+  (tempfile + `os.replace` + `os.fsync`) and rolled back on partial
+  failure. `<spec-dir>/.config.json` lock field uses `holder` as the
+  persisted key.
+- **Persistent session is the only mode** — `--persist` flag removed.
+  `/specode:spec <requirement>` always creates a persistent session;
+  `/specode:end` writes `mode=ended` and hooks immediately stop
+  injecting.
+- **Four v0.6 hooks, all advisory (`exit 0`, never block):**
+  - `SessionStart` → `on-session-start` — initializes sessions file +
+    injects `session_id` reminder.
+  - `UserPromptSubmit` → `on-user-prompt` — overlays up to 5 segments
+    based on `mode`: fast-path interception (`/specode:spec -h` / 
+    `--vault-status` / `--detect-vault` / `--sync-status`), selector
+    prompt (per `pending_selector`), document-first reminder, status
+    footer template, and spec-mode continuation reminder.
+  - `Stop` → `on-stop` — injects code-doc sync reminder (output side)
+    and spec-mode continuation reminder when `mode=active`.
+  - `SessionEnd` → `on-session-end` — writes `mode=ended` + releases
+    any lock the dying session still holds (forgiveness fallback if
+    user forgot `/specode:end`).
+- **Selector text is generated by the model, not the script.** Three
+  selector types (A single-select / B wizard / C multi-select) match
+  the three reference screenshots shipped by the project. The hook
+  injects an `additionalContext` constant telling the model *which*
+  type and scenario to render; the model formats the text per the
+  skeletons in `references/prompts.md`. 11 fixed scenario constants
+  shipped in `spec_session.py SELECTOR_PROMPTS` (workflow-choice,
+  clarification-wizard, clarification-done, doc-confirm-{requirements,
+  bugfix,design,tasks}, tasks-execution, takeover-options,
+  acceptance-gate, iteration-scope).
+- **Status footer** required on every active-spec turn:
+  `─── spec-mode ─── spec: <slug> | session: <8-prefix> | phase: <p> | /specode:end 退出`
+  (readonly mode adds `[只读]` segment).
+- **Document-first discipline as advisory hooks**, replacing the
+  exit-2 INV-1 / INV-2 enforcement entirely:
+  - `on-user-prompt` injects "📝 文档优先提醒（输入侧）" listing the
+    six spec docs, asking the model to check whether the current
+    input warrants a doc edit *before* code.
+  - `on-stop` injects "🔄 代码-文档同步提醒（输出侧）" asking the
+    model to self-check whether the just-finished turn left a
+    code change without a matching doc update.
+- **`/specode:spec -h` fast-path** — hook intercepts the prompt and
+  injects the full help text into `additionalContext` for the model
+  to verbatim-print, replacing the prior unstable "model reads
+  references/help-output.md" path.
+- **Six core scripts** (stdlib-only): `spec_vault.py` (3-tier doc
+  root resolution + Obsidian vault detection), `spec_init.py` (spec
+  scaffolding with forced double-write of sessions + .config.json
+  and rollback), `spec_session.py` (1500 LOC — business commands,
+  hook subcommands, SELECTOR_PROMPTS), `spec_lint.py` (4 advisory
+  rules), `spec_status.py`, plus `run.sh` / `run.cmd` launchers.
+- **`spec-writer` agent** — new agent for document generation with
+  tools `Read, Write, Edit, Grep, Glob` (no Bash; physical
+  isolation prevents the agent from touching code, locks, or
+  phase transitions).
+- **SKILL.md and 6 references rewritten** for the new model:
+  `workflow.md`, `lock-protocol.md`, `obsidian.md`, `prompts.md`
+  (selector scenarios constant library), `templates.md` (six doc
+  templates + EARS SHALL), `iteration.md`.
+- **75 pytest tests** covering 3-tier vault resolution, init &
+  rollback, business lock state machine, four hooks across mode
+  matrix, SELECTOR_PROMPTS snapshot, lint rules, and end-to-end
+  event chain. All passing.
+
+### Removed
+
+Nothing further beyond the 0.5.0 skeleton removal. **INV-1 through
+INV-11 and `spec_choice.py` remain gone** and are not coming back —
+their goals are now served by advisory hook injections plus model
+self-discipline guided by SKILL.md.
+
+### Global bypass
+
+`SPECODE_GUARD=off` short-circuits all hooks to `exit 0` with no
+output and no state writes. Reserved for debugging.
+
+### Compatibility
+
+- **Plugin commands**: `/specode:spec`, `/specode:continue`,
+  `/specode:end`, `/specode:status`, `/specode:task-swarm`
+  (placeholder, v0.7).
+- **State migration**: nothing automatic. Users coming from 0.4.x
+  who still have `~/.specode/sessions/*.json` in the old schema
+  should run `/specode:end` once (which will write the new schema
+  with `mode=ended`) or remove the file. New schema is written
+  starting from the next `SessionStart`.
+
+## 0.5.0 (2026-05-18)
+
+### Removed (breaking — please read)
+
+This release strips the plugin back to a skeleton. Every runtime
+enforcement and helper introduced from 0.1.0 through 0.4.0 has been
+removed; what remains is the plugin shell and the agent role docs.
+
+- **All hook handlers removed.** `plugins/specode/hooks/` (both
+  `hooks.json` and the `hooks-probe.json` diagnostic) is deleted. The
+  6 hook events (SessionStart / UserPromptSubmit / PreToolUse /
+  PostToolUse / Stop / SessionEnd) no longer fire any plugin code.
+- **All invariants removed.** INV-1 through INV-11 (CDSG hard-deny,
+  CDSG advisory, eviction guard, acceptance follow-mode, status-block
+  injection, phase gate, subagent_type prefix, subagent @writes
+  boundary, tasks.md writeback, outbox schema, non-interactive Bash
+  guard) no longer exist as code paths.
+- **All scripts removed.** `plugins/specode/scripts/` is deleted —
+  `spec_guard.py`, `spec_session.py`, `spec_init.py`, `spec_sync.py`,
+  `spec_choice.py`, `spec_state.py`, `spec_status.py`, `spec_lint.py`,
+  `spec_vault.py`, `spec_telemetry.py`, `task_swarm.py`,
+  `task_swarm_*.py`, `bash_guard.py`, `run.sh`, `verify_local.sh`.
+- **Tests removed.** `plugins/specode/tests/` is deleted in full.
+- **Skill references removed.** `plugins/specode/skills/specode/references/`
+  (workflow / commands / prompts / lock-protocol / templates / iteration /
+  obsidian / help-output / task-swarm / task-swarm-example /
+  sample-analysis) is deleted.
+- **SKILL.md** rewritten as a short skeleton describing the spec-mode
+  activation contract; the iron rules referencing INV / hooks /
+  scripts are gone.
+- **`/task-swarm` command** rewritten as a placeholder; the 7-step
+  CLI-driven orchestrator protocol it used to host is removed.
+
+### Kept
+
+- `.claude-plugin/marketplace.json` + `plugins/specode/.claude-plugin/plugin.json`
+- `plugins/specode/commands/` — entry stubs for `/spec`, `/continue`,
+  `/end`, `/status`, `/task-swarm`
+- `plugins/specode/skills/specode/SKILL.md` — skeleton
+- `plugins/specode/agents/` — task-swarm planner / coder / reviewer /
+  validator role docs (descriptive only; the orchestrator that
+  dispatched them is gone)
+- Top-level docs (`README.md` / `README.zh-CN.md` / `CHANGELOG.md` /
+  `CONTRIBUTING.md` / `DEV.md` / `migrate-from-spec-mode.sh`) are
+  retained and updated to reflect the new skeleton state.
+
+### Migration
+
+No automatic migration. Reinstall on top of the new version to drop
+the hooks; user runtime state under `~/.specode/` and
+`~/.config/specode/` is untouched and can be removed manually:
+
+```sh
+rm -rf ~/.specode ~/.config/specode
+```
+
+If you were relying on any 0.4.x behaviour (CDSG advisories, INV-11
+non-interactive Bash guard, task-swarm orchestrator), pin to
+`specode--v0.4.0` until the runtime is rebuilt.
+
 ## 0.4.0 (2026-05-18)
 
 ### Changed (behavior change — please read)
@@ -114,7 +1108,7 @@ Users on 0.3.x upgrading to 0.4.0:
 ### Notes
 
 - `scripts/spec_guard.py` legitimately reads stdin (hook payload from
-  Claude Code / CodeBuddy, bounded JSON + immediate close) — annotated
+  the host CLI, bounded JSON + immediate close) — annotated
   with `# stdin-block: hook entry point` to satisfy the new scanner.
 
 ## 0.3.1 (2026-05-18)
@@ -285,7 +1279,7 @@ they become advisory. Audit logs continue to record them.
 - New command `/task-swarm <spec-dir>/tasks.md` for manual triggering of
   task-swarm mode outside the standard selector flow.
 - New plugin subdirectory `agents/` carrying the 4 task-swarm subagents.
-  Claude Code auto-registers these (namespaced as `specode:task-swarm-*`).
+  The host CLI auto-registers these (namespaced as `specode:task-swarm-*`).
 - New references:
   - `references/task-swarm.md` — full protocol (single authority for editing
     behavior, subagent contract, write-back rules, loop semantics, iron-rule
@@ -317,7 +1311,7 @@ they become advisory. Audit logs continue to record them.
 
 - **P0 — subagent_type must be plugin-prefixed**: dispatching with the
   bare name `Task(subagent_type="task-swarm-coder", ...)` is rejected by
-  Claude Code with `"Agent type not found"`. All 13 references in
+  the host CLI with `"Agent type not found"`. All 13 references in
   `commands/task-swarm.md` and `references/task-swarm.md` now use the
   fully-qualified `specode:task-swarm-coder` (and `-reviewer` /
   `-validator` / `-planner`). The `agents/*.md` frontmatter `name` is
@@ -356,7 +1350,7 @@ detects and prints reminders for these.
 ### Phase 1 — bootstrap
 
 - Initial plugin skeleton.
-- `plugin.json` for Claude Code / CodeBuddy.
+- `plugin.json` consumed by the host CLI's plugin loader.
 - `hooks/hooks.json` wiring SessionStart / UserPromptSubmit / PreToolUse /
   PostToolUse / Stop / SessionEnd → `scripts/spec_guard.py`.
 - `scripts/spec_guard.py`: dispatch entry, audit-log every event, all
@@ -368,7 +1362,7 @@ detects and prints reminders for these.
   `.active-specode.json` / per-spec `.config.json`. Owns
   `~/.specode/{sessions,.any-active}`. CLI: status / sync-sentinel /
   demo-activate / demo-deactivate.
-- `spec_guard.py`: SessionStart writes Claude-session record;
+- `spec_guard.py`: SessionStart writes the host-session record;
   UserPromptSubmit injects a status block via
   `hookSpecificOutput.additionalContext` when a spec is active; other
   handlers fast-exit when no active spec.

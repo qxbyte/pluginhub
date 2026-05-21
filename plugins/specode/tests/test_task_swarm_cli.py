@@ -1,464 +1,267 @@
-"""End-to-end CLI test for task_swarm.py.
-
-Walks the protocol: init → next (fork coder) → write fake outbox → parse →
-advance → next (fork reviewer) → ... → writeback → next (done).
-
-Verifies the JSON contracts that the orchestrator (main Claude session)
-depends on.
-"""
+"""tests for task_swarm.py — CLI 子命令端到端。"""
 from __future__ import annotations
 
-import io
 import json
-import shutil
+import os
+import subprocess
 import sys
-import tempfile
-from contextlib import redirect_stdout
 from pathlib import Path
 
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPTS_DIR))
+import pytest
 
-import task_swarm as TS  # noqa: E402
-
-
-TASKS_MD = """\
-# 任务
-
-- [ ] 1. 实现 A
-  - [ ] 1.1 写 a
-    - 文件：src/a.py
-    - _需求：1.1_
-
-- [ ] 2. 检查点
-  - 运行 pytest
-"""
+SCRIPTS_DIR = Path("/Users/xueqiang/Git/specode/plugins/specode/scripts")
 
 
-def _run(argv: list[str]) -> dict:
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        rc = TS.main(argv)
-    text = buf.getvalue().strip()
-    assert rc == 0, f"cmd failed: {' '.join(argv)} stdout={text}"
-    return json.loads(text)
+@pytest.fixture
+def run_swarm(tmp_path, monkeypatch):
+    """运行 task_swarm.py CLI，cwd 设到 tmp_path 让 .task-swarm 目录可解析。"""
+    monkeypatch.chdir(tmp_path)
+    # 与 conftest.fake_home 一致：HOME 也指向 tmp 避免污染
+    monkeypatch.setenv("HOME", str(tmp_path / "_home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "_home"))
+
+    def _run(*args: str, stdin: str = "") -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        env["HOME"] = str(tmp_path / "_home")
+        env["USERPROFILE"] = str(tmp_path / "_home")
+        cmd = [sys.executable, str(SCRIPTS_DIR / "task_swarm.py"), *args]
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              input=stdin, env=env, timeout=30, cwd=str(tmp_path))
+    return _run
 
 
-def _setup_workspace() -> dict:
-    tmp = Path(tempfile.mkdtemp(prefix="ts-cli-"))
-    spec = tmp / "spec-dir"
-    spec.mkdir()
-    project = tmp / "project"
-    project.mkdir()
-    (spec / "tasks.md").write_text(TASKS_MD, encoding="utf-8")
-    return {"tmp": tmp, "spec": spec, "project": project, "tasks": spec / "tasks.md"}
+def _write_tasks_md(tmp_path: Path, num_stages: int = 2) -> Path:
+    p = tmp_path / "tasks.md"
+    lines = []
+    for i in range(1, num_stages + 1):
+        lines.append(f"## 阶段 {i}: 阶段 {i}")
+        lines.append(f"- [ ] {i}.1 任务 @writes:src/f{i}.py _需求：{i}.1_")
+        if i > 1:
+            lines.append(f"- [ ] {i}.2 任务2 @writes:src/g{i}.py @depends-on:{i-1} _需求：{i}.2_")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return p
 
 
-def _cleanup(ws):
-    shutil.rmtree(ws["tmp"], ignore_errors=True)
+def _write_coder_result(run_dir: Path, agent_key: str, status: str = "ok") -> None:
+    outbox = run_dir / "agents" / agent_key / "outbox"
+    outbox.mkdir(parents=True, exist_ok=True)
+    (outbox / "result.md").write_text(
+        "# c\n## 上下文\n- x\n## 子任务状态\n- 1.1 t: done — f.py\n## 关键变更\n- a\n\n"
+        f"STATUS: {status}\n",
+        encoding="utf-8",
+    )
 
 
-def test_full_cli_flow_happy_path():
-    ws = _setup_workspace()
-    try:
-        # init
-        init_out = _run([
-            "init",
-            "--tasks", str(ws["tasks"]),
-            "--project-root", str(ws["project"]),
-            "--max-rounds", "3",
-            "--parallel", "2",
-        ])
-        run_id = init_out["run_id"]
-        assert len(init_out["stages"]) == 2
-
-        # next → fork stage 1 coder
-        nxt = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        assert nxt["action"] == "fork"
-        assert nxt["stage"] == 1
-        assert nxt["role"] == "coder"
-        assert nxt["subagent_type"] == "specode:task-swarm-coder"
-        prompt_file = Path(nxt["prompt_file"])
-        assert prompt_file.exists()
-        assert "CODER" in prompt_file.read_text()
-        workspace = Path(nxt["workspace"])
-
-        # simulate coder writing result.md
-        (workspace / "outbox" / "result.md").write_text(
-            "# 阶段 1 结果\n\n"
-            "## 子任务状态\n"
-            "- 1.1 写 a: done — src/a.py\n\n"
-            "## 关键变更\n- 新增 A\n\nSTATUS: ok\n",
-            encoding="utf-8",
-        )
-
-        # parse
-        parsed = _run([
-            "parse", "--run", run_id,
-            "--stage", "1", "--role", "coder", "--round", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        assert parsed["judgment"] == "ok"
-
-        # advance
-        _run([
-            "advance", "--run", run_id,
-            "--stage", "1", "--role", "coder", "--round", "1",
-            "--judgment", "ok",
-            "--project-root", str(ws["project"]),
-        ])
-
-        # next → fork stage 1 reviewer
-        nxt = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        assert nxt["action"] == "fork"
-        assert nxt["role"] == "reviewer"
-        rev_ws = Path(nxt["workspace"])
-        # reviewer's inbox should contain coder's result.md (relayed)
-        assert (rev_ws / "inbox" / "result.md").exists()
-
-        # simulate reviewer approving
-        (rev_ws / "outbox" / "review.md").write_text(
-            "## 结论\napproved\n\n"
-            "## P0 — 阻塞，coder 必须修复（修完才能进 validator）\n(none)\n\n"
-            "## P1 — 建议修复，不阻塞\n- 命名\n\n"
-            "## P2 — 可选改进\n- 风格\n\nSTATUS: ok\n",
-            encoding="utf-8",
-        )
-        parsed = _run([
-            "parse", "--run", run_id,
-            "--stage", "1", "--role", "reviewer", "--round", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        assert parsed["judgment"] == "approved"
-        _run([
-            "advance", "--run", run_id,
-            "--stage", "1", "--role", "reviewer", "--round", "1",
-            "--judgment", "approved",
-            "--project-root", str(ws["project"]),
-        ])
-
-        # next → writeback stage 1
-        nxt = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        assert nxt["action"] == "writeback"
-        assert nxt["stage"] == 1
-
-        # writeback
-        wb_out = _run([
-            "writeback", "--run", run_id, "--stage", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        assert wb_out["written"] is True
-        tasks_text = ws["tasks"].read_text(encoding="utf-8")
-        assert "- [x] 1. 实现 A" in tasks_text
-        assert "- [x] 1.1 写 a" in tasks_text
-        # annotation appended
-        assert "task-swarm 收敛" in tasks_text
-        # metadata preserved
-        assert "_需求：1.1_" in tasks_text
-        assert "文件：src/a.py" in tasks_text
-
-        # next → fork checkpoint validator
-        nxt = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        assert nxt["action"] == "fork"
-        assert nxt["role"] == "validator"
-        v_ws = Path(nxt["workspace"])
-
-        (v_ws / "outbox" / "validation.md").write_text(
-            "## 判定\npass\n\n"
-            "## 复现命令\n```bash\npytest\n```\n\n"
-            "## 按子任务的验证结果\n- [x] 1.1 a: pass\n\nSTATUS: ok\n",
-            encoding="utf-8",
-        )
-        parsed = _run([
-            "parse", "--run", run_id,
-            "--stage", "2", "--role", "validator", "--round", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        assert parsed["judgment"] == "pass"
-        _run([
-            "advance", "--run", run_id,
-            "--stage", "2", "--role", "validator", "--round", "1",
-            "--judgment", "pass",
-            "--project-root", str(ws["project"]),
-        ])
-
-        # next → writeback stage 2
-        nxt = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        assert nxt["action"] == "writeback"
-        _run([
-            "writeback", "--run", run_id, "--stage", "2",
-            "--project-root", str(ws["project"]),
-        ])
-
-        # next → done
-        nxt = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        assert nxt["action"] == "done"
-        assert "summary" in nxt
-    finally:
-        _cleanup(ws)
+def _write_reviewer(run_dir: Path, group: int, with_p0: bool = True) -> None:
+    out = run_dir / "agents" / f"reviewer-g{group}-r1" / "outbox"
+    out.mkdir(parents=True, exist_ok=True)
+    p0_section = ("## P0\n- src/f1.py:5 [req:1.1] — issue\n\n"
+                  if with_p0 else "## P0\n(none)\n\n")
+    (out / "review.md").write_text(
+        "# rev\n## 结论\napproved-with-comments\n\n"
+        + p0_section
+        + "## P1\n## P2\nSTATUS: ok\n",
+        encoding="utf-8",
+    )
 
 
-def test_init_creates_active_run_pointer():
-    ws = _setup_workspace()
-    try:
-        out = _run([
-            "init",
-            "--tasks", str(ws["tasks"]),
-            "--project-root", str(ws["project"]),
-        ])
-        pointer = ws["project"] / ".task-swarm" / "active-run"
-        assert pointer.exists()
-        assert pointer.read_text().strip() == out["run_id"]
-    finally:
-        _cleanup(ws)
+def _write_validator(run_dir: Path, group: int, round_: int, verdict: str = "pass",
+                     sig_marker: str = "default") -> None:
+    out = run_dir / "agents" / f"validator-g{group}-r{round_}" / "outbox"
+    out.mkdir(parents=True, exist_ok=True)
+    if verdict == "pass":
+        body = ("# v\n## 判定\npass\n## 复现命令\n```bash\npytest\n```\n"
+                "## 按子任务的验证结果\n- [x] 1.1 t: pass\n\nSTATUS: ok\n")
+    else:
+        body = ("# v\n## 判定\nfail\n## 复现命令\n```bash\npytest\n```\n"
+                "## 按子任务的验证结果\n- [ ] 1.1 t: fail\n"
+                f"## 失败现场\n```\nFAILED tests/t.py::test_{sig_marker}\nAssertionError: x\n```\n"
+                "## 给 coder 的修复指引\n### 修复 1\n- 文件: src/f1.py\n- 位置: x\n"
+                "- 问题: y\n- 建议: z\n\nSTATUS: ok\n")
+    (out / "validation.md").write_text(body, encoding="utf-8")
 
 
-def test_writeback_rejects_unconverged_stage():
-    ws = _setup_workspace()
-    try:
-        out = _run([
-            "init",
-            "--tasks", str(ws["tasks"]),
-            "--project-root", str(ws["project"]),
-        ])
-        run_id = out["run_id"]
-        # No advance — stage 1 is still pending; writeback should error.
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = TS.main([
-                "writeback", "--run", run_id, "--stage", "1",
-                "--project-root", str(ws["project"]),
-            ])
-        assert rc == 2
-        body = json.loads(buf.getvalue())
-        assert "尚未收敛" in body["error"] or "phase=pending" in body["error"]
-    finally:
-        _cleanup(ws)
+# -------------------------------------------------------------------------
+# 测试
+# -------------------------------------------------------------------------
+
+def test_init_creates_state_and_groups(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=2)
+    cp = run_swarm("init", "--tasks", str(p))
+    assert cp.returncode == 0, cp.stderr
+    out = json.loads(cp.stdout)
+    assert "run_id" in out
+    assert len(out["groups"]) >= 1
+    run_dir = Path(out["run_dir"])
+    assert (run_dir / "state.json").exists()
 
 
-# ---------- R5: schema-error retry ----------
-
-def test_parse_schema_error_retries_and_clears_outbox():
-    ws = _setup_workspace()
-    try:
-        init_out = _run([
-            "init",
-            "--tasks", str(ws["tasks"]),
-            "--project-root", str(ws["project"]),
-        ])
-        run_id = init_out["run_id"]
-        nxt = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        workspace = Path(nxt["workspace"])
-        outbox = workspace / "outbox"
-
-        # Write a malformed result.md (missing 子任务状态 section + STATUS)
-        (outbox / "result.md").write_text("# 阶段 1 结果\n\n## 其他\n- ...\n", encoding="utf-8")
-
-        parsed = _run([
-            "parse", "--run", run_id,
-            "--stage", "1", "--role", "coder", "--round", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        assert parsed["judgment"] == "schema-error"
-        assert parsed.get("retry") is True
-        assert "result.md" in parsed["outbox_snapshot"]
-        # outbox cleared
-        assert not (outbox / "result.md").exists()
-        # advance_cmd absent so caller can't accidentally advance
-        assert "advance_cmd" not in parsed
-
-        # next should reissue the same fork (in_flight was reset)
-        nxt2 = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        assert nxt2["action"] == "fork"
-        assert (nxt2["stage"], nxt2["role"], nxt2["round"]) == (1, "coder", 1)
-    finally:
-        _cleanup(ws)
+def test_init_with_nonexistent_tasks_exits_1(tmp_path, run_swarm):
+    cp = run_swarm("init", "--tasks", str(tmp_path / "no.md"))
+    assert cp.returncode == 1
 
 
-# ---------- R6: reset-in-flight ----------
-
-def test_reset_in_flight_clears_marker():
-    ws = _setup_workspace()
-    try:
-        init_out = _run([
-            "init",
-            "--tasks", str(ws["tasks"]),
-            "--project-root", str(ws["project"]),
-        ])
-        run_id = init_out["run_id"]
-        # Dispatch first fork — marks stage 1 in_flight
-        _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-
-        out = _run([
-            "reset-in-flight", "--run", run_id, "--stage", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        assert out["count"] == 1
-        assert out["cleared"][0]["stage"] == 1
-
-        # Second reset is a no-op
-        out2 = _run([
-            "reset-in-flight", "--run", run_id, "--stage", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        assert out2["count"] == 0
-    finally:
-        _cleanup(ws)
+def test_init_empty_tasks_md_exits_1(tmp_path, run_swarm):
+    p = tmp_path / "tasks.md"
+    p.write_text("# nothing\n", encoding="utf-8")
+    cp = run_swarm("init", "--tasks", str(p))
+    assert cp.returncode == 1
 
 
-def test_reset_in_flight_all_stages_when_no_stage_arg():
-    ws = _setup_workspace()
-    try:
-        init_out = _run([
-            "init",
-            "--tasks", str(ws["tasks"]),
-            "--project-root", str(ws["project"]),
-        ])
-        run_id = init_out["run_id"]
-        _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        out = _run([
-            "reset-in-flight", "--run", run_id,
-            "--project-root", str(ws["project"]),
-        ])
-        assert out["count"] >= 1
-    finally:
-        _cleanup(ws)
+def test_plan_initial_returns_coding_fork(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    cp = run_swarm("plan", "--run", init["run_id"])
+    assert cp.returncode == 0
+    plan = json.loads(cp.stdout)
+    assert plan["phase"] == "coding"
+    assert plan["action"] == "coding-fork"
+    assert plan["fork"]
 
 
-# ---------- R9: state migration ----------
-
-def test_load_state_migrates_unversioned_state():
-    """A state.json with no `version` key (legacy) should load + migrate."""
-    import task_swarm_state as S
-    ws = _setup_workspace()
-    try:
-        init_out = _run([
-            "init",
-            "--tasks", str(ws["tasks"]),
-            "--project-root", str(ws["project"]),
-        ])
-        run_id = init_out["run_id"]
-        run_dir = ws["project"] / ".task-swarm" / "runs" / run_id
-
-        # Strip version field to simulate pre-migration state.json
-        state_path = run_dir / "state.json"
-        raw = json.loads(state_path.read_text(encoding="utf-8"))
-        raw.pop("version", None)
-        state_path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        # load_state should still succeed (migrate_state is a no-op at v1 today)
-        loaded = S.load_state(run_dir)
-        assert loaded["run_id"] == run_id
+def test_status_reports_phase(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    cp = run_swarm("status", "--run", init["run_id"])
+    assert cp.returncode == 0
+    st = json.loads(cp.stdout)
+    assert st["run_id"] == init["run_id"]
+    assert st["phase"] in ("init", "coding")
 
 
-    finally:
-        _cleanup(ws)
+def test_advance_coding_then_review_fork(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    run_dir = Path(init["run_dir"])
+    # plan to materialize prompts + transition to coding
+    run_swarm("plan", "--run", init["run_id"])
+    _write_coder_result(run_dir, "coder-g1-s1-r1")
+    cp = run_swarm("advance", "--run", init["run_id"], "--phase", "coding", "--round", "1")
+    assert cp.returncode == 0
+    out = json.loads(cp.stdout)
+    assert out["ok"]
+    assert out["plan"]["action"] == "review-fork"
 
 
-def test_writeback_annotates_reviewer_p0_advisory():
-    """R3: reviewer P0 / advisory items end up as `> ⚠️` notes in tasks.md."""
-    ws = _setup_workspace()
-    try:
-        init_out = _run([
-            "init",
-            "--tasks", str(ws["tasks"]),
-            "--project-root", str(ws["project"]),
-        ])
-        run_id = init_out["run_id"]
-
-        # Fork coder, write result, advance
-        nxt = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        coder_ws = Path(nxt["workspace"])
-        (coder_ws / "outbox" / "result.md").write_text(
-            "# 阶段 1 结果\n\n## 子任务状态\n- 1.1 写 a: done — src/a.py\n\n## 关键变更\n- x\n\nSTATUS: ok\n",
-            encoding="utf-8",
-        )
-        _run([
-            "parse", "--run", run_id, "--stage", "1", "--role", "coder", "--round", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        _run([
-            "advance", "--run", run_id, "--stage", "1", "--role", "coder", "--round", "1",
-            "--judgment", "ok", "--project-root", str(ws["project"]),
-        ])
-
-        # Reviewer reports P0 + advisory_p0
-        nxt = _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        rev_ws = Path(nxt["workspace"])
-        (rev_ws / "outbox" / "review.md").write_text(
-            "## 结论\nneeds-changes\n\n"
-            "## P0 — 阻塞，coder 必须修复（修完才能进 validator）\n"
-            "- src/a.py:10 [security] — 缺密码校验\n"
-            "- src/a.py:20 — 主观印象，未带标签\n\n"
-            "## P1 — 建议\n- ...\n\n## P2 — 可选\n- ...\n\n"
-            "STATUS: ok\n",
-            encoding="utf-8",
-        )
-        _run([
-            "parse", "--run", run_id, "--stage", "1", "--role", "reviewer", "--round", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        _run([
-            "advance", "--run", run_id, "--stage", "1", "--role", "reviewer", "--round", "1",
-            "--judgment", "p0", "--project-root", str(ws["project"]),
-        ])
-
-        # Writeback — annotation should land in tasks.md
-        _run(["next", "--run", run_id, "--project-root", str(ws["project"])])
-        _run([
-            "writeback", "--run", run_id, "--stage", "1",
-            "--project-root", str(ws["project"]),
-        ])
-        text = ws["tasks"].read_text(encoding="utf-8")
-        assert "评审建议" in text
-        assert "[security]" in text
-        # advisory item present with (adv) marker
-        assert "(adv)" in text
-        # stage flipped to [x] regardless of reviewer P0 (advisory)
-        assert "- [x] 1. 实现 A" in text
-    finally:
-        _cleanup(ws)
+def test_full_cycle_no_p0_pass(tmp_path, run_swarm):
+    """coding → review (no P0) → validation (pass) → writeback"""
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    run_id = init["run_id"]
+    run_dir = Path(init["run_dir"])
+    run_swarm("plan", "--run", run_id)
+    _write_coder_result(run_dir, "coder-g1-s1-r1")
+    run_swarm("advance", "--run", run_id, "--phase", "coding", "--round", "1")
+    _write_reviewer(run_dir, 1, with_p0=False)
+    run_swarm("advance", "--run", run_id, "--phase", "review", "--round", "1")
+    _write_validator(run_dir, 1, 1, verdict="pass")
+    cp = run_swarm("advance", "--run", run_id, "--phase", "validation", "--round", "1")
+    out = json.loads(cp.stdout)
+    assert out["plan"]["action"] == "writeback"
+    cp = run_swarm("writeback", "--run", run_id, "--group", "1")
+    assert cp.returncode == 0, cp.stderr
+    text = p.read_text(encoding="utf-8")
+    assert "- [x] 1.1" in text
 
 
-def test_load_state_warns_on_future_version():
-    import task_swarm_state as S
-    ws = _setup_workspace()
-    try:
-        init_out = _run([
-            "init",
-            "--tasks", str(ws["tasks"]),
-            "--project-root", str(ws["project"]),
-        ])
-        run_id = init_out["run_id"]
-        run_dir = ws["project"] / ".task-swarm" / "runs" / run_id
-        state_path = run_dir / "state.json"
-        raw = json.loads(state_path.read_text(encoding="utf-8"))
-        raw["version"] = 999  # newer than runtime
-        state_path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        loaded = S.load_state(run_dir)
-        assert any("newer than runtime" in w for w in loaded.get("warnings", []))
-    finally:
-        _cleanup(ws)
+def test_full_cycle_with_p0_fix(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    run_id = init["run_id"]
+    run_dir = Path(init["run_dir"])
+    run_swarm("plan", "--run", run_id)
+    _write_coder_result(run_dir, "coder-g1-s1-r1")
+    run_swarm("advance", "--run", run_id, "--phase", "coding", "--round", "1")
+    _write_reviewer(run_dir, 1, with_p0=True)
+    run_swarm("advance", "--run", run_id, "--phase", "review", "--round", "1")
+    # p0-fix coder
+    _write_coder_result(run_dir, "coder-p0fix-g1-r1-f0")
+    cp = run_swarm("advance", "--run", run_id, "--phase", "p0-fix", "--round", "1")
+    out = json.loads(cp.stdout)
+    assert out["plan"]["phase"] == "validation"
 
 
-def test_fork_description_r1_no_scope():
-    """First round (round=1) gets plain '阶段 N role: title' without -rN or [scope]."""
-    desc = TS._fork_description(3, "coder", 1, None, "实现 A")
-    assert desc == "阶段 3 coder: 实现 A"
+def test_validation_fail_triggers_v_fix(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    run_id = init["run_id"]
+    run_dir = Path(init["run_dir"])
+    run_swarm("plan", "--run", run_id)
+    _write_coder_result(run_dir, "coder-g1-s1-r1")
+    run_swarm("advance", "--run", run_id, "--phase", "coding", "--round", "1")
+    _write_reviewer(run_dir, 1, with_p0=False)
+    run_swarm("advance", "--run", run_id, "--phase", "review", "--round", "1")
+    _write_validator(run_dir, 1, 1, verdict="fail", sig_marker="first")
+    cp = run_swarm("advance", "--run", run_id, "--phase", "validation", "--round", "1")
+    out = json.loads(cp.stdout)
+    assert out["plan"]["phase"] == "v-fix"
 
 
-def test_fork_description_includes_scope_for_validator_fail_fix():
-    """r2 coder triggered by validator fail must show [validator-fail-fix] so the
-    orchestrator can't mis-narrate it as a reviewer P0 fix loop."""
-    desc = TS._fork_description(5, "coder", 2, "validator-fail-fix", "检查点 — Mascot 独立可控")
-    assert "-r2" in desc
-    assert "[validator-fail-fix]" in desc
-    assert "检查点 — Mascot 独立可控" in desc
-    assert "P0" not in desc
+def test_deadloop_after_3_identical_fails(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    run_id = init["run_id"]
+    run_dir = Path(init["run_dir"])
+    run_swarm("plan", "--run", run_id)
+    _write_coder_result(run_dir, "coder-g1-s1-r1")
+    run_swarm("advance", "--run", run_id, "--phase", "coding", "--round", "1")
+    _write_reviewer(run_dir, 1, with_p0=False)
+    run_swarm("advance", "--run", run_id, "--phase", "review", "--round", "1")
+    # 3 同样的 fail
+    for r in range(1, 4):
+        _write_validator(run_dir, 1, r, verdict="fail", sig_marker="same")
+        cp = run_swarm("advance", "--run", run_id, "--phase", "validation", "--round", str(r))
+        out = json.loads(cp.stdout)
+        if r < 3:
+            # v-fix coder 返回
+            v_round = r + 1
+            files = ["src/f1.py"]
+            for i, _f in enumerate(files):
+                key = f"coder-vfix-g1-r{v_round}-f{i}"
+                _write_coder_result(run_dir, key)
+            run_swarm("advance", "--run", run_id, "--phase", "v-fix", "--round", str(v_round))
+    assert "deadloop" in out.get("next", "") or out.get("deadloop") is True
 
 
-def test_fork_description_reviewer_advisory_scope():
-    desc = TS._fork_description(1, "reviewer", 1, "advisory", "实现 A")
-    assert "reviewer" in desc
-    assert "[advisory]" in desc
+def test_writeback_invalid_group_returns_1(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    cp = run_swarm("writeback", "--run", init["run_id"], "--group", "99")
+    assert cp.returncode == 1
+
+
+def test_heartbeat_updates_state(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    cp = run_swarm("heartbeat", "--run", init["run_id"])
+    assert cp.returncode == 0
+    out = json.loads(cp.stdout)
+    assert out["run_id"] == init["run_id"]
+
+
+def test_resolve_abort_sets_status(tmp_path, run_swarm):
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    cp = run_swarm("resolve", "--run", init["run_id"], "--abort")
+    assert cp.returncode == 0
+    out = json.loads(cp.stdout)
+    assert out["status"] == "aborted"
+
+
+def test_resolve_clears_session_task_swarm_run_id(tmp_path, run_swarm, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "_home"))
+    sessions_dir = tmp_path / "_home" / ".specode" / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    sid = "test-sess-123"
+    sess_file = sessions_dir / f"{sid}.json"
+    sess_file.write_text(json.dumps({"session_id": sid, "mode": "active",
+                                     "task_swarm_run_id": None}), encoding="utf-8")
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p), "--session", sid).stdout)
+    # 验证 init 写了 task_swarm_run_id
+    saved = json.loads(sess_file.read_text(encoding="utf-8"))
+    assert saved["task_swarm_run_id"] == init["run_id"]
+    # resolve 后应清空
+    run_swarm("resolve", "--run", init["run_id"])
+    saved2 = json.loads(sess_file.read_text(encoding="utf-8"))
+    assert saved2["task_swarm_run_id"] is None

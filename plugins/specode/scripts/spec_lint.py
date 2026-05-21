@@ -1,145 +1,152 @@
 #!/usr/bin/env python3
+"""spec_lint.py — 对当前 spec 目录做轻量 lint。
+
+仅产出 WARNING；所有 lint 一律 exit 0（不阻断模型流程）。
+
+规则：
+  1. tasks.md 中的 `_需求：x.y_` 标签必须在 requirements.md / bugfix.md
+     找到对应 "需求 x" 或 "x.y" 章节标记；找不到 → WARNING
+  2. implementation-log.md 中每个 `## ` 条目正文 < 30 字符或缺
+     文件引用 (`.py` / `.md` 等) → WARNING（"空 log 等于没改过"）
+  3. requirements.md 中的 EARS SHALL 行缺动词或缺 trigger
+     （形如 WHEN / IF / WHILE / WHERE 关键字开头）→ WARNING
+
+接入：acceptance phase 进入前由主代理调一次，把 WARNING 列给用户参考
+（详见 SKILL.md §Phase Order 中 acceptance 部分）。
+
+用法：
+  spec_lint.py --spec <spec-dir>        lint 该 spec 目录下 5 份文档
+
+stdlib-only。
+"""
 from __future__ import annotations
 
 import argparse
-import json
-from datetime import datetime, timezone
+import re
+import sys
 from pathlib import Path
-
-import spec_session
-from spec_session import TASK_RE, task_section
+from typing import Optional
 
 
-def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+# -------------------------------------------------------------------------
+
+REQ_TAG_RE = re.compile(r"_需求[：:]\s*([0-9]+(?:\.[0-9]+)?)_")
+FILE_REF_RE = re.compile(r"[A-Za-z0-9_./-]+\.(py|md|js|ts|tsx|jsx|go|rs|java|kt|rb|c|h|cpp|sh|yaml|yml|json)")
+EARS_HEADS = ("WHEN", "IF", "WHILE", "WHERE", "WHENEVER")
+SHALL_LINE_RE = re.compile(r"\bSHALL\b", re.IGNORECASE)
 
 
-def lint(spec_dir: Path) -> list[str]:
-    errors: list[str] = []
+def _warn(buf: list[str], rule: str, msg: str) -> None:
+    buf.append(f"[WARN][{rule}] {msg}")
+
+
+def _read(p: Path) -> Optional[str]:
+    try:
+        if p.exists() and p.is_file():
+            return p.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+    return None
+
+
+def rule_task_traceability(spec_dir: Path, warnings: list[str]) -> None:
+    tasks = _read(spec_dir / "tasks.md")
+    if not tasks:
+        return
+    haystack_parts = []
+    for fn in ("requirements.md", "bugfix.md"):
+        s = _read(spec_dir / fn)
+        if s:
+            haystack_parts.append(s)
+    haystack = "\n".join(haystack_parts)
+    if not haystack:
+        # tasks.md 含标签但无 req/bugfix → 全报
+        for tag in set(REQ_TAG_RE.findall(tasks)):
+            _warn(warnings, "trace",
+                  f"tasks.md 引用 _需求：{tag}_ 但 requirements.md / bugfix.md 不存在或为空。")
+        return
+    for tag in sorted(set(REQ_TAG_RE.findall(tasks))):
+        # 容许匹配 "需求 1" / "需求 1.2" / "1.2"
+        if not re.search(rf"需求\s*{re.escape(tag)}\b", haystack) and tag not in haystack:
+            _warn(warnings, "trace",
+                  f"tasks.md 的 _需求：{tag}_ 在 requirements.md / bugfix.md 中找不到对应章节。")
+
+
+def rule_log_entries(spec_dir: Path, warnings: list[str]) -> None:
+    log = _read(spec_dir / "implementation-log.md")
+    if not log:
+        return
+    # 拆 ## 开头的条目
+    parts = re.split(r"(?m)^##\s+", log)
+    # parts[0] 是文件头；条目从 parts[1:] 起
+    for entry in parts[1:]:
+        # 取第一行作为 title，正文是其余
+        head, _, body = entry.partition("\n")
+        body_stripped = body.strip()
+        title = head.strip()
+        if not body_stripped:
+            _warn(warnings, "log",
+                  f"implementation-log.md 条目「{title[:30]}」正文为空。")
+            continue
+        if len(body_stripped) < 30:
+            _warn(warnings, "log",
+                  f"implementation-log.md 条目「{title[:30]}」正文过短（< 30 字符）；信息量不足。")
+        if not FILE_REF_RE.search(body_stripped):
+            _warn(warnings, "log",
+                  f"implementation-log.md 条目「{title[:30]}」未引用任何源码 / 文档文件路径。")
+
+
+def rule_ears_shall(spec_dir: Path, warnings: list[str]) -> None:
+    req = _read(spec_dir / "requirements.md")
+    if not req:
+        return
+    for idx, line in enumerate(req.splitlines(), start=1):
+        if not SHALL_LINE_RE.search(line):
+            continue
+        # 简单 EARS 检查：行内或紧邻上文应含 EARS 关键字
+        upper = line.upper()
+        has_trigger = any(k in upper for k in EARS_HEADS)
+        if not has_trigger:
+            # 看前后两行
+            # 注意：splitlines 不保留尾换行；这里不报上下文，仅提示
+            _warn(warnings, "ears",
+                  f"requirements.md 第 {idx} 行包含 SHALL 但未检测到 EARS trigger（WHEN/IF/WHILE/WHERE）。")
+            continue
+        # 检查 SHALL 之后是否有动词（粗略判定：SHALL 后至少有非空白且非 thE/A/AN 的词）
+        m = re.search(r"SHALL\s+([A-Za-z一-鿿]+)", line, re.IGNORECASE)
+        if not m or m.group(1).lower() in ("the", "a", "an"):
+            _warn(warnings, "ears",
+                  f"requirements.md 第 {idx} 行 SHALL 后缺动词。")
+
+
+# -------------------------------------------------------------------------
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="spec_lint.py", description="lint a specode spec directory")
+    parser.add_argument("--spec", required=True, help="spec 目录绝对路径")
+    args = parser.parse_args(argv)
+
+    spec_dir = Path(args.spec).expanduser().resolve()
+    if not spec_dir.is_dir():
+        sys.stderr.write(f"spec 目录不存在：{spec_dir}\n")
+        return 0  # lint 不阻断；返回 0
+
     warnings: list[str] = []
-    config_data: dict = {}
+    rule_task_traceability(spec_dir, warnings)
+    rule_log_entries(spec_dir, warnings)
+    rule_ears_shall(spec_dir, warnings)
 
-    req = spec_dir / "requirements.md"
-    bug = spec_dir / "bugfix.md"
-    design = spec_dir / "design.md"
-    tasks = spec_dir / "tasks.md"
-    config = spec_dir / ".config.json"
-
-    if req.exists() and bug.exists():
-        errors.append("Spec should not contain both requirements.md and bugfix.md.")
-    if not req.exists() and not bug.exists():
-        errors.append("Missing requirements.md or bugfix.md.")
-    if not design.exists():
-        errors.append("Missing design.md.")
-    if not tasks.exists():
-        errors.append("Missing tasks.md.")
-    if not config.exists():
-        warnings.append("Missing .config.json.")
-    else:
-        try:
-            config_data = json.loads(config.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            errors.append(f".config.json is invalid JSON: {exc}")
-            config_data = {}
-        if config_data:
-            document_root = Path(config_data.get("documentRoot") or spec_dir.parent).expanduser().resolve()
-            try:
-                spec_session.ensure_within_root(spec_dir, document_root)
-            except SystemExit as exc:
-                errors.append(str(exc))
-            if not config_data.get("specId"):
-                errors.append(".config.json is missing specId.")
-            sessions = config_data.get("sessions")
-            if sessions is not None and not isinstance(sessions, dict):
-                errors.append(".config.json sessions must be an object keyed by session id.")
-            current_phase = config_data.get("currentPhase")
-            if current_phase and current_phase not in spec_session.PHASES:
-                errors.append(f".config.json currentPhase is invalid: {current_phase}")
-            session_status = config_data.get("sessionStatus")
-            if session_status and session_status not in {"active", "ended"}:
-                errors.append(f".config.json sessionStatus is invalid: {session_status}")
-            if config_data.get("persistentMode") and session_status == "ended":
-                warnings.append(".config.json persistentMode is true but the current session is ended.")
-            if session_status == "ended" and not config_data.get("endedAt"):
-                warnings.append(".config.json ended session has no endedAt timestamp.")
-            if sessions:
-                for session_id, session in sessions.items():
-                    status = session.get("status")
-                    phase = session.get("currentPhase")
-                    if status not in {"active", "ended"}:
-                        errors.append(f"Session {session_id} has invalid status: {status}")
-                    if phase not in spec_session.PHASES:
-                        errors.append(f"Session {session_id} has invalid currentPhase: {phase}")
-
-            # Lock field structural check
-            lock = config_data.get("lock")
-            if lock is not None:
-                if not isinstance(lock, dict):
-                    errors.append(".config.json lock must be an object or null.")
-                else:
-                    for key in ("sessionId", "acquiredAt", "lastHeartbeatAt"):
-                        if not lock.get(key):
-                            errors.append(f".config.json lock is missing required field: {key}")
-                    # Stale lock advisory
-                    last_hb = lock.get("lastHeartbeatAt") or lock.get("acquiredAt")
-                    try:
-                        ts = datetime.fromisoformat(last_hb)
-                        elapsed = (datetime.now(timezone.utc) - ts).total_seconds()
-                        if elapsed > spec_session.LOCK_STALE_SECONDS:
-                            warnings.append(
-                                f".config.json lock has been stale for {int(elapsed)}s "
-                                f"(threshold {spec_session.LOCK_STALE_SECONDS}s); next acquire will reclaim it."
-                            )
-                    except (TypeError, ValueError):
-                        pass
-            evicted = config_data.get("evictedSessions")
-            if evicted is not None and not isinstance(evicted, list):
-                errors.append(".config.json evictedSessions must be a list.")
-
-    first_doc = bug if bug.exists() else req
-    if first_doc and first_doc.exists():
-        text = read(first_doc)
-        if "SHALL" not in text:
-            warnings.append(f"{first_doc.name} has no EARS-style SHALL criteria.")
-        placeholder_markers = ["待补充", "[问题]", "[需求", "[触发条件]", "[期望行为]"]
-        if any(marker in text for marker in placeholder_markers):
-            warnings.append(f"{first_doc.name} still contains template placeholder markers.")
-
-    if design.exists():
-        text = read(design)
-        for heading in ["## 概述", "## 架构", "## 测试策略"]:
-            if heading not in text:
-                warnings.append(f"design.md is missing {heading}.")
-
-    if tasks.exists():
-        text = read(tasks)
-        section = task_section(text)
-        task_matches = list(TASK_RE.finditer(section))
-        if not task_matches:
-            errors.append("tasks.md has no checkbox tasks.")
-        if config.exists():
-            active_task_exists = any(match.group(1) == "~" for match in task_matches)
-            if active_task_exists and config_data.get("currentPhase") not in {"implementation", "acceptance"}:
-                warnings.append("tasks.md has in-progress tasks but currentPhase is not implementation or acceptance.")
-        if "验证：" not in section and "Validation:" not in section:
-            warnings.append("tasks.md does not contain validation notes.")
-        if "_需求：" not in section and "Requirements:" not in section and "Behavior:" not in section:
-            warnings.append("tasks.md does not contain requirement traceability.")
-
-    return [f"ERROR: {item}" for item in errors] + [f"WARNING: {item}" for item in warnings]
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Lint a specode folder.")
-    parser.add_argument("spec_dir", type=Path)
-    args = parser.parse_args()
-    messages = lint(args.spec_dir)
-    if messages:
-        print("\n".join(messages))
-    else:
-        print("Spec lint passed.")
-    return 1 if any(msg.startswith("ERROR:") for msg in messages) else 0
+    if not warnings:
+        sys.stdout.write("spec_lint: 0 warnings.\n")
+        return 0
+    sys.stdout.write(f"spec_lint: {len(warnings)} warning(s).\n")
+    for w in warnings:
+        sys.stdout.write(w + "\n")
+    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

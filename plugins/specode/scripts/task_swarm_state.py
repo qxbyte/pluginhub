@@ -1,515 +1,442 @@
-"""task-swarm state machine.
+#!/usr/bin/env python3
+"""task_swarm_state.py — task-swarm 状态机（state.json 单一事实源；详见 references/task-swarm.md §7）。
 
-Holds the run-level state.json and provides pure functions to compute the
-next dispatch action. The orchestrator (task_swarm.py) calls `next_action()`
-and `advance()` — never tries to "remember" round counters or convergence
-status itself.
+负责：
+    - state.json 的 load/save（atomic write + fsync）
+    - phase 状态机推进（references/task-swarm.md §3）
+    - 死循环检测（连续 3 轮同 fail 签名 → group failed-deadloop）
 
-state.json shape:
-{
-  "run_id": "20260517-153012-ab12cd",
-  "tasks_path": "/abs/path/tasks.md",
-  "spec_dir":   "/abs/path/spec-dir",
-  "project_root": "/abs/path",
-  "session_id": "...",
-  "config": {"parallel": 3, "max_rounds": 3},
-  "stages": [
-    {
-      "num": 1, "title": "...", "kind": "stage|checkpoint",
-      "deps": [..], "files_union": [..], "optional": bool,
-      "checkpoint_for": int|null,
-      "leaves": [ {"num":"1.1", "policy":"full|default|coder-only|skip", ...}, ... ],
-      "phase": "pending|running|converged|failed|skipped",
-      "rounds": {"reviewer": 0, "validator": 0},
-      "last": {"role": "coder|reviewer|validator", "round": N, "judgment": "ok|approved|p0|pass|fail|loop|schema-error"},
-      "history": [ {...advance records...} ],
-      "in_flight": null | {"role":..., "round":..., "started_at":...}
-    }, ...
-  ],
-  "started_at": "...",
-  "updated_at": "..."
-}
+state.json schema 见 references/task-swarm.md §7 关键不变量。本模块只管"事实源"，
+派发 / 解析在 task_swarm.py 主 CLI 里。
 
-Phase transitions:
-  pending → running → converged | failed
-
-Action types returned by next_action():
-  {"action": "fork", "stage": N, "role": R, "round": K, ...}
-  {"action": "writeback", "stage": N, "status": "converged|failed"}
-  {"action": "wait"}    — there's work in-flight, model should not fork more
-  {"action": "done", "summary": {...}}
+stdlib-only。
 """
 from __future__ import annotations
 
+import contextlib
 import json
-import uuid
-from dataclasses import dataclass
-from datetime import datetime, timezone
+import os
+import tempfile
+import time
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
-# ---------- io ----------
+# -------------------------------------------------------------------------
+# 时间 / 原子写
+# -------------------------------------------------------------------------
 
-STATE_FILENAME = "state.json"
-CURRENT_STATE_VERSION = 1
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def state_path(run_dir: Path) -> Path:
-    return run_dir / STATE_FILENAME
+def _atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            with contextlib.suppress(OSError):
+                os.fsync(fh.fileno())
+        os.replace(tmp, path)
+        with contextlib.suppress(OSError):
+            dir_fd = os.open(str(path.parent), os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
-# Registry of one-step migrations: MIGRATIONS[N] takes a v=N state and
-# returns a v=N+1 state. Empty until a schema change ships.
-MIGRATIONS: dict[int, "callable"] = {}
+def _atomic_write_json(path: Path, payload: Any) -> None:
+    _atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
-def migrate_state(state: dict) -> dict:
-    """Run all registered migrations up to CURRENT_STATE_VERSION.
-
-    Future versions (newer than runtime) pass through with a recorded warning;
-    missing migration entries between known versions raise ValueError so we
-    don't silently run on half-migrated state.
-    """
-    v = int(state.get("version", 1))
-    while v < CURRENT_STATE_VERSION:
-        fn = MIGRATIONS.get(v)
-        if fn is None:
-            raise ValueError(
-                f"task_swarm_state: missing migration from version {v} → {v + 1}"
-            )
-        state = fn(state)
-        v = int(state.get("version", v + 1))
-    if v > CURRENT_STATE_VERSION:
-        state.setdefault("warnings", []).append(
-            f"[WARN] state version {v} is newer than runtime ({CURRENT_STATE_VERSION}); "
-            f"proceeding with best-effort compatibility"
-        )
-    return state
-
-
-def load_state(run_dir: Path) -> dict:
-    p = state_path(run_dir)
-    if not p.exists():
-        raise FileNotFoundError(f"state.json not found at {p}")
-    state = json.loads(p.read_text(encoding="utf-8"))
-    return migrate_state(state)
-
-
-def save_state(run_dir: Path, state: dict) -> None:
-    state["updated_at"] = _now()
-    p = state_path(run_dir)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(p)
-
-
-# ---------- construction ----------
-
-def new_run_id() -> str:
-    """Deterministic-ish run id: YYYYMMDD-HHMMSS-<6hex>."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    return f"{ts}-{uuid.uuid4().hex[:6]}"
-
-
-def build_initial_state(
-    run_id: str,
-    tasks_path: Path,
-    spec_dir: Path,
-    project_root: Path,
-    plan: dict,
-    parallel: int = 3,
-    max_rounds: int = 3,
-    reviewer_max_rounds: int | None = None,
-    validator_max_rounds: int | None = None,
-    session_id: str = "",
-) -> dict:
-    """Build the initial state.json structure.
-
-    Rounds policy: reviewer and validator loops are counted independently.
-    By default reviewer loops are tight (1 round) since reviewer P0 is a
-    subjective signal — repeated 'I think this could be better' bounces
-    waste budget. Validator fails are objective (test ran, test failed)
-    so they get the full 3 rounds.
-
-    If `reviewer_max_rounds` / `validator_max_rounds` are None, both fall
-    back to `max_rounds` for backward compatibility.
-    """
-    rev_max = reviewer_max_rounds if reviewer_max_rounds is not None else max_rounds
-    val_max = validator_max_rounds if validator_max_rounds is not None else max_rounds
-    stages = []
-    for s in plan["stages"]:
-        stages.append({
-            "num": s["num"],
-            "title": s["title"],
-            "kind": s["kind"],
-            "deps": list(s.get("deps") or []),
-            "files_union": list(s.get("files_union") or []),
-            "optional": bool(s.get("optional")),
-            "checkpoint_for": s.get("checkpoint_for"),
-            "leaves": [dict(l) for l in s.get("leaves") or []],
-            "phase": "pending",
-            "rounds": {"reviewer": 0, "validator": 0},
-            "last": None,
-            "history": [],
-            "in_flight": None,
-        })
-
-    # Pre-skip stages whose every leaf is skip, or stage marked optional with
-    # only coder-only leaves and no requirement (still kept as `pending` if
-    # has coder leaves — we only auto-skip when ALL leaves are skip).
-    for st in stages:
-        if st["kind"] == "stage":
-            non_skip = [l for l in st["leaves"] if l.get("policy") != "skip"]
-            if not non_skip:
-                st["phase"] = "skipped"
-
-    return {
-        "version": 1,
-        "run_id": run_id,
-        "tasks_path": str(tasks_path),
-        "spec_dir": str(spec_dir),
-        "project_root": str(project_root),
-        "session_id": session_id,
-        "config": {
-            "parallel": int(parallel),
-            "max_rounds": int(max_rounds),
-            "reviewer_max_rounds": int(rev_max),
-            "validator_max_rounds": int(val_max),
-        },
-        "stages": stages,
-        "warnings": list(plan.get("warnings") or []),
-        "started_at": _now(),
-        "updated_at": _now(),
-    }
-
-
-def _role_max_rounds(state: dict, role: str) -> int:
-    """Return the cap for the given role, with legacy fallback to max_rounds."""
-    cfg = state["config"]
-    if role == "reviewer":
-        return int(cfg.get("reviewer_max_rounds") or cfg.get("max_rounds", 3))
-    if role == "validator":
-        return int(cfg.get("validator_max_rounds") or cfg.get("max_rounds", 3))
-    # Coder rounds are bounded by whichever upstream loop triggered them;
-    # use the larger of the two role caps so coder isn't the bottleneck.
-    return max(
-        int(cfg.get("reviewer_max_rounds") or cfg.get("max_rounds", 3)),
-        int(cfg.get("validator_max_rounds") or cfg.get("max_rounds", 3)),
-    )
-
-
-# ---------- state queries ----------
-
-def get_stage(state: dict, num: int) -> dict:
-    for s in state["stages"]:
-        if s["num"] == num:
-            return s
-    raise KeyError(f"stage {num} not found")
-
-
-def stage_completed(stage: dict) -> bool:
-    return stage["phase"] in {"converged", "failed", "skipped"}
-
-
-def deps_satisfied(state: dict, stage: dict) -> bool:
-    for dep_num in stage["deps"]:
-        try:
-            dep = get_stage(state, dep_num)
-        except KeyError:
-            continue
-        if dep["phase"] != "converged":
-            return False
-    return True
-
-
-def has_files_conflict(a: dict, b: dict) -> bool:
-    fa = set(a.get("files_union") or [])
-    fb = set(b.get("files_union") or [])
-    return bool(fa & fb)
-
-
-def in_flight_count(state: dict) -> int:
-    return sum(1 for s in state["stages"] if s.get("in_flight"))
-
-
-# ---------- next_action ----------
+# -------------------------------------------------------------------------
+# 数据模型
+# -------------------------------------------------------------------------
 
 @dataclass
-class Action:
-    kind: str   # fork | writeback | wait | done
-    payload: dict
-
-    def to_dict(self) -> dict:
-        return {"action": self.kind, **self.payload}
-
-
-def next_action(state: dict) -> Action:
-    """Return the single highest-priority next thing the orchestrator should do.
-
-    Priority order:
-      1. Any stage whose loop converged but hasn't been written back → writeback
-      2. Any stage in-flight → wait
-      3. The first stage that's ready to dispatch its next role → fork
-      4. All stages done → done
-    """
-    # 1. writebacks pending
-    for s in state["stages"]:
-        if s["phase"] in {"converged", "failed"} and not s.get("written_back"):
-            return Action("writeback", {
-                "stage": s["num"],
-                "status": s["phase"],
-                "rounds": dict(s["rounds"]),
-                "title": s["title"],
-            })
-
-    # 2. in-flight blocks new forks beyond parallel limit
-    parallel_cap = state["config"]["parallel"]
-    in_flight = in_flight_count(state)
-
-    # 3. find next fork candidate
-    candidates = []
-    for s in state["stages"]:
-        if stage_completed(s):
-            continue
-        if s.get("in_flight"):
-            continue
-        if not deps_satisfied(state, s):
-            continue
-        action = _next_role_for_stage(state, s)
-        if action is None:
-            continue
-        candidates.append((s, action))
-
-    # honor parallel cap + file conflict
-    chosen = None
-    already_running = [s for s in state["stages"] if s.get("in_flight")]
-    for s, action in candidates:
-        if in_flight >= parallel_cap and action["round"] == 1 and action["role"] == "coder":
-            # don't kick off a brand-new stage while at parallel cap
-            continue
-        # file conflict with anything in-flight blocks dispatch
-        conflict = any(has_files_conflict(s, r) for r in already_running)
-        if conflict:
-            continue
-        chosen = (s, action)
-        break
-
-    if chosen is not None:
-        s, action = chosen
-        return Action("fork", {
-            "stage": s["num"],
-            "title": s["title"],
-            "stage_kind": s["kind"],
-            **action,
-        })
-
-    if in_flight > 0:
-        return Action("wait", {"in_flight": in_flight})
-
-    if any(not s.get("written_back") and s["phase"] in {"converged", "failed"} for s in state["stages"]):
-        # shouldn't reach here because we handle writebacks first; defensive
-        return Action("wait", {"in_flight": 0})
-
-    return Action("done", {"summary": summarize(state)})
+class StageEntry:
+    """state.json 里一条 stage 记录。"""
+    number: int
+    title: str
+    writes: list[str] = field(default_factory=list)
+    reads: list[str] = field(default_factory=list)
+    depends_on: list[int] = field(default_factory=list)
+    requirements: list[str] = field(default_factory=list)
+    items: list[dict] = field(default_factory=list)
+    header_line_no: int = 0
+    end_line_no: int = 0
 
 
-def _next_role_for_stage(state: dict, stage: dict) -> dict | None:
-    """Decide the next dispatch step for a single stage.
-
-    Pipeline (post-R3 redesign):
-
-      - Normal stage (kind=stage):
-          coder ok → reviewer (advisory; never triggers fix loops) → converged
-          coder-only / no reviewable leaves → converged directly after coder ok
-      - Checkpoint stage (kind=checkpoint):
-          validator pass → converged
-          validator fail (within budget) → coder fix → validator re-run
-          validator fail (at cap) → failed
-          (reviewer NEVER runs on a checkpoint — the validator IS the gate)
-
-    reviewer no longer participates in fix loops. Its verdict (approved /
-    p0 / advisory_p0) is captured in history so writeback can surface the
-    findings as `> ⚠️` annotation on tasks.md for the user to act on.
-
-    Returns None when nothing more to fork (caller will writeback or done).
-    """
-    val_max = _role_max_rounds(state, "validator")
-    last = stage.get("last")
-    kind = stage["kind"]
-
-    # Brand new stage
-    if stage["phase"] == "pending":
-        if kind == "checkpoint":
-            return {"role": "validator", "round": 1}
-        if not any(l.get("policy") != "skip" for l in stage["leaves"]):
-            return None
-        return {"role": "coder", "round": 1}
-
-    if stage["phase"] != "running":
-        return None
-
-    if last is None:
-        # phase running but no last record — shouldn't normally happen
-        return {"role": "coder", "round": 1}
-
-    role = last["role"]
-    judgment = last["judgment"]
-    round_no = last["round"]
-
-    # --- coder finished ---
-    if role == "coder":
-        if judgment in {"failed", "blocked"}:
-            return None  # caller flipped phase to failed; defensive
-        if kind == "checkpoint":
-            # checkpoint coder fix → re-validate (validator counts on its own round axis)
-            val_rounds = [h["round"] for h in stage.get("history", []) if h["role"] == "validator"]
-            next_round = (max(val_rounds) if val_rounds else 0) + 1
-            return {"role": "validator", "round": next_round, "scope": "re-run"}
-        # Normal stage: dispatch reviewer (advisory) if any reviewable leaf exists
-        if any(l.get("policy") in {"full", "default"} for l in stage["leaves"]):
-            return {"role": "reviewer", "round": round_no, "scope": "advisory"}
-        # All coder-only → stage converges directly (no reviewer)
-        return None
-
-    # --- reviewer finished (advisory; never schedules another fork) ---
-    if role == "reviewer":
-        return None
-
-    # --- validator finished ---
-    if role == "validator":
-        if judgment == "pass":
-            return None  # caller marks converged
-        if judgment == "fail":
-            if round_no >= val_max:
-                return None  # caller marks failed
-            # Coder fix → validator re-run (no reviewer post-fix on checkpoints)
-            return {"role": "coder", "round": round_no + 1, "scope": "validator-fail-fix"}
-        return None
-
-    return None
-
-
-# ---------- advance ----------
-
-VALID_JUDGMENTS = {
-    "coder": {"ok", "failed", "blocked"},
-    "reviewer": {"approved", "p0", "loop", "schema-error"},
-    "validator": {"pass", "fail", "loop", "schema-error"},
+# Phase 枚举（同 references/task-swarm.md §3）
+PHASES = {
+    "init", "coding", "review", "p0-fix",
+    "validation", "v-fix", "writeback", "done", "error",
 }
 
+GROUP_STATUS_VALUES = {
+    "pending", "coding", "review", "p0-fix", "validation",
+    "v-fix", "writeback", "done", "failed", "failed-deadloop",
+}
 
-def advance(state: dict, stage_num: int, role: str, round_no: int, judgment: str, extra: dict | None = None) -> dict:
-    """Record a subagent's verdict; flip phase if it terminates the stage.
-
-    Returns the updated stage dict. Caller persists via save_state().
-    """
-    if role not in VALID_JUDGMENTS:
-        raise ValueError(f"unknown role: {role}")
-    if judgment not in VALID_JUDGMENTS[role]:
-        raise ValueError(f"invalid judgment '{judgment}' for role '{role}'")
-
-    stage = get_stage(state, stage_num)
-    if stage["phase"] in {"converged", "failed", "skipped"}:
-        raise ValueError(f"stage {stage_num} already terminal: {stage['phase']}")
-
-    # Promote to running on first advance
-    if stage["phase"] == "pending":
-        stage["phase"] = "running"
-
-    # Update round counter (we count the *largest* round seen for that role)
-    if role in {"reviewer", "validator"}:
-        prev = stage["rounds"].get(role, 0)
-        if round_no > prev:
-            stage["rounds"][role] = round_no
-
-    record = {
-        "role": role,
-        "round": round_no,
-        "judgment": judgment,
-        "at": _now(),
-        **(extra or {}),
-    }
-    stage["history"].append(record)
-    stage["last"] = {"role": role, "round": round_no, "judgment": judgment}
-    stage["in_flight"] = None
-
-    # Terminal-state inference
-    val_max = _role_max_rounds(state, "validator")
-    kind = stage["kind"]
-
-    if role == "coder" and judgment in {"failed", "blocked"}:
-        stage["phase"] = "failed"
-        stage["fail_reason"] = (extra or {}).get("reason") or f"coder {judgment}"
-        return stage
-
-    # coder-only stage: ok on coder is terminal convergence (no reviewer/validator)
-    if (
-        role == "coder"
-        and judgment == "ok"
-        and kind == "stage"
-        and not any(l.get("policy") in {"full", "default"} for l in stage["leaves"])
-    ):
-        stage["phase"] = "converged"
-        return stage
-
-    if role == "reviewer":
-        # R3: reviewer is now purely advisory. It never causes a stage to fail
-        # and never triggers a coder fix loop. The verdict (approved / p0 with
-        # evidence / advisory_p0) lives in `history` so writeback can surface
-        # the findings as `> ⚠️` annotations in tasks.md.
-        # schema-error / loop don't reach advance: cmd_parse retries the subagent.
-        # If somehow they do, we still converge — reviewer is non-blocking.
-        if kind == "stage":
-            stage["phase"] = "converged"
-        return stage
-
-    if role == "validator":
-        if judgment in {"loop", "schema-error"}:
-            stage["phase"] = "failed"
-            stage["fail_reason"] = f"validator {judgment}"
-            return stage
-        if judgment == "pass":
-            stage["phase"] = "converged"
-            return stage
-        if judgment == "fail" and round_no >= val_max:
-            stage["phase"] = "failed"
-            stage["fail_reason"] = f"validator FAIL after {round_no} rounds (cap={val_max})"
-            return stage
-
-    # coder ok / validator fail within budget — stay running
-    return stage
+# 连续相同 fail 签名达到此值 → 整个 group 标 failed-deadloop
+DEADLOOP_THRESHOLD = 3
 
 
-def mark_in_flight(state: dict, stage_num: int, role: str, round_no: int) -> None:
-    stage = get_stage(state, stage_num)
-    stage["in_flight"] = {"role": role, "round": round_no, "started_at": _now()}
+# -------------------------------------------------------------------------
+# StateMachine
+# -------------------------------------------------------------------------
+
+@dataclass
+class StateMachine:
+    run_id: str
+    tasks_md: str
+    run_dir: str
+    max_parallel: int = 4
+    max_rounds: int = 6
+    session_id: Optional[str] = None
+    spec_dir: Optional[str] = None
+    spec_id: Optional[str] = None
+
+    # group 数据
+    groups: list[list[StageEntry]] = field(default_factory=list)
+    current_group_index: int = 0
+    group_status: list[str] = field(default_factory=list)  # 与 groups 平行
+
+    # 当前 phase 信息
+    phase: str = "init"
+    round: int = 0  # 当前 phase 已完成的轮号（v-fix 用得最多）
+
+    # 在飞 / 已返回 subagent
+    coder_in_flight: list[str] = field(default_factory=list)
+    coder_done: list[str] = field(default_factory=list)
+    reviewer_done: bool = False
+    p0_in_flight: list[str] = field(default_factory=list)
+    p0_done: list[str] = field(default_factory=list)
+    validator_in_flight: bool = False
+    vfix_in_flight: list[str] = field(default_factory=list)
+    vfix_done: list[str] = field(default_factory=list)
+
+    # findings & validator 历史（per group）
+    findings: list[dict] = field(default_factory=list)  # reviewer 输出（含降级）
+    p0_pending: list[dict] = field(default_factory=list)  # 带证据 P0 项
+    fix_targets: list[dict] = field(default_factory=list)  # validator fail 时的修复目标
+    validator_history: list[dict] = field(default_factory=list)  # 历轮 verdict + signature
+    fail_signature: str = ""  # 上一轮 fail 签名
+
+    # 状态
+    started_at: str = ""
+    last_activity_at: str = ""
+    completed_at: Optional[str] = None
+    failed_status: Optional[str] = None  # failed-deadloop / failed / done
+    events: list[dict] = field(default_factory=list)
+
+    # -----------------------------------------------------------------
+    # 文件 IO
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def state_path(run_dir: Path) -> Path:
+        return run_dir / "state.json"
+
+    @classmethod
+    def load(cls, run_dir: Path) -> "StateMachine":
+        sp = cls.state_path(run_dir)
+        if not sp.exists():
+            raise FileNotFoundError(f"state.json 不存在：{sp}")
+        with sp.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        # 反序列化 groups
+        groups: list[list[StageEntry]] = []
+        for g in data.get("groups", []):
+            gg: list[StageEntry] = []
+            for s in g:
+                gg.append(StageEntry(**s))
+            groups.append(gg)
+        sm = cls(
+            run_id=data["run_id"],
+            tasks_md=data["tasks_md"],
+            run_dir=str(run_dir),
+            max_parallel=data.get("max_parallel", 4),
+            max_rounds=data.get("max_rounds", 6),
+            session_id=data.get("session_id") or data.get("claude_session_id"),
+            spec_dir=data.get("spec_dir"),
+            spec_id=data.get("spec_id"),
+            groups=groups,
+            current_group_index=data.get("current_group_index", 0),
+            group_status=data.get("group_status", ["pending"] * len(groups)),
+            phase=data.get("phase", "init"),
+            round=data.get("round", 0),
+            coder_in_flight=data.get("coder_in_flight", []),
+            coder_done=data.get("coder_done", []),
+            reviewer_done=data.get("reviewer_done", False),
+            p0_in_flight=data.get("p0_in_flight", []),
+            p0_done=data.get("p0_done", []),
+            validator_in_flight=data.get("validator_in_flight", False),
+            vfix_in_flight=data.get("vfix_in_flight", []),
+            vfix_done=data.get("vfix_done", []),
+            findings=data.get("findings", []),
+            p0_pending=data.get("p0_pending", []),
+            fix_targets=data.get("fix_targets", []),
+            validator_history=data.get("validator_history", []),
+            fail_signature=data.get("fail_signature", ""),
+            started_at=data.get("started_at", ""),
+            last_activity_at=data.get("last_activity_at", ""),
+            completed_at=data.get("completed_at"),
+            failed_status=data.get("failed_status"),
+            events=data.get("events", []),
+        )
+        return sm
+
+    def to_dict(self) -> dict:
+        return {
+            "run_id": self.run_id,
+            "tasks_md": self.tasks_md,
+            "run_dir": self.run_dir,
+            "max_parallel": self.max_parallel,
+            "max_rounds": self.max_rounds,
+            "session_id": self.session_id,
+            "spec_dir": self.spec_dir,
+            "spec_id": self.spec_id,
+            "groups": [[asdict(s) for s in g] for g in self.groups],
+            "current_group_index": self.current_group_index,
+            "group_status": list(self.group_status),
+            "phase": self.phase,
+            "round": self.round,
+            "coder_in_flight": list(self.coder_in_flight),
+            "coder_done": list(self.coder_done),
+            "reviewer_done": self.reviewer_done,
+            "p0_in_flight": list(self.p0_in_flight),
+            "p0_done": list(self.p0_done),
+            "validator_in_flight": self.validator_in_flight,
+            "vfix_in_flight": list(self.vfix_in_flight),
+            "vfix_done": list(self.vfix_done),
+            "findings": list(self.findings),
+            "p0_pending": list(self.p0_pending),
+            "fix_targets": list(self.fix_targets),
+            "validator_history": list(self.validator_history),
+            "fail_signature": self.fail_signature,
+            "started_at": self.started_at,
+            "last_activity_at": self.last_activity_at,
+            "completed_at": self.completed_at,
+            "failed_status": self.failed_status,
+            "events": list(self.events),
+        }
+
+    def save(self) -> None:
+        self.last_activity_at = _now_iso()
+        _atomic_write_json(self.state_path(Path(self.run_dir)), self.to_dict())
+
+    # -----------------------------------------------------------------
+    # 事件
+    # -----------------------------------------------------------------
+
+    def events_append(self, event: dict) -> None:
+        e = dict(event)
+        e.setdefault("at", _now_iso())
+        self.events.append(e)
+
+    # -----------------------------------------------------------------
+    # 当前 group 视图
+    # -----------------------------------------------------------------
+
+    def current_group(self) -> list[StageEntry]:
+        if self.current_group_index >= len(self.groups):
+            return []
+        return self.groups[self.current_group_index]
+
+    def is_group_complete(self) -> bool:
+        return self.current_group_index >= len(self.groups)
+
+    def current_group_done(self) -> bool:
+        if self.current_group_index >= len(self.group_status):
+            return False
+        return self.group_status[self.current_group_index] in ("done", "failed", "failed-deadloop")
+
+    # -----------------------------------------------------------------
+    # phase 推进
+    # -----------------------------------------------------------------
+
+    def begin_coding(self) -> None:
+        """进入新 group 的 coding phase。"""
+        if self.current_group_index >= len(self.groups):
+            self.phase = "done"
+            self.completed_at = _now_iso()
+            return
+        self.phase = "coding"
+        self.round = 1
+        # 设置 in_flight keys（命名规则见 references/task-swarm.md §4）
+        gi = self.current_group_index
+        self.coder_in_flight = [
+            f"coder-g{gi + 1}-s{s.number}-r1" for s in self.current_group()
+        ]
+        self.coder_done = []
+        self.reviewer_done = False
+        self.p0_in_flight = []
+        self.p0_done = []
+        self.validator_in_flight = False
+        self.vfix_in_flight = []
+        self.vfix_done = []
+        self.findings = []
+        self.p0_pending = []
+        self.fix_targets = []
+        self.validator_history = []
+        self.fail_signature = ""
+        self.group_status[gi] = "coding"
+        self.events_append({"type": "phase", "phase": "coding", "group": gi + 1})
+
+    def mark_coder_done(self, agent_key: str) -> None:
+        if agent_key in self.coder_in_flight:
+            self.coder_in_flight.remove(agent_key)
+        if agent_key not in self.coder_done:
+            self.coder_done.append(agent_key)
+
+    def all_coders_returned(self) -> bool:
+        return not self.coder_in_flight
+
+    def begin_review(self) -> None:
+        self.phase = "review"
+        self.reviewer_done = False
+        gi = self.current_group_index
+        self.group_status[gi] = "review"
+        self.events_append({"type": "phase", "phase": "review", "group": gi + 1})
+
+    def mark_reviewer_done(self) -> None:
+        self.reviewer_done = True
+
+    def begin_p0_fix(self, p0_pending: list[dict]) -> None:
+        self.phase = "p0-fix"
+        self.round = 1
+        gi = self.current_group_index
+        self.p0_pending = list(p0_pending)
+        # 按文件分组：每个不同 file → 一个 fix agent
+        files: list[str] = []
+        for p in p0_pending:
+            f = (p.get("file_hint") or "unknown").strip()
+            if f not in files:
+                files.append(f)
+        self.p0_in_flight = [f"coder-p0fix-g{gi + 1}-r1-f{i}" for i in range(len(files))]
+        self.p0_done = []
+        self.group_status[gi] = "p0-fix"
+        self.events_append({"type": "phase", "phase": "p0-fix", "group": gi + 1,
+                            "files": files})
+
+    def mark_p0_done(self, agent_key: str) -> None:
+        if agent_key in self.p0_in_flight:
+            self.p0_in_flight.remove(agent_key)
+        if agent_key not in self.p0_done:
+            self.p0_done.append(agent_key)
+
+    def all_p0_returned(self) -> bool:
+        return not self.p0_in_flight
+
+    def begin_validation(self) -> None:
+        self.phase = "validation"
+        self.validator_in_flight = True
+        gi = self.current_group_index
+        self.group_status[gi] = "validation"
+        self.events_append({"type": "phase", "phase": "validation",
+                            "group": gi + 1, "round": self.round})
+
+    def mark_validator_done(self) -> None:
+        self.validator_in_flight = False
+
+    def record_round_signature(self, fail_sig: str) -> None:
+        """记录本轮 fail 签名到 history。"""
+        gi = self.current_group_index
+        self.validator_history.append({
+            "group": gi + 1,
+            "round": self.round,
+            "verdict": "fail" if fail_sig else "pass",
+            "signature": fail_sig,
+            "at": _now_iso(),
+        })
+        self.fail_signature = fail_sig
+
+    def detect_deadloop(self) -> bool:
+        """连续 3 轮同 fail 签名 → 死循环。"""
+        gi = self.current_group_index
+        sigs = [h["signature"] for h in self.validator_history
+                if h.get("group") == gi + 1 and h.get("verdict") == "fail" and h.get("signature")]
+        if len(sigs) < DEADLOOP_THRESHOLD:
+            return False
+        return all(s == sigs[-1] for s in sigs[-DEADLOOP_THRESHOLD:])
+
+    def begin_v_fix(self, fix_targets: list[dict]) -> None:
+        self.phase = "v-fix"
+        self.round += 1
+        gi = self.current_group_index
+        # 按文件分组
+        files: list[str] = []
+        for t in fix_targets:
+            f = (t.get("file_path") or "unknown").strip()
+            if f and f not in files:
+                files.append(f)
+        if not files:
+            files = ["unknown"]
+        self.fix_targets = list(fix_targets)
+        self.vfix_in_flight = [
+            f"coder-vfix-g{gi + 1}-r{self.round}-f{i}" for i in range(len(files))
+        ]
+        self.vfix_done = []
+        self.group_status[gi] = "v-fix"
+        self.events_append({"type": "phase", "phase": "v-fix",
+                            "group": gi + 1, "round": self.round, "files": files})
+
+    def mark_vfix_done(self, agent_key: str) -> None:
+        if agent_key in self.vfix_in_flight:
+            self.vfix_in_flight.remove(agent_key)
+        if agent_key not in self.vfix_done:
+            self.vfix_done.append(agent_key)
+
+    def all_vfix_returned(self) -> bool:
+        return not self.vfix_in_flight
+
+    def begin_writeback(self) -> None:
+        self.phase = "writeback"
+        gi = self.current_group_index
+        self.group_status[gi] = "writeback"
+
+    def finalize_group(self, status: str = "done") -> None:
+        gi = self.current_group_index
+        if gi < len(self.group_status):
+            self.group_status[gi] = status
+        self.events_append({"type": "group-done", "group": gi + 1, "status": status})
+        # 进入下一 group
+        self.current_group_index += 1
+        if self.current_group_index >= len(self.groups):
+            self.phase = "done"
+            self.completed_at = _now_iso()
+            self.failed_status = self.failed_status or "done"
+            self.events_append({"type": "run-done", "status": self.failed_status})
+        else:
+            # 不自动 begin_coding；由 advance 调用
+            self.phase = "init"
+
+    def fail_group_deadloop(self) -> None:
+        gi = self.current_group_index
+        if gi < len(self.group_status):
+            self.group_status[gi] = "failed-deadloop"
+        self.failed_status = "failed-deadloop"
+        self.phase = "error"
+        self.events_append({"type": "group-failed", "group": gi + 1, "reason": "deadloop"})
 
 
-def mark_written_back(state: dict, stage_num: int) -> None:
-    stage = get_stage(state, stage_num)
-    stage["written_back"] = True
+# -------------------------------------------------------------------------
+# 模块自测
+# -------------------------------------------------------------------------
 
-
-# ---------- summary ----------
-
-def summarize(state: dict) -> dict:
-    return {
-        "run_id": state["run_id"],
-        "stages": [
-            {
-                "num": s["num"],
-                "title": s["title"],
-                "kind": s["kind"],
-                "phase": s["phase"],
-                "rounds": dict(s["rounds"]),
-                "fail_reason": s.get("fail_reason"),
-            }
-            for s in state["stages"]
-        ],
-    }
+if __name__ == "__main__":  # pragma: no cover
+    import sys
+    if len(sys.argv) < 2:
+        print("usage: task_swarm_state.py <run_dir>")
+        raise SystemExit(2)
+    sm = StateMachine.load(Path(sys.argv[1]))
+    print(json.dumps(sm.to_dict(), ensure_ascii=False, indent=2))

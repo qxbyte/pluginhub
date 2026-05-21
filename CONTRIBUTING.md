@@ -1,20 +1,46 @@
 # Contributing
 
+Project-level conventions for changes under `plugins/specode/`. Read
+this before opening a PR or cutting a release.
+
 ## Runtime is stdlib-only
 
-The runtime code under `plugins/specode/scripts/` MUST use only the
-Python standard library. This is a hard rule, declared in `plugin.json`:
+Any runtime code under `plugins/specode/scripts/` MUST use only the
+Python standard library. Plugin users install via the host CLI's
+`plugin install`; they don't `pip install -r requirements.txt`.
+Pulling third-party packages in either silently breaks for users
+without them or forces a heavier install path.
 
-```json
-"requires": { "python": ">=3.9", "stdlib_only": true }
+Tests under `plugins/specode/tests/` MAY use `pytest` (it's a dev
+dependency, not runtime).
+
+## CLI invocation contract
+
+Every script under `plugins/specode/scripts/` is a CLI invoked from
+hook commands (`hooks.json`) or directly by the main agent. **All
+invocations MUST go through the `run.sh` wrapper with the full
+`$CLAUDE_PLUGIN_ROOT` (fallback `$CODEBUDDY_PLUGIN_ROOT`) path**:
+
+```sh
+sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
+   "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/<name>.py" \
+   <verb> <args...>
 ```
 
-Reason: plugin users install the plugin via `--plugin-dir`. They don't run a
-`pip install -r requirements.txt`. Pulling in third-party packages would
-either silently break for users without those packages, or require a heavier
-install path that fights the purpose of the plugin.
+Why:
 
-Tests under `tests/` MAY use `pytest` (it's a dev dependency, not runtime).
+- `run.sh` probes `python3 → python → py` so it works on any host
+  with Python 3.8+ on PATH.
+- Both `CLAUDE_PLUGIN_ROOT` and `CODEBUDDY_PLUGIN_ROOT` are
+  platform-injected env vars; the `:-` fallback covers both Claude
+  Code and CodeBuddy without forcing the user to pick one.
+- Bare `python3 spec_session.py …` calls fail in most cwds because
+  the scripts are not on PATH and the agent doesn't know where it
+  is. This was observed as a real failure mode pre-0.8.0; see
+  `SKILL.md §CLI 调用规约（强制）` for the hard rule.
+
+`hooks/hooks.json` and the `commands/*.md` "立即调用" sections all
+use this template — match them when adding new entry points.
 
 ## Test conventions
 
@@ -24,98 +50,128 @@ Run the suite from the repo root:
 python3 -m pytest plugins/specode/tests/ -v
 ```
 
-When adding behavior to `spec_sync.py` or `spec_guard.py`, add:
+153 tests cover: 3-tier vault resolution, spec scaffolding with
+rollback, business lock state machine, all 7 hooks across the mode
+matrix, `SELECTOR_PROMPTS` snapshot, lint rules (3 surviving rules
+after the 0.9.0 cleanup), legacy-field migration for `session_id`,
+the task-swarm CLI / state machine / outbox parser / writeback / hook,
+and an end-to-end SessionStart → /specode:spec → /specode:end →
+SessionEnd event chain.
 
-1. A unit test under `plugins/specode/tests/test_spec_sync.py` for the
-   pure function.
-2. An integration test under `plugins/specode/tests/test_spec_guard.py`
-   exercising the handler path with a fabricated stdin payload through
-   `hook_caller`.
+When adding behavior, prefer:
 
-Use the `workspace` fixture for handler tests — it creates a tmp spec_dir
-+ project_root and monkey-patches `spec_state.find_active_spec` so you don't
-need a real Obsidian vault.
+- Unit tests that call the CLI script through `subprocess.run` (the
+  scripts are CLIs, not importable modules).
+- Use `tmp_path` + `monkeypatch.setenv('HOME', tmp_path)` to keep
+  tests isolated from real `~/.specode/`.
+- For hook tests, feed stdin payloads matching the host CLI hook
+  schema and assert against the JSON `additionalContext`.
+- For any persisted schema change (sessions / state.json / lock
+  fields), add a "legacy file migration" regression test pinning
+  read-side backwards compatibility — see
+  `test_read_session_migrates_legacy_claude_session_id` and
+  `test_load_migrates_legacy_claude_session_id` as templates.
 
 ## Hook safety contract
 
-Every handler in `spec_guard.py` MUST:
+Every hook handler in `spec_session.py` MUST:
 
-1. Catch all exceptions internally and return 0 from `main()` (the dispatcher
-   already wraps handler calls in try/except). Never wedge a user's Claude
-   Code session because of a plugin bug.
-2. Honor `SPECODE_GUARD=off` for global bypass.
-3. Audit log via `_audit()` for any decision that *did work* — silent fast-
-   exits when no active spec are deliberately *not* audited (avoid log spam).
-4. Use `deny(msg)` (exit 2 + stderr) ONLY for genuine invariant violations
-   that the model should react to.
+1. Catch all exceptions internally and return 0 (the `@_safe_hook`
+   decorator does this).
+2. **Never `exit 2`.** All hooks are advisory only. If you need to
+   influence the model, inject `additionalContext` JSON to stdout
+   and still `exit 0`.
+3. Honour `SPECODE_GUARD=off` for global bypass — return early with
+   no output and no state writes.
+4. Detect non-TTY stdin (hook payload arrives via pipe). On TTY, the
+   script must not block; `_read_stdin_payload()` already handles
+   this.
 
-## Performance budget
+## On-disk schema fields
+
+Two schemas the plugin owns:
+
+- `~/.specode/sessions/<session_id>.json` — per-host-session state
+- `<spec-dir>/.config.json` — per-spec config + lock field
+
+Conventions:
+
+- New writes use neutral field names (`session_id`, not
+  `claude_session_id`; `holder`, not `claude_session_id` for lock
+  holders). Avoid host-specific naming in persisted schema.
+- Read sites MUST fall back through any historical names before
+  giving up — for `session_id` the order is `session_id` →
+  `claude_session_id`; for lock holder it's `holder` →
+  `session_id` → `claude_session_id`. `read_session()` and
+  `StateMachine.load()` auto-migrate on read so the next write
+  lands the new key without manual user action.
+- Bump **minor** for schema field renames that ship a read-side
+  fallback (existing files keep working). Bump **major** if a
+  rename breaks reads.
+
+## Debugging with session logs (0.10.0+)
+
+specode 默认收集每个 session 的日志到 `~/.specode/logs/<session_id>.jsonl`，
+含 hook 触发、主代理工具调用、CLI 调用、phase / lock 变化。
+
+```sh
+# 回放一个 session 的事件流（按时序）
+sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
+   "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/spec_log.py" \
+   replay --session <session_id>
+
+# 查看 logs/ 占用
+sh "$CLAUDE_PLUGIN_ROOT/scripts/run.sh" \
+   "$CLAUDE_PLUGIN_ROOT/scripts/spec_log.py" status
+
+# 临时关日志
+export SPECODE_LOG=off
+
+# 永久关：编辑 ~/.config/specode/config.json 加 "logging": false
+```
+
+排查"主代理为什么走偏"类问题时，用 replay 看 hook 时序 + 工具调用顺序，
+通常能定位到「该呈现 selector 没呈现」「fork spec-writer 漏了」「Status
+字段被越权改」之类的违规点。新增 hook / CLI 子命令时记得在入口加
+`_log_event("event_name", payload, session_id)`，便于日后调试。
+
+## Performance budget (guideline)
 
 | Hook | Budget |
 |---|---|
 | `SessionStart` / `SessionEnd` | <500 ms |
 | `UserPromptSubmit` | <80 ms (fires every user turn — keep it cheap) |
-| `PreToolUse` / `PostToolUse` | <100 ms |
-| `Stop` | <300 ms (allowed slightly larger; runs once per turn) |
+| `PreToolUse` / `PostToolUse Task` | <100 ms |
+| `Stop` | <300 ms (runs once per turn) |
 
-If your change crosses these budgets, profile first; don't accept the
+If a change crosses these budgets, profile first; don't accept the
 regression.
-
-## Sentinel discipline
-
-`~/.specode/.any-active` is the shell-short-circuit sentinel. Maintain
-its truth via `spec_state.sync_any_active_sentinel()` — never write it
-ad-hoc. If you add a code path that activates or deactivates a spec, call
-sync after.
 
 ## Release
 
-Public release procedure for plugin maintainers. Not for contributors who
-are only sending PRs — wait for a maintainer to cut the release that
-includes your change.
+Public release procedure for plugin maintainers.
 
 ### Version manifests (must agree)
 
-Two manifests both carry `version`. They MUST match or `claude plugin tag`
-refuses to operate:
+Two manifests carry `version`. They MUST match or the plugin tag
+tooling refuses to operate:
 
 - `plugins/specode/.claude-plugin/plugin.json` → `"version": "X.Y.Z"`
 - `.claude-plugin/marketplace.json` → `plugins[0].version: "X.Y.Z"`
 
 ### Picking the next version (semver)
 
-For this plugin, "API" = the slash command set, hook contract, agent names,
-and persisted-state schema (anything users see or that their stored data
-depends on).
+"API surface" for semver purposes = the slash command set, agent
+names, hook event names, and persisted-state schema fields that
+users or future runtime code can observe.
 
 | Bump | When | Examples |
 | --- | --- | --- |
-| **major** (1.0.0 → 2.0.0) | A user feels a breaking change after `claude plugin update` | rename a slash command; rename `~/.specode/sessions/` schema; rename a subagent's `name` field; remove a hook event |
-| **minor** (0.1.0 → 0.2.0) | Backwards-compatible new capability | new slash command; new subagent; new optional `@swarm:*` label; new selector option |
-| **patch** (0.1.0 → 0.1.1) | Bug fix / docs / internal refactor with no surface change | fix a typo in a prompt; fix a `subagent_type` typo; clarify a reference; CI-only |
+| **major** | A user feels a breaking change after a plugin update | rename a slash command; remove an agent; rename a hook event; rename a schema field with no read-side fallback |
+| **minor** | Backwards-compatible new capability or evolution | new slash command; new agent; new optional label; schema field rename **with** read-side fallback |
+| **patch** | Bug fix / docs / internal refactor with no surface change | fix a typo in a prompt; clarify a reference; CI-only; remove dev-only files from the repo |
 
-When in doubt, bump higher. Users can pin to a version; they cannot rewind
-persisted state if a "patch" silently changes a schema.
-
-### Pre-release checklist (do not skip)
-
-```sh
-# 1. All tests pass
-python3 -m pytest plugins/specode/tests/ -v
-
-# 2. CHANGELOG.md has an `## Unreleased` section with concrete entries
-#    (no "TBD" placeholders, no stale "WIP" markers)
-grep -A 1 "^## Unreleased" CHANGELOG.md
-
-# 3. main is clean and up to date
-git status                              # → nothing to commit
-git rev-parse --abbrev-ref HEAD         # → main
-git pull --ff-only
-```
-
-If any step fails: fix before continuing. Never publish a release whose
-tests are red or whose CHANGELOG is empty — installed users have no
-other way to discover what changed.
+When in doubt, bump higher.
 
 ### Cutting a release
 
@@ -128,23 +184,27 @@ $EDITOR .claude-plugin/marketplace.json
 #    then add a fresh empty `## Unreleased` above it for the next cycle
 $EDITOR CHANGELOG.md
 
-# 3. Commit + push (message format: "Bump to X.Y.Z: <one-line summary>")
-git commit -am "Bump to 0.2.0: <summary>"
+# 3. Run the test suite one more time
+python3 -m pytest plugins/specode/tests/ -q
+
+# 4. Commit + push
+git commit -am "Bump to X.Y.Z: <summary>"
 git push
 
-# 4. Dry-run the tag first
+# 5. Dry-run the tag first
 claude plugin tag --dry-run plugins/specode
+# (or codebuddy plugin tag --dry-run plugins/specode — pick whichever
+#  host CLI is installed; both wrap the same git operations)
 
-# 5. Create + push the annotated tag
+# 6. Create + push the annotated tag
 claude plugin tag plugins/specode --push
 ```
 
-Tag format: `specode--v{version}` (annotated, message `specode {version}`).
-Pushed to `origin` by default; override with `--remote`.
-
-The plugin is **not** packaged into a tarball or registry artifact —
-Claude Code and CodeBuddy fetch the marketplace manifest directly from
-GitHub and resolve plugins by git tag. **Pushing the tag IS the release.**
+Tag format: `specode--v{version}` (annotated, message
+`specode {version}`). The plugin is **not** packaged into a tarball
+or registry artifact — host CLIs fetch the marketplace manifest
+directly from GitHub and resolve plugins by git tag. **Pushing the
+tag IS the release.**
 
 ### Re-tagging the same version
 
@@ -161,22 +221,11 @@ Once a release is in user hands, prefer a new patch version.
 ### Verifying after release
 
 ```sh
+# Adjust the CLI name for whichever host you use (claude / codebuddy).
 claude plugin marketplace update specode
 claude plugin install specode@specode         # or `update`
 claude plugin list | grep specode             # confirm new version
 ```
 
-CodeBuddy users follow the same procedure substituting `codebuddy`.
-
-## Decision history
-
-Two non-obvious design calls are encoded in the rules:
-
-- **1A**: freeform mode relaxes INV-1 (file-not-in-tasks check) but does
-  NOT exempt INV-2 (turn conservation) or INV-6 (phase gate). Freeform is
-  an INV-1 escape hatch, not a full specode bypass.
-- **2A**: `implementation-log.md` counts as a doc change for INV-2.
-  Cosmetic-doc abuse (one space added to design.md to satisfy INV-2) is
-  caught by `spec_lint.py` as a WARNING, not by hook denial.
-
-Change these only via an explicit design-doc decision, not silently.
+Users on a different host follow the same procedure with their host's
+CLI name (`codebuddy plugin …`).
