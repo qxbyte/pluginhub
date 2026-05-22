@@ -268,3 +268,47 @@ def test_resolve_clears_session_task_swarm_run_id(tmp_path, run_swarm, monkeypat
     run_swarm("resolve", "--run", init["run_id"])
     saved2 = json.loads(sess_file.read_text(encoding="utf-8"))
     assert saved2["task_swarm_run_id"] is None
+
+
+def test_v_fix_prompt_files_match_state_in_flight(tmp_path, run_swarm):
+    """Regression: validation fail → begin_v_fix 之后，磁盘上 agents/<key>/task.md
+    的 round 号必须与 state.json 的 vfix_in_flight 一致。
+
+    历史 bug：_materialize_prompts_v_fix 用 round_=sm.round+1，但 begin_v_fix 已经
+    把 sm.round 自增过了，且 vfix_in_flight 用的就是 sm.round 命名。结果磁盘
+    task.md 比 in_flight 多一个 round 号（state 是 r2、磁盘是 r3）。后续 advance
+    找不到 r2 的 result.md，永远报 '产物文件不存在'。
+    """
+    p = _write_tasks_md(tmp_path, num_stages=1)
+    init = json.loads(run_swarm("init", "--tasks", str(p)).stdout)
+    run_id = init["run_id"]
+    run_dir = Path(init["run_dir"])
+
+    # 走完 coding + review（无 P0）→ 直接进 validation
+    run_swarm("plan", "--run", run_id)
+    _write_coder_result(run_dir, "coder-g1-s1-r1")
+    run_swarm("advance", "--run", run_id, "--phase", "coding", "--round", "1")
+    _write_reviewer(run_dir, 1, with_p0=False)
+    run_swarm("advance", "--run", run_id, "--phase", "review", "--round", "1")
+
+    # validation round 1 fail → 触发 begin_v_fix + _materialize_prompts_v_fix
+    _write_validator(run_dir, 1, 1, verdict="fail", sig_marker="x")
+    run_swarm("advance", "--run", run_id, "--phase", "validation", "--round", "1")
+
+    state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+    assert state["phase"] == "v-fix"
+    assert state["round"] == 2
+    in_flight = state["vfix_in_flight"]
+    assert in_flight, "begin_v_fix 之后 vfix_in_flight 应非空"
+
+    # 关键断言：每个 in_flight key 对应的 agents/<key>/task.md 必须存在
+    agents_dir = run_dir / "agents"
+    existing = {p.name for p in agents_dir.iterdir() if p.is_dir()}
+    for key in in_flight:
+        task_md = agents_dir / key / "task.md"
+        assert task_md.exists(), (
+            f"in_flight 含 {key!r} 但磁盘 task.md 不存在: {task_md}\n"
+            f"agents 目录实际成员: {sorted(existing)}\n"
+            f"（典型 r/r+1 漂移 bug：state 是 r{state['round']}、"
+            f"磁盘可能是 r{state['round']+1}）"
+        )

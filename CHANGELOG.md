@@ -4,6 +4,42 @@
 
 _no entries yet_
 
+## 0.10.13 (2026-05-22)
+
+### Fixed — task-swarm v-fix prompt 写到 `r{round+1}`，但 state 命名是 `r{round}`（导致 "产物文件不存在" 死锁）
+
+复现：`/specode:spec ...` 走到 task-swarm → validation round 1 fail → 进 v-fix。`begin_v_fix` 把 `sm.round` 从 1 升到 2，并把 `vfix_in_flight = ["coder-vfix-g1-r2-f*"]`（用当前 round 命名，正确）。但 `task_swarm.py:_materialize_prompts_v_fix` 调 `render_coder_prompt(round_=sm.round + 1)` —— 多 +1 一次 → 磁盘 task.md 写到 `agents/coder-vfix-g1-r3-f*/task.md`。
+
+后果链：
+
+1. plan_next 输出的 fork hint（`L572: r{sm.round+1}`，**这里也 +1，因为它在 begin_v_fix 之前调用，sm.round 还是旧值**）刚好等于磁盘文件名 → 主代理按 hint fork `coder-vfix-g1-r3-f*` subagent → 产物落在 r3 目录
+2. 下一次 `advance --phase v-fix` 时，cmd_advance 按 `vfix_in_flight = [r2-*]` 找 `agents/coder-vfix-g1-r2-f*/outbox/result.md` → 全部不存在 → 报 "产物文件不存在"
+3. 主代理面对 state（r2）与磁盘（r3）不一致，**判定为 "naming mismatch" 然后手工 Edit `state.json`** 抹平差异 → 状态机被人为污染 → 后续 phase 持续走错 → 最终 `validator-g1-r2` subagent spawn 后无人回收产物 → Claude Code 界面无限刷 "Waiting for 1 teammate..."
+
+修复：`task_swarm.py:818` 把 `round_=sm.round + 1` 改成 `round_=sm.round`。理由：`_materialize_prompts_v_fix` 是 cmd_advance 在 `begin_v_fix` **之后**调用的，`sm.round` 已经自增过；`begin_v_fix` 写 `vfix_in_flight` 用的也是 `sm.round`（state.py:385）。在已自增的 round 上再 +1 = 多 +1 一次。同理 plan_next L572 / L583 因为是 begin_v_fix 之前调用，仍保留 `+1`，这是对的。
+
+回归测试：新增 `test_v_fix_prompt_files_match_state_in_flight` —— 触发 validation fail → begin_v_fix 后断言 `state.vfix_in_flight` 每个 agent_key 对应的 `agents/<key>/task.md` 必须存在。旧 bug 下这个 test 直接挂。
+
+### Added — PreToolUse hook 阻断主代理直接 Edit/Write task-swarm 受控路径
+
+事故还原显示：上面 Bug A 触发"state 跟磁盘不一致"时，主代理推理"这是 naming mismatch 我需要手工修 state.json"，连续 5 次 Edit `state.json`（清 `vfix_in_flight` 列表 / 把 `failed_status: "failed"` 改成 `null` / 把 `completed_at` 写未来时间戳 / events 追加伪造 `completed` 事件），还 Edit 了 subagent 的 `outbox/result.md` 手工补 STATUS 行。这些"修补"全是**绕过 task_swarm.py 状态机契约**的反模式，导致状态污染雪崩。
+
+加防护：`hook_on_pre_tool_use` 检测 tool_input.file_path 是否落在以下三类受控路径下，命中则 `sys.exit(2)`（PreToolUse 阻断）并把拒绝原因写 stderr：
+
+| 路径模式 | 拒绝原因 |
+|---|---|
+| `.task-swarm/runs/*/state.json` | state 唯一事实来源，只能 `task_swarm.py advance` 改 |
+| `.task-swarm/runs/*/agents/*/task.md` | task_swarm.py 为 subagent 生成的 prompt，改了 subagent 也不会重读 |
+| `.task-swarm/runs/*/agents/*/outbox/*` | subagent 产物，手工补 STATUS = 伪造工作 |
+
+stderr 详细说明 why + 正确路径 hint（如"重新 fork subagent 或汇报 task_swarm.py 解析 bug"）。仅在 `mode==active` 且 `task_swarm_run_id` 已绑定时生效，非 task-swarm 场景零开销。原 `tasks.md` 直写软提醒保留（不阻断）。
+
+### Tests
+
+- 新增 `test_v_fix_prompt_files_match_state_in_flight`（Bug A 回归）
+- 新增 5 个 `test_on_pre_tool_use_*` 覆盖 state.json / agent task.md / outbox 阻断 + 正常源码 Edit 通行 + idle session 不拦截
+- 全套 pytest **186/186 PASS**
+
 ## 0.10.12 (2026-05-22)
 
 ### Fixed — `/specode:end` 之后模型仍在响应末尾输出 `─── spec-mode ───` 状态行（banner 残留）

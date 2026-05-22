@@ -808,6 +808,11 @@ def _materialize_prompts_v_fix(sm: StateMachine) -> None:
             continue
         ftargets = [t for t in sm.fix_targets
                     if (t.get("file_path") or "").strip() == f]
+        # round_ 必须用 sm.round（不能 +1）：advance 里 begin_v_fix 已经
+        # 把 sm.round 自增过了，且 vfix_in_flight 用的就是当前 sm.round 命名
+        # （task_swarm_state.py:374,385）。多 +1 会导致 task.md 写到
+        # agents/coder-vfix-g{N}-r{round+1}-f{i}/task.md，但 in_flight 是
+        # r{round}-f{i}，advance 后续找不到产物 → 永远报"产物文件不存在"。
         render_coder_prompt(
             stage=match_stage,
             run_dir=Path(sm.run_dir),
@@ -815,7 +820,7 @@ def _materialize_prompts_v_fix(sm: StateMachine) -> None:
             spec_id=sm.spec_id or "",
             spec_dir=sm.spec_dir or "",
             group=gi + 1,
-            round_=sm.round + 1,
+            round_=sm.round,
             mode="v-fix",
             fix_targets=ftargets,
             file_idx=i,
