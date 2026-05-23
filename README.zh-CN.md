@@ -2,6 +2,12 @@
 
 # specode
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.zh-CN.md#许可证)
+[![Version](https://img.shields.io/badge/version-0.10.21-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/specode#installation)
+[![CodeBuddy](https://img.shields.io/badge/CodeBuddy-2.97.1%2B-1E90FF)](https://github.com/qxbyte/specode#installation)
+[![Tests](https://img.shields.io/badge/pytest-152%20cases-success)](./plugins/specode/tests)
+
 > 面向 CLI 编码代理（Claude Code / CodeBuddy）的规格驱动工作流插件。
 
 specode 把一句话需求变成一条「文档优先」的纪律化交付链路。代理被牵着走过
@@ -26,10 +32,11 @@ specode 就是给它套的轨道。
   也不会混在一起。
 - **Phase-gate 选择器**：每个决策点由代理按三种骨架（A 单选 / B
   wizard / C 复选）渲染 11 个固定场景之一 —— 你选方向，代理执行。
-- **task-swarm 多 agent 并发执行**：`tasks.md` 确认后扇出并发 coder
-  代理（按 `@writes` 文件冲突 + `@depends-on` 拓扑自动分组），单实例
-  reviewer / validator 驱动 review / p0-fix / validation / v-fix 循环，
-  连续 3 轮同 fail 触发死循环保护。
+- **task-swarm —— 内置的并发实现编排器**：`tasks.md` 确认后，task-swarm
+  扇出多个 **coder** 子代理并发干活（按 `@writes` 文件写冲突自动切
+  group、按 `@depends-on` 排拓扑），再让单实例 **reviewer** 提
+  建议（P0 触发一次修复）和单实例 **validator** 做最终判定（pass/fail
+  二元，fail 会循环修到 pass）。连续 3 轮同 fail 触发死循环保护。
 - **Obsidian 感知的文档根**：三层解析（env > config > 自动探测
   Obsidian vault），spec 落进你的知识库，而不是散在各 project 目录。
 - **active 期间每个 turn 都有状态行 footer**：永远知道自己在哪里：

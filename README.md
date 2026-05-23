@@ -2,6 +2,12 @@
 
 # specode
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.md#license)
+[![Version](https://img.shields.io/badge/version-0.10.21-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/specode#installation)
+[![CodeBuddy](https://img.shields.io/badge/CodeBuddy-2.97.1%2B-1E90FF)](https://github.com/qxbyte/specode#installation)
+[![Tests](https://img.shields.io/badge/pytest-152%20cases-success)](./plugins/specode/tests)
+
 > A specification-driven workflow plugin for CLI coding agents
 > (Claude Code / CodeBuddy).
 
@@ -34,12 +40,15 @@ windows, or merge unreviewed code, specode is the rails.
   one of three selector skeletons (single-select / wizard /
   multi-select) drawn from 11 fixed scenarios — you steer, the
   agent executes.
-- **task-swarm: multi-agent parallel execution.** Once `tasks.md` is
-  approved, fan out into parallel coder agents (auto-grouped by
-  `@writes` file conflicts + `@depends-on` topology), with a single
-  reviewer and validator enforcing review / p0-fix / validation /
-  v-fix loops. A deadloop guard trips after three identical-failure
-  rounds.
+- **task-swarm: built-in orchestrator that implements `tasks.md` in
+  parallel.** After `tasks.md` is approved, task-swarm fans out
+  multiple **coder** subagents that work concurrently (auto-grouped
+  to avoid file-write conflicts via `@writes` and respect
+  `@depends-on` task ordering), then funnels their output through a
+  single **reviewer** (advisory findings, P0 issues trigger one fix
+  round) and a single **validator** (binary pass/fail, fail triggers
+  a fix loop until pass). A deadloop guard trips after three rounds
+  of identical failures.
 - **Obsidian-aware doc root.** Three-tier resolution
   (env > config > auto-detected Obsidian vault) keeps your specs in
   your knowledge base, not scattered across project folders.
