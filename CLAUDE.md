@@ -63,7 +63,7 @@ Rules:
 - New writes use neutral names (`session_id`, not `claude_session_id`; `holder`, not host-specific names).
 - Read sites MUST fall back through historical names. Auto-migrate on read so the next write lands the new key transparently — see `read_session()` and `StateMachine.load()` for the existing pattern, and `test_read_session_migrates_legacy_claude_session_id` / `test_load_migrates_legacy_claude_session_id` as test templates.
 - Bump minor for renames with a read-side fallback; bump major if a rename breaks reads.
-- All state writes use `tempfile + os.replace + fsync` (see `_atomic_write_json` in `_ss_io.py`). If one side of the dual write (sessions file + spec config) fails, roll back and exit 1 — never leave in-memory half-success.
+- All state writes use `tempfile + os.replace + fsync` (see `_atomic_write_json` in `spec_session/_io.py`). If one side of the dual write (sessions file + spec config) fails, roll back and exit 1 — never leave in-memory half-success.
 
 ### Test conventions
 - Scripts are CLIs, not importable modules. Tests invoke them via `subprocess.run` through the `run_script` fixture in `tests/conftest.py`.
@@ -73,28 +73,31 @@ Rules:
 
 ## Architecture — the parts that span multiple files
 
-### `spec_session.py` internal layout
-`spec_session.py` itself is a 231-line thin entry: argparse + `COMMANDS` dispatch + main. The implementation is split across sibling modules in the same `scripts/` directory:
+### scripts/ layout
+Both heavyweight CLIs (`spec_session.py`, `task_swarm.py`) are subdirectory packages with a thin same-name launcher at the `scripts/` root. Python's FileFinder gives package precedence over module within a path entry, and the launcher is exec'd (not imported), so `spec_session.py` (launcher) and `spec_session/` (package) coexist safely. The launcher injects `scripts/` into `sys.path` and calls `<pkg>.cli.main()`.
 
-| File | Responsibility |
+| `scripts/` member | Role |
 |---|---|
-| `_ss_io.py` | Atomic write helpers, session/spec config IO, lock utils (`_is_lock_stale` / `_session_short`), shared constants (`VALID_PHASES`, `STALE_LOCK_SECONDS`) |
-| `_ss_selectors.py` | `SELECTOR_PROMPTS` dict + `_fill_selector`. `test_selectors_drift.py` parses this file by regex — keep the `SELECTOR_PROMPTS: dict[str, str] = {...}` literal grep-able. |
-| `_ss_reminders.py` | Reminder template strings (status footer, doc-priority, code-doc sync, mode reminders) + help text rendering |
-| `_ss_business.py` | All `cmd_*` business commands + `_update_session_for_spec` + `_auto_pending_selector` |
-| `_ss_hooks.py` | All `hook_on_*` handlers + `_safe_hook` decorator + task-swarm plan reminder helpers + fast-path regex constants |
-| `_ss_catalog.py` | B2 `on-user-prompt-catalog` hook: keyword-triggered reference catalog (description-as-trigger) |
+| `spec_session.py` | Thin launcher (~40 lines: utf-8 stdout reconfigure + sys.path + `from spec_session.cli import main`). Filename preserved because `hooks.json`, every `commands/*.md`, and `tests/conftest.py:run_script` reference it by name. |
+| `spec_session/` package | `__init__.py` (re-exports `read_session` / `read_spec_config` / `_session_short` / `_is_lock_stale` for `spec_status.py:25`), `cli.py` (argparse + `COMMANDS` dispatch + main), `_io.py`, `_selectors.py`, `_reminders.py`, `_business.py`, `_hooks.py`, `_catalog.py` |
+| `task_swarm.py` | Thin launcher (~25 lines: sys.path + `from task_swarm.cli import main`). |
+| `task_swarm/` package | Empty `__init__.py` (no external `from task_swarm import ...` consumer), `cli.py` (main CLI), `_state.py`, `_parse_md.py`, `_outbox.py`, `_prompt.py`, `_writeback.py` |
+| `spec_init.py` / `spec_lint.py` / `spec_log.py` / `spec_status.py` / `spec_vault.py` | Single-file CLIs at the top level. `spec_log.py` is also shared (defensively imported by both packages' modules for session logging). |
+| `run.sh` / `run.cmd` | Python interpreter probes (`python3 → python → py`) — Windows alias-stub handling lives here. |
 
-`spec_session.py` filename is preserved because `hooks.json`, every `commands/*.md`, and `tests/conftest.py:run_script` reference it by name. It also re-exports `read_session`, `read_spec_config`, `_session_short`, `_is_lock_stale` for `spec_status.py:25`. **Do not rename `spec_session.py` and do not delete those re-exports.**
+**Do not rename** `spec_session.py` or `task_swarm.py` (those filenames are the API surface). **Do not delete** `spec_session/__init__.py` re-exports (spec_status.py depends on them). Inside the packages, intra-package imports are absolute (`from spec_session._io import …`) for clear error messages.
+
+### `_THIS_DIR` convention inside packages
+Modules under `spec_session/` and `task_swarm/` that need to find sibling top-level scripts (e.g. `_hooks.py:_run_task_swarm_plan` calling `task_swarm.py`) define `_THIS_DIR = Path(__file__).resolve().parents[1]` — that resolves to `scripts/`, keeping `_THIS_DIR / "task_swarm.py"` and `_THIS_DIR.parent / ".claude-plugin"` semantically identical to the pre-split layout. Don't use `parents[0]` (it points inside the package).
 
 ### Hook → CLI → state-file flow
 1. Host CLI fires a hook event (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse Task`, `Stop`, `SessionEnd`) per `hooks/hooks.json`.
-2. The hook command shells into `run.sh` → `spec_session.py <hook-subcommand>`, which reads the JSON payload from stdin.
-3. Handlers (wrapped in `@_safe_hook` from `_ss_hooks.py`) read `~/.specode/sessions/<session_id>.json` and the active spec's `.config.json`, then emit `additionalContext` JSON to stdout to inject guidance (status footer, selector reminder, doc-sync nag, B2 catalog hits) into the next agent turn.
+2. The hook command shells into `run.sh` → `spec_session.py <hook-subcommand>` (the launcher), which imports `spec_session.cli.main` and dispatches the hook subcommand handler.
+3. Handlers (wrapped in `@_safe_hook` from `spec_session/_hooks.py`) read `~/.specode/sessions/<session_id>.json` and the active spec's `.config.json`, then emit `additionalContext` JSON to stdout to inject guidance (status footer, selector reminder, doc-sync nag, B2 catalog hits) into the next agent turn.
 4. The host agent, following `skills/specode/SKILL.md`, responds to the injection by calling `AskUserQuestion` for selectors or by invoking a `spec_session.py` business subcommand (`acquire` / `phase-transition` / etc.) which atomically updates both state files.
 
 ### Session as the integration boundary
-Everything is keyed by the host's `session_id` (injected by `SessionStart`, re-injected every `UserPromptSubmit`). Multiple terminal windows = multiple session files = multiple parallel specs. Lock holder is the `session_id`; stale-lock window is 30 minutes (`STALE_LOCK_SECONDS` in `_ss_io.py`). The agent MUST NOT invent a session_id, MUST NOT parse one from user input, MUST NOT echo full IDs in chat (8-char prefix only).
+Everything is keyed by the host's `session_id` (injected by `SessionStart`, re-injected every `UserPromptSubmit`). Multiple terminal windows = multiple session files = multiple parallel specs. Lock holder is the `session_id`; stale-lock window is 30 minutes (`STALE_LOCK_SECONDS` in `spec_session/_io.py`). The agent MUST NOT invent a session_id, MUST NOT parse one from user input, MUST NOT echo full IDs in chat (8-char prefix only).
 
 ### Document root resolution
 Three-tier with no fallback (`spec_vault.py`):
@@ -102,21 +105,21 @@ Three-tier with no fallback (`spec_vault.py`):
 2. `~/.config/specode/config.json.obsidianRoot`
 3. Auto-detected Obsidian vault → `<vault>/spec-in/<os>-<user>/specs`
 
-If all three miss, `spec_init.py` exits 3 with a setup hint. Do NOT add a cwd or `~/specs` fallback. The `--detect-vault` / `--vault-status` / `--set-vault` / `--set-root` / `--sync-status` flags are routed in `commands/spec.md`; some of them are "fast-path" hooks where the hook pre-renders the output and the agent only prints it verbatim (see `FAST_PATH_HELP` / `FAST_PATH_VAULT` constants in `_ss_hooks.py`).
+If all three miss, `spec_init.py` exits 3 with a setup hint. Do NOT add a cwd or `~/specs` fallback. The `--detect-vault` / `--vault-status` / `--set-vault` / `--set-root` / `--sync-status` flags are routed in `commands/spec.md`; some of them are "fast-path" hooks where the hook pre-renders the output and the agent only prints it verbatim (see `FAST_PATH_HELP` / `FAST_PATH_VAULT` constants in `spec_session/_hooks.py`).
 
 ### Phase pipeline + selectors
-Valid phases (`VALID_PHASES` in `_ss_io.py`): `intake → requirements/bugfix → design → tasks → implementation → acceptance → iteration`. Transitions go through `spec_session.py phase-transition`, which also sets `pending_selector` so the next hook turn knows which `AskUserQuestion` skeleton to remind about. The 7 fixed selector scenarios are defined in `SELECTOR_PROMPTS` (in `_ss_selectors.py`) and documented in `skills/specode/references/selectors.md`; `tests/test_selector_prompts.py` snapshots them, and `tests/test_selectors_drift.py` guards against drift between the constants and the references doc.
+Valid phases (`VALID_PHASES` in `spec_session/_io.py`): `intake → requirements/bugfix → design → tasks → implementation → acceptance → iteration`. Transitions go through `spec_session.py phase-transition`, which also sets `pending_selector` so the next hook turn knows which `AskUserQuestion` skeleton to remind about. The 7 fixed selector scenarios are defined in `SELECTOR_PROMPTS` (in `spec_session/_selectors.py`) and documented in `skills/specode/references/selectors.md`; `tests/test_selector_prompts.py` snapshots them, and `tests/test_selectors_drift.py` parses the file by regex (keep the `SELECTOR_PROMPTS: dict[str, str] = {...}` literal grep-able).
 
 ### Reference catalog (description-as-trigger)
-Every `skills/specode/references/*.md` file carries a YAML frontmatter `description: Use when …` that captures *when* a reader should pick it up (superpowers style — trigger-first, not summary-first). The `on-user-prompt-catalog` hook (`_ss_catalog.py`) maintains a `CATALOG` dict of keyword regex → reference key (e.g. `lock|takeover|接管` → `lock-protocol`, `task-swarm|@writes|reviewer` → `task-swarm`); each `UserPromptSubmit` it scans the prompt, lists hit references with their descriptions, and emits an advisory injection. Active-only (silent for `idle`/`readonly`/`ended`). `tests/test_catalog.py` enforces: every `CATALOG` key has a real reference file, every targeted reference has a non-empty `description` field. When adding a new reference or extending keyword coverage, update both the frontmatter and `CATALOG`.
+Every `skills/specode/references/*.md` file carries a YAML frontmatter `description: Use when …` that captures *when* a reader should pick it up (superpowers style — trigger-first, not summary-first). The `on-user-prompt-catalog` hook (`spec_session/_catalog.py`) maintains a `CATALOG` dict of keyword regex → reference key (e.g. `lock|takeover|接管` → `lock-protocol`, `task-swarm|@writes|reviewer` → `task-swarm`); each `UserPromptSubmit` it scans the prompt, lists hit references with their descriptions, and emits an advisory injection. Active-only (silent for `idle`/`readonly`/`ended`). `tests/test_catalog.py` enforces: every `CATALOG` key has a real reference file, every targeted reference has a non-empty `description` field. When adding a new reference or extending keyword coverage, update both the frontmatter and `CATALOG`.
 
 ### task-swarm orchestration
-`task_swarm.py` is a separate state machine for the implementation phase. The state file is the single source of truth (`<spec-dir>/.task-swarm/runs/<run_id>/state.json`). The flow is `init → plan → fork (N coders) → advance → writeback → resolve`, with reviewer (advisory, one round of P0 fixes if findings carry evidence tags) and validator (blocking pass/fail loop, deadloop guard after 3 identical failures). The four subagent role definitions live in `agents/task-swarm-{coder,planner,reviewer,validator}.md`; they are intentionally tool-restricted (reviewer/validator have no Edit/Write — physical isolation). Supporting modules:
-- `task_swarm_state.py` — state machine load/save with legacy migration
-- `task_swarm_parse_md.py` — parses `tasks.md` `## 阶段 N:` sections + `@writes` / `@depends-on` tags
-- `task_swarm_outbox.py` — parses subagent `result.md` / `review.md` / `validation.md` per the schemas in `references/task-swarm.md` §4
-- `task_swarm_writeback.py` — line-safe diff back into `tasks.md` (exits 1 on out-of-bounds; see 0.10.21 CHANGELOG entry for the multi-line `reproduce_cmd` bug)
-- `task_swarm_prompt.py` — materializes per-agent prompts into `agents/<key>/prompt.md`
+`task_swarm.py` (launcher → `task_swarm.cli`) is a separate state machine for the implementation phase. The state file is the single source of truth (`<spec-dir>/.task-swarm/runs/<run_id>/state.json`). The flow is `init → plan → fork (N coders) → advance → writeback → resolve`, with reviewer (advisory, one round of P0 fixes if findings carry evidence tags) and validator (blocking pass/fail loop, deadloop guard after 3 identical failures). The four subagent role definitions live in `agents/task-swarm-{coder,planner,reviewer,validator}.md`; they are intentionally tool-restricted (reviewer/validator have no Edit/Write — physical isolation). Submodules under `task_swarm/`:
+- `_state.py` — state machine load/save with legacy migration
+- `_parse_md.py` — parses `tasks.md` `## 阶段 N:` sections + `@writes` / `@depends-on` tags
+- `_outbox.py` — parses subagent `result.md` / `review.md` / `validation.md` per the schemas in `references/task-swarm.md` §4
+- `_writeback.py` — line-safe diff back into `tasks.md` (exits 1 on out-of-bounds; see 0.10.21 CHANGELOG entry for the multi-line `reproduce_cmd` bug)
+- `_prompt.py` — materializes per-agent prompts into `agents/<key>/prompt.md`
 
 ### Session logging
 `spec_log.py` writes append-only JSONL events to `~/.specode/logs/<session_id>.jsonl` (hook fires, tool calls, CLI invocations, phase/lock changes). Default redaction of secret-like keys (`password`, `api_key`, `token`, `secret`, `authorization`, `cookie`) and 500-char string truncation. Disable with `SPECODE_LOG=off` or `~/.config/specode/config.json.logging=false`. Any logging exception is swallowed — logging never blocks business flow. When adding a new hook or CLI subcommand, call `_log_event("event_name", payload, session_id)` at the entry point to keep replay useful.
