@@ -68,8 +68,8 @@ sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
 
 - `/specode:spec -n user-login 添加用户登录功能` →
   `--name user-login --requirement-name "User Login" --source-text "添加用户登录功能"`
-- `/specode:spec -n 登录页面 帮我做一个简单的登录页面` →
-  `--name 登录页面 --requirement-name "登录页面" --source-text "帮我做一个简单的登录页面"`
+
+（非 ASCII slug 情况见上一段 `requirement_name` 默认规则。）
 
 **spec_init.py exit 3（slug 非法）时的应对**：
 
