@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.10.25 (2026-05-27)
+
+### Docs -- CHANGELOG em-dash 折叠到 `--`
+
+CHANGELOG.md 全局把中文 em-dash (`—`) 替换成英文双连字符 (`--`)，提升 GitHub 上中英混排时的渲染均匀度。仅样式调整，无代码改动，无 API surface 变化。
+
 ## 0.10.24 (2026-05-26)
 
 ### Changed -- 模板精简「铁律」段 + `FALLBACK_TEMPLATES` 极简化
