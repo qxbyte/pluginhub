@@ -1,3 +1,7 @@
+---
+description: Use when 涉及 phase / clarification / workflow-choice / 三档工作流选择 / phase 转换细节 / /specode:continue 接管子步骤。SKILL.md §Phase Order 与 §Workflow Selection 的运维详解。
+---
+
 # Workflow — Phase 协议详解
 
 SKILL.md §Phase Order / §Workflow Selection 的运维细节版本。本文件**不**重复激活规则、状态行 footer、selector 三种类型与场景表 —— 那些在 SKILL.md 与 `references/selectors.md` 里。
@@ -88,7 +92,7 @@ CLI 行为：
 
 ### 1.4 Pre-requirements Clarification（Plan-mode）
 
-→ 详见 SKILL.md §Pre-requirements Clarification 与 `references/selectors.md` §Plan-mode 澄清问答示例。
+→ 详见 SKILL.md §Pre-requirements Clarification 与 `_selectors.py` SELECTOR_PROMPTS['clarification-wizard']。
 
 约束摘要：
 
@@ -109,7 +113,7 @@ CLI 行为：
 
 ## 2. Workflow 选择
 
-`workflow-choice` 选择器（类型 A） → 详见 `references/selectors.md` §(1)。
+`workflow-choice` 选择器（类型 A） → 模板详见 `_selectors.py` SELECTOR_PROMPTS['workflow-choice']。
 
 三档定义：
 
@@ -148,7 +152,7 @@ CLI 行为：
  - 可选任务用 `[*]` 标记；checkpoint 任务用 `[ ]` 但标题含"检查点"。
  - 验收节固定四行：所有 required 任务完成 / 所有验证命令通过 / 跳过 optional 已记录 / 用户确认验收。
 2. 报路径 + 摘要（任务总数 / required 数 / optional 数 / 主要阶段 + traceability / 同文件冲突 stage）。
-3. 呈现 `tasks-execution` 选择器（类型 A，**0.9.3 起合并了旧 `doc-confirm-tasks`**——一步完成确认 + 执行方式选择 + 回退入口）：
+3. 呈现 `tasks-execution` 选择器（类型 A，一步完成确认 + 执行方式选择 + 回退入口）：
  - 选 1 `用 task-swarm 多 agent 并发（推荐）` → 调 `task_swarm.py init --tasks <spec_dir>/tasks.md --session <id>` 切到 task-swarm 编排模式；详见 `references/task-swarm.md`。required + optional 一并处理。
  - 选 2 `顺序执行（同时处理 optional）` → phase-transition → implementation，单 agent 顺序推进 required + optional。如用户在 Other 里说"只跑 required"则跳过 optional。
  - 选 3 `需要调整 tasks.md` → 留在 tasks phase；接收用户反馈 → 改 tasks.md → 重出本选择器。
@@ -297,7 +301,7 @@ iteration 是已交付 spec 的**常驻**状态。子循环规则见 `references
 1. 先做工具调用（Write/Edit 文档 / Read 验证文档）。
 2. 在 chat 正文输出：文档**绝对路径**、简短摘要、3–8 条关键变更要点、未决问题。
 3. 空一行 → 状态行 footer。
-4. **调 `AskUserQuestion` 工具**呈现选择器（类型按 SKILL.md §Selectors 表查；具体参数见 `references/selectors.md` §8 场景常量库）。
+4. **调 `AskUserQuestion` 工具**呈现选择器（类型按 SKILL.md §Selectors 表查；模板见 `_selectors.py` SELECTOR_PROMPTS[<key>]，索引见 `references/selectors.md` §8 总览表）。
 5. 工具调用本身就是 turn 终止；不需要 sentinel，不需要在工具调用之后追加任何文本。
 
 用户回复（即 `AskUserQuestion` 工具返回值）→ 下一轮按用户选择做对应动作；选 `查看全文`（doc-confirm-* 选项 2）就完整 echo 文档后**再次**调同一选择器工具。

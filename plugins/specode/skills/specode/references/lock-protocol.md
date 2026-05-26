@@ -1,3 +1,7 @@
+---
+description: Use when 涉及 lock / takeover / heartbeat / stale / 多窗口同 spec / verify-lock 异常 / 接管 / 只读模式。详述锁状态机、接管三选项、stale 判定。
+---
+
 # Lock Protocol — 锁状态机与多窗口接管
 
 每个 spec 自己的 `<spec-dir>/.config.json.lock` 字段管单写权。**持有者键 = `session_id`**（与 `~/.specode/sessions/<id>.json` 文件名同源）。
@@ -108,7 +112,7 @@
 ### 6.2 LockHeld 三选项
 
 1. 输出锁状态摘要：`持有者 session_id 前 8 位 + 最近 heartbeat 时间`。
-2. 呈现 `takeover-options` 选择器（类型 A，详见 `references/selectors.md` §(6)）。**无推荐项**——让用户根据对方是否仍活跃自己判断。
+2. 呈现 `takeover-options` 选择器（类型 A，详见 `_selectors.py` SELECTOR_PROMPTS['takeover-options']）。**无推荐项**——让用户根据对方是否仍活跃自己判断。
 3. End turn 等用户选。
 
 | 选项 | 后续操作 |

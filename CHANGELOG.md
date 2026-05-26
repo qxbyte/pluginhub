@@ -2,7 +2,70 @@
 
 ## Unreleased
 
-_no entries yet_
+### Refactored — `spec_session.py` 拆分 + 两大 CLI 子目录化
+
+**两步走的纯重构，无行为变化。**
+
+#### 第一步（B1）：spec_session.py 拆成 5 个 `_ss_*.py` sibling
+
+`spec_session.py` 从 2360 行的"什么都装"模块拆成薄入口 + 5 个 sibling：
+
+| 模块 | 承载 |
+|---|---|
+| `_ss_io.py` | 原子写、session+spec config 读写、锁工具、共享常量（`VALID_PHASES` / `STALE_LOCK_SECONDS`） |
+| `_ss_selectors.py` | `SELECTOR_PROMPTS` 字典 + `_fill_selector` |
+| `_ss_reminders.py` | reminder 模板字符串 + help 文本渲染 |
+| `_ss_business.py` | 所有 `cmd_*` 业务命令 + `_update_session_for_spec` |
+| `_ss_hooks.py` | 所有 `hook_on_*` + `_safe_hook` + task-swarm plan 提醒辅助 |
+
+#### 第二步：两大 CLI 子目录化 + 同名 launcher
+
+`scripts/` 顶层从 19 个 `.py` 收敛到 7 个 + 2 个 package 目录。`spec_session`
+和 `task_swarm` 各自从「下划线前缀 fake namespace」升级为真子目录包：
+
+```
+scripts/
+├── spec_session.py            # ~40 行薄 launcher（utf-8 reconfigure + sys.path + main 转发）
+├── spec_session/              # package（_io / _selectors / _reminders / _business / _hooks / _catalog / cli）
+├── task_swarm.py              # ~25 行薄 launcher
+├── task_swarm/                # package（_state / _parse_md / _outbox / _prompt / _writeback / cli）
+└── （其余 5 个独立 CLI：spec_init / spec_lint / spec_log / spec_status / spec_vault）
+```
+
+文件改名规则：`_ss_io.py` → `spec_session/_io.py`，`task_swarm_state.py` →
+`task_swarm/_state.py` 等（去前缀、加 `_` 标记 internal）。
+
+**外部 API surface 100% 不变**：
+- 文件名 `spec_session.py` / `task_swarm.py` 保留——`hooks/hooks.json`、`commands/*.md`、`tests/conftest.py:run_script` 都按这些名字拼绝对路径调用。Python 的 `FileFinder` 在同一 path entry 下 package 优先于 module，launcher 自己被 exec 不走 import 系统，所以同名文件 + 同名目录共存安全。
+- `spec_status.py:25` 的 `from spec_session import read_session, read_spec_config, _session_short, _is_lock_stale` 仍可解析（`spec_session/__init__.py` 从 `_io` re-export 这 4 个符号）。
+- `tests/test_selectors_drift.py` SCRIPTS 路径 → `spec_session/_selectors.py`；4 个 `test_task_swarm_*.py` 的直接 import → `from task_swarm._<X> import ...`。
+
+**包内规范**：
+- 包内 import 用 absolute 形式（`from spec_session._io import ...`），出错信息清晰。
+- 包内文件需要找顶层 sibling 脚本时，统一 `_THIS_DIR = Path(__file__).resolve().parents[1]`（= `scripts/`），让旧用法 `_THIS_DIR / "task_swarm.py"` / `_THIS_DIR.parent / ".claude-plugin"` 语义一致。
+
+219 项原有测试 + 18 项新 catalog 测试 = 237 全绿；无 schema 变化、无 hook 行为变化、外部用户无需任何 install / config 改动。
+
+### Added — `on-user-prompt-catalog` hook：reference 关键词触发提示
+
+新 advisory hook，注册到 `hooks.json` `UserPromptSubmit` 数组第 3 位。激活
+门：仅 `mode=active` 触发，`idle / readonly / ended` 一律静默。
+
+**机制**：
+- 每个 `references/*.md` 文件首部新增 YAML frontmatter `description: Use when …`（"何时该读"而非"内容是什么"，superpowers 风格）。
+- `spec_session/_catalog.py` 维护一份预编译关键词正则字典 `CATALOG`（含中英文双语 pattern，例如 `lock / takeover / 接管` → `lock-protocol`，`task-swarm / @writes / reviewer` → `task-swarm` 等 8 个 key）。
+- 每轮 user prompt 触发：扫文本、把命中的 reference 列出来 + 嵌入对应 description，作为 `additionalContext` 注入。
+
+**目的**：specode 从"全程监考"扩展为"全程监考 + 定向激活"双模并存。
+主代理看到注入后自己决定是否真要 Read 对应 reference；hook 永远 advisory，
+不阻断。
+
+**新 drift 守卫**：
+- `tests/test_catalog.py::test_catalog_keys_have_matching_reference_files` —— `CATALOG` key 必须对应真实 `references/<key>.md`
+- `tests/test_catalog.py::test_every_catalog_referenced_file_has_description_frontmatter` —— 每份 referenced 文件必有非空 `description` 字段
+
+性能：每次调用纯预编译正则匹配 + 最多 8 次小文件读，远低于
+UserPromptSubmit 80ms 预算。
 
 ## 0.10.21 (2026-05-23)
 

@@ -94,26 +94,15 @@ sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
 6. `writeback --run <run_id> --group <N>`（validator pass 后回写 tasks.md，line-safe diff，越界 exit 1）
 7. `resolve --run <run_id>`（所有 group 完成 → 回到 spec-mode acceptance phase）
 
-完整规格全部在 `references/task-swarm.md`，本文件不再重复展开：
-
-- §1 角色 / 并发度（reviewer / validator 单实例，coder N 并发）
-- §2 文件冲突 / group 切分（`@writes` 不相交 + `@depends-on` 拓扑）
-- §3 Phase 状态机（reviewer advisory 只触发一次 p0-fix；validator 阻塞循环 fix→validator 直到 pass）
-- §4 子代理产物 schema（coder `result.md` / reviewer `review.md` / validator `validation.md`）
-- §5 tasks.md 写回格式（含修复状态标签）
-- §6 `on-task-completed` hook 提醒矩阵
-- §7 信息流总览
-- §8 死循环保护（连续 3 轮同 fail 签名 → `failed-deadloop`，停循环报告用户）
-- §9 CLI 接口速查（含所有子命令完整调用样例）
+完整规格见 `references/task-swarm.md`（TOC 见本文件 §⛔强制前置阅读 节）。
 
 ## heartbeat（长流程必做）
 
-主代理每 5 分钟 / 每完成一个 subagent 后调用（保证 spec 锁不被 stale 回收）：
+主代理每 5 分钟 / 每完成一个 subagent 后调用（保证 spec 锁不被 stale 回收），
+沿用 §第三步同款 run.sh 包装模板（**不要**裸 `python3 task_swarm.py …` / `python3 spec_session.py …`）：
 
-```sh
-task_swarm.py heartbeat --run <run_id>
-spec_session.py heartbeat --spec <dir> --session <id>
-```
+- `task_swarm.py heartbeat --run <run_id>`
+- `spec_session.py heartbeat --spec <dir> --session <id>`
 
 ## 术语区分：reviewer 分级 vs validator fail（容易混）
 
