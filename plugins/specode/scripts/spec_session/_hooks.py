@@ -204,17 +204,19 @@ def hook_on_session_start(args: argparse.Namespace) -> None:
 
     mode = existing.get("mode") or "idle"
     slug = existing.get("active_spec_slug") or "无"
+    short_id = _session_short(session_id)
     text = (
-        "## Specode session 就绪\n\n"
-        f"当前会话 session_id: {session_id}\n"
-        f"后续调用 specode CLI 时请始终用 `--session {session_id}` 传入。\n\n"
-        f"（此 session 当前 mode={mode}，spec={slug}；\n"
-        "  如需开始新 spec，使用 `/specode:spec <需求>`；\n"
-        "  如需恢复，使用 `/specode:continue [slug]`。）\n"
+        f"## Specode session 就绪 ({short_id})\n\n"
+        f"- session_id: `{session_id}`\n"
+        f"- mode: {mode} | spec: {slug}\n"
+        f"- 调用 specode CLI 时请始终用 `--session {session_id}` 传入\n\n"
+        "可用命令：\n"
+        "  - `/specode:spec <需求>` — 开始新 spec\n"
+        "  - `/specode:continue [slug]` — 恢复已有 spec\n"
     )
     if mode == "active" and existing.get("active_spec_slug"):
         text += "\n"
-        text += SPEC_MODE_CONTINUE_REMINDER.replace("<slug>", existing.get("active_spec_slug") or "?").replace("<phase>", existing.get("phase") or "?")
+        text += SPEC_MODE_CONTINUE_REMINDER.replace("<slug>", slug).replace("<phase>", existing.get("phase") or "?")
 
     _emit_hook_additional_context(text, hook_event_name="SessionStart")
 

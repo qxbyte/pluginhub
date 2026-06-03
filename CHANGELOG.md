@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.10.29 (2026-06-03)
+
+### Improved -- SessionStart startup 输出排版优化
+
+SessionStart hook 的 `systemMessage` 输出从括号注释格式改为结构化列表，提升可读性：
+
+- 标题加 8 字符 session_id 前缀，一眼辨识
+- session_id / mode / 调用方式改为列表项
+- 命令提示改为 `可用命令：` + 列表
+
+内容不变（完整 session_id、mode、spec、操作提示均保留），仅排版调整。
+
 ## 0.10.28 (2026-06-03)
 
 ### Fixed -- Stop/SessionStart hook Claude Code schema 校验失败
