@@ -89,13 +89,24 @@ def _read_stdin_payload() -> dict:
 
 
 def _emit_hook_additional_context(text: str, hook_event_name: str = "UserPromptSubmit") -> None:
-    """按宿主 hook 协议 emit additionalContext JSON。"""
+    """按宿主 hook 协议 emit additionalContext JSON。
+
+    Claude Code 的 hookSpecificOutput 只支持 PreToolUse / UserPromptSubmit /
+    PostToolUse / PostToolBatch 四种事件类型；Stop / SessionStart 需要用顶层
+    systemMessage 字段注入上下文。CodeBuddy 对 hookSpecificOutput 校验更宽松，
+    接受任意 hookEventName。为兼容双宿主，对不被 Claude Code hookSpecificOutput
+    schema 覆盖的事件类型同时输出 systemMessage（Claude Code 读）和
+    hookSpecificOutput（CodeBuddy 读）。
+    """
+    _UNSUPPORTED_EVENTS = {"Stop", "SessionStart"}
     payload = {
         "hookSpecificOutput": {
             "hookEventName": hook_event_name,
             "additionalContext": text,
         }
     }
+    if hook_event_name in _UNSUPPORTED_EVENTS:
+        payload["systemMessage"] = text
     sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
