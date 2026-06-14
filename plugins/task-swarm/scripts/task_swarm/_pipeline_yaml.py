@@ -89,6 +89,9 @@ def _parse_flow_list(s, lineno, line):
         return []
     items = []
     for part in _split_flow(inner):
+        elem = part.strip()
+        if elem and elem[0] in ("[", "{"):
+            raise _err(lineno, "nested flow not supported", line)
         items.append(_value(part, lineno, line))
     return items
 
@@ -98,6 +101,16 @@ def _value(raw, lineno, line):
     s = raw.strip()
     if s == "":
         return None
+    if s[0] in ("|", ">"):
+        raise _err(lineno, "block scalar not supported", line)
+    if s[0] == "{":
+        raise _err(lineno, "flow map not supported", line)
+    if s.startswith("!!") or s[0] == "!":
+        raise _err(lineno, "tag not supported", line)
+    if s[0] == "&":
+        raise _err(lineno, "anchor not supported", line)
+    if s[0] == "*":
+        raise _err(lineno, "alias not supported", line)
     if s[0] in ("'", '"'):
         return _parse_quoted(s, lineno)
     if s[0] == "[":
@@ -156,6 +169,8 @@ def parse(text):
         line = _strip_comment(line)
         if line.strip() == "":
             continue
+        if line.strip() in ("---", "...") or line.startswith("--- ") or line.startswith("... "):
+            raise _err(i, "multi-document not supported", line)
         indent = len(line) - len(line.lstrip(" "))
         if "\t" in line[:indent + 1]:
             raise _err(i, "tab indentation not allowed", line)
@@ -176,6 +191,8 @@ def parse(text):
             if indent < base_indent:
                 break
             key, val = _split_kv(content)
+            if key == "<<":
+                raise _err(lineno, "merge key (alias) not supported", raw)
             if val == "":
                 sub = []
                 j = idx + 1

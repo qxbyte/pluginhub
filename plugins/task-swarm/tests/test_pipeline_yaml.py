@@ -63,3 +63,26 @@ def test_comment_full_and_inline():
 
 def test_hash_inside_quotes_not_comment():
     assert parse('name: "a # b"\n') == {"name": "a # b"}
+
+
+# --- Step D: explicit errors for out-of-subset constructs ---
+
+@pytest.mark.parametrize("text, frag", [
+    ("desc: |\n  multi\n", "block scalar"),
+    ("desc: >\n  folded\n", "block scalar"),
+    ("review: {reviewer: true}\n", "flow map"),
+    ("a: &anchor 1\n", "anchor"),
+    ("a: *ref\n", "alias"),
+    ("---\nversion: 1\n", "multi-document"),
+    ("name: !!str x\n", "tag"),
+    ("writes: [[a], [b]]\n", "nested flow"),
+])
+def test_unsupported_constructs_raise(text, frag):
+    with pytest.raises(PipelineYamlError) as e:
+        parse(text)
+    assert frag in str(e.value).lower() and "line" in str(e.value).lower()
+
+
+def test_tab_indent_raises():
+    with pytest.raises(PipelineYamlError):
+        parse("run:\n\tspec_id: x\n")
