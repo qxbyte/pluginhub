@@ -56,6 +56,8 @@ from task_swarm._prompt import (  # noqa: E402
 from task_swarm._writeback import (  # noqa: E402
     GroupFindings, StageFinding, WriteBackError, writeback_tasks_md,
 )
+from task_swarm._pipeline_yaml import parse as _yaml_parse, PipelineYamlError  # noqa: E402
+from task_swarm._pipeline import validate as _pipeline_validate, to_stages as _pipeline_to_stages  # noqa: E402
 
 
 # -------------------------------------------------------------------------
@@ -106,21 +108,52 @@ def _find_run_dir(run_id: str) -> Path:
 # -------------------------------------------------------------------------
 
 def cmd_init(args: argparse.Namespace) -> int:
-    tasks_md = Path(args.tasks).resolve()
-    if not tasks_md.exists():
-        sys.stderr.write(f"tasks.md 不存在：{tasks_md}\n")
+    use_pipeline = bool(getattr(args, "pipeline", None))
+    has_tasks = bool(getattr(args, "tasks", None))
+    if use_pipeline and has_tasks:
+        sys.stderr.write("--tasks 与 --pipeline 二选一,不能同时给\n")
         return 1
+    if not use_pipeline and not has_tasks:
+        sys.stderr.write("必须给 --tasks <md> 或 --pipeline <yml> 之一\n")
+        return 1
+
+    if use_pipeline:
+        pipeline_src = Path(args.pipeline).resolve()
+        if not pipeline_src.exists():
+            sys.stderr.write(f"pipeline.yml 不存在：{pipeline_src}\n")
+            return 1
+        try:
+            data = _yaml_parse(pipeline_src.read_text(encoding="utf-8"))
+        except PipelineYamlError as e:
+            sys.stderr.write(f"pipeline.yml 解析失败：{e}\n")
+            return 1
+        errs = _pipeline_validate(data)
+        if errs:
+            sys.stderr.write("pipeline.yml schema 校验失败：\n" + "\n".join(f"  - {e}" for e in errs) + "\n")
+            return 1
+        stages = _pipeline_to_stages(data)
+        tasks_md_str = ""
+        run_meta = data.get("run") or {}
+    else:
+        tasks_md = Path(args.tasks).resolve()
+        if not tasks_md.exists():
+            sys.stderr.write(f"tasks.md 不存在：{tasks_md}\n")
+            return 1
+        stages = parse_tasks_md(tasks_md)
+        if not stages:
+            sys.stderr.write("tasks.md 中未解析出任何 `## 阶段 N:` 段；请确认格式\n")
+            return 1
+        tasks_md_str = str(tasks_md)
+        run_meta = {}
 
     workdir = Path(args.workdir).resolve() if args.workdir else Path.cwd()
-    spec_id = args.spec_id or None
+    spec_id = args.spec_id or run_meta.get("spec_id") or None
     spec_dir = getattr(args, "spec_dir_arg", None) or None
     project_root = str(Path(args.project_root).resolve()) if args.project_root else str(workdir)
+    max_parallel = args.max_parallel if args.max_parallel else int(run_meta.get("max_parallel") or 4)
+    max_rounds = args.max_rounds if args.max_rounds else int(run_meta.get("max_rounds") or 6)
 
-    stages = parse_tasks_md(tasks_md)
-    if not stages:
-        sys.stderr.write("tasks.md 中未解析出任何 `## 阶段 N:` 段；请确认格式\n")
-        return 1
-    groups_raw = group_by_file_conflict(stages, max_parallel=args.max_parallel)
+    groups_raw = group_by_file_conflict(stages, max_parallel=max_parallel)
     if not groups_raw:
         sys.stderr.write("group 切分结果为空\n")
         return 1
@@ -130,6 +163,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     run_dir = runs_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "agents").mkdir(parents=True, exist_ok=True)
+
+    pipeline_path = None
+    if use_pipeline:
+        pipeline_path = str(run_dir / "pipeline.yml")
+        (run_dir / "pipeline.yml").write_text(pipeline_src.read_text(encoding="utf-8"), encoding="utf-8")
 
     # 转换为 StageEntry
     groups: list[list[StageEntry]] = []
@@ -165,15 +203,16 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     sm = StateMachine(
         run_id=run_id,
-        tasks_md=str(tasks_md),
+        tasks_md=tasks_md_str,
         run_dir=str(run_dir),
-        max_parallel=args.max_parallel,
-        max_rounds=args.max_rounds,
+        max_parallel=max_parallel,
+        max_rounds=max_rounds,
         session_id=args.session,
         workdir=str(workdir),
         spec_id=spec_id,
         spec_dir=spec_dir,
         project_root=project_root,
+        pipeline_path=pipeline_path,
         groups=groups,
         current_group_index=0,
         group_status=["pending"] * len(groups),
@@ -185,7 +224,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     )
     sm.events_append({
         "type": "init",
-        "tasks_md": str(tasks_md),
+        "tasks_md": tasks_md_str,
+        "pipeline": bool(use_pipeline),
         "groups": len(groups),
         "skip_validator": sm.skip_validator,
     })
@@ -194,7 +234,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     out = {
         "run_id": run_id,
         "run_dir": str(run_dir),
-        "tasks_md": str(tasks_md),
+        "tasks_md": tasks_md_str,
+        "pipeline_path": pipeline_path,
         "workdir": str(workdir),
         "project_root": project_root,
         "spec_id": spec_id,
@@ -1238,7 +1279,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("init")
-    pi.add_argument("--tasks", required=True)
+    pi.add_argument("--tasks", required=False, default=None)
+    pi.add_argument("--pipeline", default=None, help="pipeline.yml 路径(与 --tasks 二选一)")
     pi.add_argument("--max-parallel", type=int, default=4)
     pi.add_argument("--max-rounds", type=int, default=6)
     pi.add_argument("--session", default=None)
