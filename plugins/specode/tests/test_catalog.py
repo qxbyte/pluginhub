@@ -46,7 +46,6 @@ def _write_session(fake_home: Path, sid: str, **overrides) -> Path:
         "spec_id": None,
         "phase": None,
         "lock_state": "released",
-        "task_swarm_run_id": None,
         "pending_selector": None,
     }
     base.update(overrides)
@@ -123,7 +122,7 @@ def test_catalog_silent_when_session_missing(run_script, fake_home, make_session
     # no session file written
     cp = run_script(
         "spec_session.py", "on-user-prompt-catalog",
-        stdin=json.dumps({"session_id": sid, "prompt": "task-swarm reviewer"}),
+        stdin=json.dumps({"session_id": sid, "prompt": "takeover 这个 spec"}),
     )
     assert cp.returncode == 0
     assert _parse_hook(cp.stdout) is None
@@ -149,7 +148,6 @@ def test_catalog_silent_when_no_keyword_matches(run_script, fake_home, make_sess
     ("锁主是谁？heartbeat 多久一次？", "lock-protocol"),
     ("vault 路径不对，要 --set-vault", "obsidian"),
     ("specs 目录在哪", "obsidian"),
-    ("我想跑 task-swarm，让 reviewer 评审", "task-swarm"),
     ("调一下 AskUserQuestion 工具的 selector", "selectors"),
     ("EARS SHALL 怎么写", "templates"),
     ("迭代一下需求", "iteration"),
@@ -179,7 +177,7 @@ def test_catalog_multi_hit_lists_all_and_deduplicates(
     sid = make_session_id()
     _write_session(fake_home, sid, mode="active")
     prompt = (
-        "我想 takeover 这个 spec，然后跑 task-swarm，让 reviewer 评审 — "
+        "我想 takeover 这个 spec，迭代一下需求 — "
         "vault 在哪也告诉我下 obsidian"
     )
     cp = run_script(
@@ -187,7 +185,7 @@ def test_catalog_multi_hit_lists_all_and_deduplicates(
         stdin=json.dumps({"session_id": sid, "prompt": prompt}),
     )
     ctx = _ctx(_parse_hook(cp.stdout))
-    for expected in ("lock-protocol", "task-swarm", "obsidian"):
+    for expected in ("lock-protocol", "iteration", "obsidian"):
         # each ref appears exactly once (dedup)
         assert ctx.count(f"references/{expected}.md") == 1
 
@@ -199,7 +197,7 @@ def test_catalog_guard_off_emits_nothing(
     _write_session(fake_home, sid, mode="active")
     cp = run_script(
         "spec_session.py", "on-user-prompt-catalog",
-        stdin=json.dumps({"session_id": sid, "prompt": "task-swarm reviewer"}),
+        stdin=json.dumps({"session_id": sid, "prompt": "takeover 这个 spec"}),
         extra_env={"SPECODE_GUARD": "off"},
     )
     assert cp.returncode == 0
