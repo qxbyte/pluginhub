@@ -43,3 +43,23 @@ def test_list_of_maps():
 def test_deep_nest_map_list_map():
     text = "task_groups:\n  - id: g1\n    tasks:\n      - id: g1.1\n        title: t\n"
     assert parse(text) == {"task_groups": [{"id": "g1", "tasks": [{"id": "g1.1", "title": "t"}]}]}
+
+
+# --- Step C: flow list + quoted strings + comments ---
+
+def test_flow_list():
+    assert parse("writes: [a.py, b.py]\n") == {"writes": ["a.py", "b.py"]}
+    assert parse("empty: []\n") == {"empty": []}
+
+
+def test_quoted_string_with_colon():
+    assert parse('name: "Q01: 接口"\n') == {"name": "Q01: 接口"}
+    assert parse("name: 'a: b'\n") == {"name": "a: b"}
+
+
+def test_comment_full_and_inline():
+    assert parse("# header\nversion: 1  # trailing\nname: a\n") == {"version": 1, "name": "a"}
+
+
+def test_hash_inside_quotes_not_comment():
+    assert parse('name: "a # b"\n') == {"name": "a # b"}

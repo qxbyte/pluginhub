@@ -19,6 +19,94 @@ def _err(lineno, msg, line):
     return PipelineYamlError(f"line {lineno}: {msg}: {line.rstrip()!r}")
 
 
+def _strip_comment(line):
+    """Cut the line at the first unquoted ``#``.
+
+    Tracks single/double quote state so a ``#`` inside a quoted string stays
+    literal. Leading spaces are preserved so the caller can still compute
+    indentation. A ``#`` is only a comment opener when it is the first char or
+    preceded by whitespace (mirrors YAML), so ``a#b`` stays intact.
+    """
+    out = []
+    in_single = in_double = False
+    prev = ""
+    for ch in line:
+        if ch == "#" and not in_single and not in_double and (prev == "" or prev == " "):
+            break
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        out.append(ch)
+        prev = ch
+    return "".join(out).rstrip()
+
+
+def _parse_quoted(s, lineno):
+    q = s[0]
+    if len(s) < 2 or s[-1] != q:
+        raise PipelineYamlError(f"line {lineno}: unterminated quoted string: {s!r}")
+    body = s[1:-1]
+    if q == "'":
+        return body
+    out = []
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch == "\\" and i + 1 < len(body):
+            nxt = body[i + 1]
+            out.append({"n": "\n", "t": "\t", '"': '"', "\\": "\\"}.get(nxt, nxt))
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _split_flow(s):
+    """Split a flow-list body on top-level commas (quote-aware)."""
+    parts = []
+    cur = []
+    in_single = in_double = False
+    for ch in s:
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        if ch == "," and not in_single and not in_double:
+            parts.append("".join(cur))
+            cur = []
+            continue
+        cur.append(ch)
+    if "".join(cur).strip() != "" or parts:
+        parts.append("".join(cur))
+    return parts
+
+
+def _parse_flow_list(s, lineno, line):
+    inner = s[1:-1].strip()
+    if inner == "":
+        return []
+    items = []
+    for part in _split_flow(inner):
+        items.append(_value(part, lineno, line))
+    return items
+
+
+def _value(raw, lineno, line):
+    """Parse a single value token (scalar / quoted / flow list)."""
+    s = raw.strip()
+    if s == "":
+        return None
+    if s[0] in ("'", '"'):
+        return _parse_quoted(s, lineno)
+    if s[0] == "[":
+        if not s.endswith("]"):
+            raise PipelineYamlError(f"line {lineno}: malformed flow list: {s!r}")
+        return _parse_flow_list(s, lineno, line)
+    return _scalar(s, lineno)
+
+
 def _scalar(raw, lineno):
     s = raw.strip()
     if s in ("", "null", "~"):
@@ -32,10 +120,40 @@ def _scalar(raw, lineno):
     return s
 
 
+def _is_map_entry(content):
+    """True if ``content`` is a ``key: value`` entry (quote-aware colon scan)."""
+    in_single = in_double = False
+    for i, ch in enumerate(content):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == ":" and not in_single and not in_double:
+            # "key:" at end or "key: value"
+            if i + 1 == len(content) or content[i + 1] == " ":
+                return True
+    return False
+
+
+def _split_kv(content):
+    """Split a map entry into (key, value) at the first unquoted ``: ``/``:``."""
+    in_single = in_double = False
+    for i, ch in enumerate(content):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == ":" and not in_single and not in_double:
+            if i + 1 == len(content) or content[i + 1] == " ":
+                return content[:i].strip(), content[i + 1:].strip()
+    return content.strip(), ""
+
+
 def parse(text):
     lines = text.splitlines()
     rows = []
     for i, line in enumerate(lines, 1):
+        line = _strip_comment(line)
         if line.strip() == "":
             continue
         indent = len(line) - len(line.lstrip(" "))
@@ -57,9 +175,8 @@ def parse(text):
             lineno, indent, content, raw = rows[idx]
             if indent < base_indent:
                 break
-            key, _, val = content.partition(":")
-            key = key.strip()
-            if val.strip() == "":
+            key, val = _split_kv(content)
+            if val == "":
                 sub = []
                 j = idx + 1
                 while j < len(rows) and rows[j][1] > indent:
@@ -68,7 +185,7 @@ def parse(text):
                 result[key] = build(sub, indent + 2) if sub else None
                 idx = j
             else:
-                result[key] = _scalar(val, lineno)
+                result[key] = _value(val, lineno, raw)
                 idx += 1
         return result
 
@@ -92,8 +209,8 @@ def parse(text):
                 j += 1
             if not item_rows:
                 result.append(None)
-            elif len(item_rows) == 1 and ":" not in item_rows[0][2]:
-                result.append(_scalar(item_rows[0][2], item_rows[0][0]))
+            elif len(item_rows) == 1 and not _is_map_entry(item_rows[0][2]):
+                result.append(_value(item_rows[0][2], item_rows[0][0], item_rows[0][3]))
             else:
                 result.append(build(item_rows, item_indent))
             idx = j
