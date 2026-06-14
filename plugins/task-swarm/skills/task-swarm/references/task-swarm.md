@@ -296,8 +296,11 @@ writeback 严格 line-safe：禁止改动 stage 标题、`@writes` / `@reads` / 
 
 ```text
 task_swarm.py init --tasks <abs> [--max-parallel N] [--max-rounds N]
- [--session <session_id>] [--spec <abs>]
- → {"run_id", "groups": [...], "spec_dir": ...}
+ [--workdir <dir>] [--project-root <dir>] [--spec-id <id>] [--session <session_id>]
+ → {"run_id", "groups": [...], ...}
+ # --workdir：state 根所在目录（缺省 = cwd）；state 根 = <workdir>/.task-swarm/runs/
+ # --project-root：被改代码的根目录（缺省 = --workdir）
+ # --spec-id（可选）：spec 标识，写入 state 供产物引用
 
 task_swarm.py status --run <run_id>
  → 当前 phase / group / round / 待派 subagent 列表
@@ -313,7 +316,9 @@ task_swarm.py writeback --run <run_id> --group <N>
  → 当前 group 全部 pass 后回写 tasks.md（line-safe diff）
 
 task_swarm.py heartbeat --run <run_id>
- → 刷新 state.json.last_activity_at（spec 锁需主代理另调 spec_session.py）
+ → 刷新 state.json.last_activity_at
+ # ⚠️ 仅 specode 集成模式：spec 锁续期需主代理另调 spec_session.py heartbeat；
+ # 独立安装 task-swarm 无 spec_session.py，无 session 锁概念，省略即可。
 
 task_swarm.py resolve --run <run_id> [--abort]
  → 标记完成或中止；清理 sessions.task_swarm_run_id

@@ -32,6 +32,8 @@ argument-hint: "[<spec-dir>/tasks.md] [--max-parallel N] [--max-rounds N]"
 
 ## 第一步：前置校验（必做）
 
+> ⚠️ **仅 specode 集成模式**：以下 read-session 前置校验依赖 specode 的 `spec_session.py`。独立安装 task-swarm 时该脚本不存在，请省略这些步骤（独立模式无 session 锁概念，直接用 `task_swarm.py` 子命令即可，init 用 `--workdir <项目根>` 指定 state 落盘位置）。完整的独立模式心跳/锁方案见后续里程碑。
+
 调 `spec_session.py read-session --session <id>` 拿当前 session 状态：
 
 ```sh
@@ -58,10 +60,14 @@ sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
 ```sh
 sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
    "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/task_swarm.py" \
-   init --tasks "<active_spec_dir>/tasks.md" --session <id> [--skip-validator]
+   init --tasks "<active_spec_dir>/tasks.md" --workdir "<项目根>" \
+   [--project-root "<代码根>"] [--spec-id <id>] [--session <id>] [--skip-validator]
 ```
 
 - `--tasks` 是 **tasks.md 的绝对路径**（不是 spec 目录），用 step 1 的 `active_spec_dir + /tasks.md`
+- `--workdir`：state 落盘根（state 根 = `<workdir>/.task-swarm/runs/`）。specode 集成模式用 `active_spec_dir`；独立模式用项目根（缺省 = 当前 cwd）
+- `--project-root`（可选）：被改代码的根目录（缺省 = `--workdir`）
+- `--spec-id`（可选）：spec 标识，写入 state 供产物引用
 - `--skip-validator`（0.10.20+）：**人工验收模式**——review/p0-fix 完成后跳过 validation/v-fix 直接 writeback。
   仅当用户在 `tasks-execution` selector 选了「task-swarm + 人工验收（跳过 validator）」时加这个 flag；
   默认（不加）是 full 模式，含 validator 自动验收循环。
@@ -98,11 +104,14 @@ sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
 
 ## heartbeat（长流程必做）
 
-主代理每 5 分钟 / 每完成一个 subagent 后调用（保证 spec 锁不被 stale 回收），
+主代理每 5 分钟 / 每完成一个 subagent 后调用，
 沿用 §第三步同款 run.sh 包装模板（**不要**裸 `python3 task_swarm.py …` / `python3 spec_session.py …`）：
 
-- `task_swarm.py heartbeat --run <run_id>`
-- `spec_session.py heartbeat --spec <dir> --session <id>`
+- `task_swarm.py heartbeat --run <run_id>`（刷新 state.json.last_activity_at，独立/集成模式都调）
+
+> ⚠️ **仅 specode 集成模式**：下面这条 heartbeat 续锁依赖 specode 的 `spec_session.py`，用于保证 spec 锁不被 stale 回收。独立安装 task-swarm 时该脚本不存在，请省略此步骤（独立模式无 session 锁概念）。完整的独立模式心跳/锁方案见后续里程碑。
+>
+> - `spec_session.py heartbeat --spec <dir> --session <id>`
 
 ## 术语区分：reviewer 分级 vs validator fail（容易混）
 
