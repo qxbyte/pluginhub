@@ -10,7 +10,8 @@
     _writeback.py tasks.md line-safe diff 写回
 
 子命令：
-    init      --tasks <abs> [--max-parallel N] [--max-rounds N] [--session <id>] [--spec <dir>]
+    init      --tasks <abs> [--workdir <dir>] [--project-root <dir>] [--spec-id <id>]
+              [--max-parallel N] [--max-rounds N] [--session <id>] [--skip-validator]
     status    --run <run_id>
     plan      --run <run_id>
     advance   --run <run_id> --phase <coding|review|p0-fix|validation|v-fix> --round <n>
@@ -102,16 +103,9 @@ def _write_session(session_id: str, data: dict) -> None:
     _atomic_write_json(_session_path(session_id), data)
 
 
-def _runs_root_for(tasks_md: Path, spec_dir: Optional[Path]) -> Path:
-    """决定 .task-swarm/runs/ 根目录。
-
-    优先级：
-    1. spec_dir/.task-swarm/runs/
-    2. tasks_md.parent/.task-swarm/runs/
-    """
-    if spec_dir is not None:
-        return spec_dir / ".task-swarm" / "runs"
-    return tasks_md.parent / ".task-swarm" / "runs"
+def _runs_root_for(workdir: Path) -> Path:
+    """状态根:<workdir>/.task-swarm/runs/。"""
+    return workdir / ".task-swarm" / "runs"
 
 
 def _resolve_run_dir(run_id: str, hint_dirs: list[Path]) -> Path:
@@ -177,23 +171,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         sys.stderr.write(f"tasks.md 不存在：{tasks_md}\n")
         return 1
 
-    spec_dir: Optional[Path] = None
-    spec_id: Optional[str] = None
-    if args.spec:
-        spec_dir = Path(args.spec).resolve()
-    else:
-        # 推断：tasks.md 所在目录就是 spec_dir
-        if (tasks_md.parent / ".config.json").exists():
-            spec_dir = tasks_md.parent
-    if spec_dir is not None:
-        cfg_path = spec_dir / ".config.json"
-        if cfg_path.exists():
-            try:
-                with cfg_path.open("r", encoding="utf-8") as fh:
-                    cfg = json.load(fh)
-                spec_id = cfg.get("specId")
-            except Exception:
-                pass
+    workdir = Path(args.workdir).resolve() if args.workdir else Path.cwd()
+    spec_id = args.spec_id or None
+    project_root = str(Path(args.project_root).resolve()) if args.project_root else str(workdir)
 
     stages = parse_tasks_md(tasks_md)
     if not stages:
@@ -205,7 +185,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 1
 
     run_id = _gen_run_id()
-    runs_root = _runs_root_for(tasks_md, spec_dir)
+    runs_root = _runs_root_for(workdir)
     run_dir = runs_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "agents").mkdir(parents=True, exist_ok=True)
@@ -249,8 +229,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         max_parallel=args.max_parallel,
         max_rounds=args.max_rounds,
         session_id=args.session,
-        spec_dir=str(spec_dir) if spec_dir else None,
+        workdir=str(workdir),
         spec_id=spec_id,
+        project_root=project_root,
         groups=groups,
         current_group_index=0,
         group_status=["pending"] * len(groups),
@@ -280,7 +261,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         "run_id": run_id,
         "run_dir": str(run_dir),
         "tasks_md": str(tasks_md),
-        "spec_dir": str(spec_dir) if spec_dir else None,
+        "workdir": str(workdir),
+        "project_root": project_root,
         "spec_id": spec_id,
         "groups": [
             [{"stage": s.number, "title": s.title, "writes": s.writes,
@@ -731,24 +713,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 
 def _resolve_project_root(sm: StateMachine) -> Optional[str]:
-    """从 spec_dir/.config.json 读 project_root；未配置 / 读失败时返回 None。
-
-    返回 None 时，render_*_prompt 会输出 fallback 文本提示"未设置 project_root，
-    暂用 spec_dir"——主要是兼容老 spec（pre 0.10.15 创建的没有此字段）。
-    """
-    spec_dir = sm.spec_dir
-    if not spec_dir:
-        return None
-    try:
-        cfg_path = Path(spec_dir) / ".config.json"
-        if not cfg_path.exists():
-            return None
-        with cfg_path.open("r", encoding="utf-8") as fh:
-            cfg = json.load(fh)
-        pr = cfg.get("project_root")
-        return str(pr) if pr else None
-    except Exception:
-        return None
+    """project_root 来自 init 时存入 state 的字段;缺省回退 workdir。"""
+    return sm.project_root or sm.workdir
 
 
 def _materialize_prompts_for_coding(sm: StateMachine) -> None:
@@ -1350,7 +1316,12 @@ def _build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--max-parallel", type=int, default=4)
     pi.add_argument("--max-rounds", type=int, default=6)
     pi.add_argument("--session", default=None)
-    pi.add_argument("--spec", default=None)
+    pi.add_argument("--workdir", default=None,
+                    help="状态根所在目录;默认当前工作目录(cwd)")
+    pi.add_argument("--spec-id", dest="spec_id", default=None,
+                    help="可选:回溯用的 spec 标识;独立模式可省")
+    pi.add_argument("--project-root", dest="project_root", default=None,
+                    help="被改动代码的根目录;默认 = --workdir")
     pi.add_argument("--skip-validator", action="store_true",
                     help="人工验收模式：review/p0-fix 完成后直接 writeback，跳过 validation/v-fix")
 
