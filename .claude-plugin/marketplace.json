@@ -1,6 +1,6 @@
 {
   "name": "specode",
-  "description": "Specification-driven workflow plugin (single-plugin marketplace).",
+  "description": "Marketplace for specode (spec-driven workflow) and task-swarm (multi-agent orchestration).",
   "owner": {
     "name": "qxbyte",
     "url": "https://github.com/qxbyte"
