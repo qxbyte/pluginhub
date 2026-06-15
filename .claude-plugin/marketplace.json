@@ -1,6 +1,6 @@
 {
   "name": "specode",
-  "description": "Specification-driven workflow plugin (single-plugin marketplace).",
+  "description": "Marketplace for specode (spec-driven workflow) and task-swarm (multi-agent orchestration).",
   "owner": {
     "name": "qxbyte",
     "url": "https://github.com/qxbyte"
@@ -15,6 +15,16 @@
       "repository": "https://github.com/qxbyte/specode",
       "license": "MIT",
       "keywords": ["spec", "specification", "workflow"]
+    },
+    {
+      "name": "task-swarm",
+      "source": "./plugins/task-swarm",
+      "version": "0.1.0",
+      "description": "Multi-agent task orchestration: split a task document into task groups, fork coders, and run per-group reviewer + validator loops.",
+      "homepage": "https://github.com/qxbyte/specode",
+      "repository": "https://github.com/qxbyte/specode",
+      "license": "MIT",
+      "keywords": ["task-swarm", "multi-agent", "orchestration", "pipeline"]
     }
   ]
 }

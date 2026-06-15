@@ -104,6 +104,9 @@ class StateMachine:
     session_id: Optional[str] = None
     spec_dir: Optional[str] = None
     spec_id: Optional[str] = None
+    workdir: Optional[str] = None
+    project_root: Optional[str] = None
+    pipeline_path: Optional[str] = None
 
     # 0.10.20+：人工验收模式。True 时 review/p0-fix 完成后跳过 validation/v-fix，
     # 直接 begin_writeback；tasks.md 注释块写"⏭️ validator 已跳过（人工验收模式）"。
@@ -174,6 +177,9 @@ class StateMachine:
             session_id=data.get("session_id") or data.get("claude_session_id"),
             spec_dir=data.get("spec_dir"),
             spec_id=data.get("spec_id"),
+            workdir=data.get("workdir"),
+            project_root=data.get("project_root"),
+            pipeline_path=data.get("pipeline_path"),
             groups=groups,
             current_group_index=data.get("current_group_index", 0),
             group_status=data.get("group_status", ["pending"] * len(groups)),
@@ -211,6 +217,9 @@ class StateMachine:
             "session_id": self.session_id,
             "spec_dir": self.spec_dir,
             "spec_id": self.spec_id,
+            "workdir": self.workdir,
+            "project_root": self.project_root,
+            "pipeline_path": self.pipeline_path,
             "groups": [[asdict(s) for s in g] for g in self.groups],
             "current_group_index": self.current_group_index,
             "group_status": list(self.group_status),

@@ -1,0 +1,12 @@
+{
+  "name": "task-swarm",
+  "version": "0.1.0",
+  "description": "Multi-agent task orchestration: split a task document into task groups, fork coders, and run per-group reviewer + validator loops.",
+  "author": {
+    "name": "xueqiang",
+    "email": "xueqiang361@gmail.com"
+  },
+  "homepage": "https://github.com/qxbyte/specode",
+  "license": "MIT",
+  "keywords": ["task-swarm", "multi-agent", "orchestration", "pipeline"]
+}

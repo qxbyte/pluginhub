@@ -10,7 +10,8 @@
     _writeback.py tasks.md line-safe diff 写回
 
 子命令：
-    init      --tasks <abs> [--max-parallel N] [--max-rounds N] [--session <id>] [--spec <dir>]
+    init      --tasks <abs> [--workdir <dir>] [--project-root <dir>] [--spec-id <id>]
+              [--max-parallel N] [--max-rounds N] [--session <id>] [--skip-validator]
     status    --run <run_id>
     plan      --run <run_id>
     advance   --run <run_id> --phase <coding|review|p0-fix|validation|v-fix> --round <n>
@@ -45,7 +46,7 @@ except Exception:
         return None
 
 from task_swarm._parse_md import parse_tasks_md, group_by_file_conflict  # noqa: E402
-from task_swarm._state import StateMachine, StageEntry, _atomic_write_json  # noqa: E402
+from task_swarm._state import StateMachine, StageEntry  # noqa: E402
 from task_swarm._outbox import (  # noqa: E402
     ParseError, parse_coder_result, parse_reviewer_review, parse_validator_validation,
 )
@@ -55,6 +56,9 @@ from task_swarm._prompt import (  # noqa: E402
 from task_swarm._writeback import (  # noqa: E402
     GroupFindings, StageFinding, WriteBackError, writeback_tasks_md,
 )
+from task_swarm._pipeline_yaml import parse as _yaml_parse, PipelineYamlError  # noqa: E402
+from task_swarm._pipeline import validate as _pipeline_validate, to_stages as _pipeline_to_stages  # noqa: E402
+from task_swarm._report import render_report  # noqa: E402
 
 
 # -------------------------------------------------------------------------
@@ -76,95 +80,28 @@ def _emit(payload: Any) -> None:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
-def _sessions_dir() -> Path:
-    return Path.home() / ".specode" / "sessions"
-
-
-def _session_path(session_id: str) -> Path:
-    return _sessions_dir() / f"{session_id}.json"
-
-
-def _read_session(session_id: str) -> Optional[dict]:
-    p = _session_path(session_id)
-    if not p.exists():
-        return None
-    try:
-        with p.open("r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        return None
-    return None
-
-
-def _write_session(session_id: str, data: dict) -> None:
-    _atomic_write_json(_session_path(session_id), data)
-
-
-def _runs_root_for(tasks_md: Path, spec_dir: Optional[Path]) -> Path:
-    """决定 .task-swarm/runs/ 根目录。
-
-    优先级：
-    1. spec_dir/.task-swarm/runs/
-    2. tasks_md.parent/.task-swarm/runs/
-    """
-    if spec_dir is not None:
-        return spec_dir / ".task-swarm" / "runs"
-    return tasks_md.parent / ".task-swarm" / "runs"
-
-
-def _resolve_run_dir(run_id: str, hint_dirs: list[Path]) -> Path:
-    """根据 run_id 查找 run_dir。
-
-    hint_dirs：可能的 .task-swarm/runs/ 父目录候选。
-    若 run_id 是绝对路径直接返回。
-    """
-    p = Path(run_id)
-    if p.is_absolute() and p.exists():
-        return p
-    # 在 hint_dirs 下查找
-    for hd in hint_dirs:
-        candidate = hd / run_id
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(f"找不到 run_dir for run_id={run_id}（hints={hint_dirs}）")
-
-
-def _collect_run_dirs() -> list[Path]:
-    """扫描当前目录 / 当前目录上层若干层下的 .task-swarm/runs/*。"""
-    candidates: list[Path] = []
-    cwd = Path.cwd()
-    for base in (cwd, cwd.parent, cwd.parent.parent):
-        runs = base / ".task-swarm" / "runs"
-        if runs.exists():
-            candidates.append(runs)
-    return candidates
+def _runs_root_for(workdir: Path) -> Path:
+    """状态根:<workdir>/.task-swarm/runs/。"""
+    return workdir / ".task-swarm" / "runs"
 
 
 def _find_run_dir(run_id: str) -> Path:
-    # 第一步：如果 run_id 是绝对路径直接用
+    """定位 run 目录,不依赖任何 specode session。
+
+    顺序:
+      1. run_id 本身是已存在的绝对/相对路径(含 state.json) → 直接用
+      2. <cwd>/.task-swarm/runs/<run_id>/
+      3. 向上递归 cwd 的父目录,找 .task-swarm/runs/<run_id>/
+    """
     p = Path(run_id)
-    if p.is_absolute() and p.exists():
-        return p
-    # 第二步：扫描 sessions 找到 spec_dir
-    sessions_dir = _sessions_dir()
-    spec_dirs: list[Path] = []
-    if sessions_dir.exists():
-        for sf in sessions_dir.glob("*.json"):
-            try:
-                with sf.open("r", encoding="utf-8") as fh:
-                    sess = json.load(fh)
-                sd = sess.get("active_spec_dir")
-                if sd:
-                    spec_dirs.append(Path(sd))
-            except Exception:
-                continue
-    hint_dirs: list[Path] = []
-    for sd in spec_dirs:
-        hint_dirs.append(sd / ".task-swarm" / "runs")
-    hint_dirs.extend(_collect_run_dirs())
-    return _resolve_run_dir(run_id, hint_dirs)
+    if p.exists() and (p / "state.json").exists():
+        return p.resolve()
+    cwd = Path.cwd()
+    for base in [cwd, *cwd.parents]:
+        cand = base / ".task-swarm" / "runs" / run_id
+        if (cand / "state.json").exists():
+            return cand.resolve()
+    return cwd / ".task-swarm" / "runs" / run_id
 
 
 # -------------------------------------------------------------------------
@@ -172,43 +109,66 @@ def _find_run_dir(run_id: str) -> Path:
 # -------------------------------------------------------------------------
 
 def cmd_init(args: argparse.Namespace) -> int:
-    tasks_md = Path(args.tasks).resolve()
-    if not tasks_md.exists():
-        sys.stderr.write(f"tasks.md 不存在：{tasks_md}\n")
+    use_pipeline = bool(getattr(args, "pipeline", None))
+    has_tasks = bool(getattr(args, "tasks", None))
+    if use_pipeline and has_tasks:
+        sys.stderr.write("--tasks 与 --pipeline 二选一,不能同时给\n")
+        return 1
+    if not use_pipeline and not has_tasks:
+        sys.stderr.write("必须给 --tasks <md> 或 --pipeline <yml> 之一\n")
         return 1
 
-    spec_dir: Optional[Path] = None
-    spec_id: Optional[str] = None
-    if args.spec:
-        spec_dir = Path(args.spec).resolve()
+    if use_pipeline:
+        pipeline_src = Path(args.pipeline).resolve()
+        if not pipeline_src.exists():
+            sys.stderr.write(f"pipeline.yml 不存在：{pipeline_src}\n")
+            return 1
+        try:
+            data = _yaml_parse(pipeline_src.read_text(encoding="utf-8"))
+        except PipelineYamlError as e:
+            sys.stderr.write(f"pipeline.yml 解析失败：{e}\n")
+            return 1
+        errs = _pipeline_validate(data)
+        if errs:
+            sys.stderr.write("pipeline.yml schema 校验失败：\n" + "\n".join(f"  - {e}" for e in errs) + "\n")
+            return 1
+        stages = _pipeline_to_stages(data)
+        tasks_md_str = ""
+        run_meta = data.get("run") or {}
     else:
-        # 推断：tasks.md 所在目录就是 spec_dir
-        if (tasks_md.parent / ".config.json").exists():
-            spec_dir = tasks_md.parent
-    if spec_dir is not None:
-        cfg_path = spec_dir / ".config.json"
-        if cfg_path.exists():
-            try:
-                with cfg_path.open("r", encoding="utf-8") as fh:
-                    cfg = json.load(fh)
-                spec_id = cfg.get("specId")
-            except Exception:
-                pass
+        tasks_md = Path(args.tasks).resolve()
+        if not tasks_md.exists():
+            sys.stderr.write(f"tasks.md 不存在：{tasks_md}\n")
+            return 1
+        stages = parse_tasks_md(tasks_md)
+        if not stages:
+            sys.stderr.write("tasks.md 中未解析出任何 `## 阶段 N:` 段；请确认格式\n")
+            return 1
+        tasks_md_str = str(tasks_md)
+        run_meta = {}
 
-    stages = parse_tasks_md(tasks_md)
-    if not stages:
-        sys.stderr.write("tasks.md 中未解析出任何 `## 阶段 N:` 段；请确认格式\n")
-        return 1
-    groups_raw = group_by_file_conflict(stages, max_parallel=args.max_parallel)
+    workdir = Path(args.workdir).resolve() if args.workdir else Path.cwd()
+    spec_id = args.spec_id or run_meta.get("spec_id") or None
+    spec_dir = getattr(args, "spec_dir_arg", None) or None
+    project_root = str(Path(args.project_root).resolve()) if args.project_root else str(workdir)
+    max_parallel = args.max_parallel if args.max_parallel else int(run_meta.get("max_parallel") or 4)
+    max_rounds = args.max_rounds if args.max_rounds else int(run_meta.get("max_rounds") or 6)
+
+    groups_raw = group_by_file_conflict(stages, max_parallel=max_parallel)
     if not groups_raw:
         sys.stderr.write("group 切分结果为空\n")
         return 1
 
     run_id = _gen_run_id()
-    runs_root = _runs_root_for(tasks_md, spec_dir)
+    runs_root = _runs_root_for(workdir)
     run_dir = runs_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "agents").mkdir(parents=True, exist_ok=True)
+
+    pipeline_path = None
+    if use_pipeline:
+        pipeline_path = str(run_dir / "pipeline.yml")
+        (run_dir / "pipeline.yml").write_text(pipeline_src.read_text(encoding="utf-8"), encoding="utf-8")
 
     # 转换为 StageEntry
     groups: list[list[StageEntry]] = []
@@ -244,13 +204,16 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     sm = StateMachine(
         run_id=run_id,
-        tasks_md=str(tasks_md),
+        tasks_md=tasks_md_str,
         run_dir=str(run_dir),
-        max_parallel=args.max_parallel,
-        max_rounds=args.max_rounds,
+        max_parallel=max_parallel,
+        max_rounds=max_rounds,
         session_id=args.session,
-        spec_dir=str(spec_dir) if spec_dir else None,
+        workdir=str(workdir),
         spec_id=spec_id,
+        spec_dir=spec_dir,
+        project_root=project_root,
+        pipeline_path=pipeline_path,
         groups=groups,
         current_group_index=0,
         group_status=["pending"] * len(groups),
@@ -262,25 +225,20 @@ def cmd_init(args: argparse.Namespace) -> int:
     )
     sm.events_append({
         "type": "init",
-        "tasks_md": str(tasks_md),
+        "tasks_md": tasks_md_str,
+        "pipeline": bool(use_pipeline),
         "groups": len(groups),
         "skip_validator": sm.skip_validator,
     })
     sm.save()
 
-    # 同步 sessions/<id>.json.task_swarm_run_id
-    if args.session:
-        sess = _read_session(args.session) or {}
-        sess["task_swarm_run_id"] = run_id
-        sess["last_activity_at"] = _now_iso()
-        with contextlib.suppress(Exception):
-            _write_session(args.session, sess)
-
     out = {
         "run_id": run_id,
         "run_dir": str(run_dir),
-        "tasks_md": str(tasks_md),
-        "spec_dir": str(spec_dir) if spec_dir else None,
+        "tasks_md": tasks_md_str,
+        "pipeline_path": pipeline_path,
+        "workdir": str(workdir),
+        "project_root": project_root,
         "spec_id": spec_id,
         "groups": [
             [{"stage": s.number, "title": s.title, "writes": s.writes,
@@ -344,7 +302,7 @@ PLAN_TEMPLATES = {
     "v-fix-fork": "validator fail。请按 validation.md 的 fix_targets 各文件 fork **{n}** 个 `task-swarm-coder`（v-fix）。注意：validator fail 循环修复直到 pass。本轮是 g{g}-r{r}。",
     "validation-after-vfix": "v-fix coder 已返回。请 fork **1 个** `task-swarm-validator` 验证。",
     "deadloop": "⚠️ 死循环检测：g{g} 已连续 3 轮同一 fail 签名。建议停止本 group，向用户报告 `failed-deadloop`，让用户介入。",
-    "all-done": "全部 group 已完成。请按 SKILL.md 退出 task-swarm 模式，回到 spec-mode acceptance phase。",
+    "all-done": "全部 group 已完成。请调 `task_swarm.py resolve` 收尾，再 `report` 出报告。",
 }
 
 
@@ -731,24 +689,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 
 def _resolve_project_root(sm: StateMachine) -> Optional[str]:
-    """从 spec_dir/.config.json 读 project_root；未配置 / 读失败时返回 None。
-
-    返回 None 时，render_*_prompt 会输出 fallback 文本提示"未设置 project_root，
-    暂用 spec_dir"——主要是兼容老 spec（pre 0.10.15 创建的没有此字段）。
-    """
-    spec_dir = sm.spec_dir
-    if not spec_dir:
-        return None
-    try:
-        cfg_path = Path(spec_dir) / ".config.json"
-        if not cfg_path.exists():
-            return None
-        with cfg_path.open("r", encoding="utf-8") as fh:
-            cfg = json.load(fh)
-        pr = cfg.get("project_root")
-        return str(pr) if pr else None
-    except Exception:
-        return None
+    """project_root 来自 init 时存入 state 的字段;缺省回退 workdir。"""
+    return sm.project_root or sm.workdir
 
 
 def _materialize_prompts_for_coding(sm: StateMachine) -> None:
@@ -1204,6 +1146,16 @@ def cmd_writeback(args: argparse.Namespace) -> int:
     if gi != sm.current_group_index and sm.group_status[gi] not in ("done",):
         sys.stderr.write(f"--group {args.group} 不是当前 group（current={sm.current_group_index + 1}）\n")
         return 1
+    # yml 路径：writeback 退化为 finalize_group（不碰 markdown）
+    if sm.pipeline_path:
+        final_verdict = "failed-deadloop" if sm.group_status[gi] == "failed-deadloop" else "pass"
+        sm.events_append({"type": "writeback", "group": gi + 1, "pipeline": True})
+        if gi == sm.current_group_index:
+            sm.finalize_group("done" if final_verdict == "pass" else "failed")
+        sm.save()
+        _emit({"ok": True, "group": gi + 1, "finalized": True, "pipeline": True, "verdict": final_verdict})
+        return 0
+    # ---- markdown 路径（legacy）：原 line-safe writeback，保持不动 ----
     # 组装 findings
     stages = sm.groups[gi]
     stage_numbers = [s.number for s in stages]
@@ -1274,10 +1226,10 @@ def cmd_writeback(args: argparse.Namespace) -> int:
 # -------------------------------------------------------------------------
 
 def cmd_heartbeat(args: argparse.Namespace) -> int:
-    """透传给 spec_session.py heartbeat 保活 spec 锁。
+    """刷新 state.json.last_activity_at（长流程保活，状态层）。
 
-    本命令本身仅刷新 state.json.last_activity_at；spec 锁刷新由调用方主代理
-    单独再调 spec_session.py heartbeat 完成（保持 task_swarm/spec_session 互不 import）。
+    task-swarm 独立运行，无 spec 锁概念；本命令只更新 last_activity_at，
+    供后续监控/超时里程碑使用。
     """
     try:
         run_dir = _find_run_dir(args.run)
@@ -1292,8 +1244,7 @@ def cmd_heartbeat(args: argparse.Namespace) -> int:
         "run_id": sm.run_id,
         "spec_dir": sm.spec_dir,
         "session_id": sm.session_id,
-        "hint": ("如需保活 spec 锁，请额外调用 spec_session.py heartbeat "
-                 "--spec <dir> --session <id>"),
+        "hint": "已刷新 last_activity_at。",
     })
     return 0
 
@@ -1319,20 +1270,31 @@ def cmd_resolve(args: argparse.Namespace) -> int:
         sm.failed_status = sm.failed_status or "done"
         sm.events_append({"type": "resolve", "status": sm.failed_status})
     sm.save()
-    # 清理 sessions.task_swarm_run_id
-    if sm.session_id:
-        sess = _read_session(sm.session_id)
-        if sess is not None and sess.get("task_swarm_run_id") == sm.run_id:
-            sess["task_swarm_run_id"] = None
-            sess["last_activity_at"] = _now_iso()
-            with contextlib.suppress(Exception):
-                _write_session(sm.session_id, sess)
     _emit({
         "ok": True,
         "run_id": sm.run_id,
         "status": sm.failed_status,
         "completed_at": sm.completed_at,
     })
+    return 0
+
+
+# -------------------------------------------------------------------------
+# report
+# -------------------------------------------------------------------------
+
+def cmd_report(args: argparse.Namespace) -> int:
+    try:
+        run_dir = _find_run_dir(args.run)
+    except FileNotFoundError as e:
+        sys.stderr.write(f"{e}\n")
+        return 1
+    sm = StateMachine.load(run_dir)
+    text = render_report(sm, group=args.group)
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
     return 0
 
 
@@ -1346,11 +1308,21 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("init")
-    pi.add_argument("--tasks", required=True)
+    pi.add_argument("--tasks", required=False, default=None,
+                    help="legacy markdown tasks.md 路径(已软废弃;推荐 --pipeline)")
+    pi.add_argument("--pipeline", default=None,
+                    help="pipeline.yml 路径(主编排格式;与 --tasks 二选一)")
     pi.add_argument("--max-parallel", type=int, default=4)
     pi.add_argument("--max-rounds", type=int, default=6)
     pi.add_argument("--session", default=None)
-    pi.add_argument("--spec", default=None)
+    pi.add_argument("--workdir", default=None,
+                    help="状态根所在目录;默认当前工作目录(cwd)")
+    pi.add_argument("--spec-id", dest="spec_id", default=None,
+                    help="可选:回溯用的 spec 标识;独立模式可省")
+    pi.add_argument("--project-root", dest="project_root", default=None,
+                    help="被改动代码的根目录;默认 = --workdir")
+    pi.add_argument("--spec-dir", dest="spec_dir_arg", default=None,
+                    help="可选:spec 文档目录(*.md 所在);specode 委托模式用,独立模式可省")
     pi.add_argument("--skip-validator", action="store_true",
                     help="人工验收模式：review/p0-fix 完成后直接 writeback，跳过 validation/v-fix")
 
@@ -1377,6 +1349,11 @@ def _build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--run", required=True)
     pr.add_argument("--abort", action="store_true")
 
+    prep = sub.add_parser("report")
+    prep.add_argument("--run", required=True)
+    prep.add_argument("--group", type=int, default=None)
+    prep.add_argument("--out", default=None)
+
     return p
 
 
@@ -1388,6 +1365,7 @@ COMMANDS = {
     "writeback": cmd_writeback,
     "heartbeat": cmd_heartbeat,
     "resolve": cmd_resolve,
+    "report": cmd_report,
 }
 
 

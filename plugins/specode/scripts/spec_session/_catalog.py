@@ -60,16 +60,6 @@ CATALOG: dict[str, list[str]] = {
         r"\bEARS\b", r"\bSHALL\b", r"traceability", r"_需求：",
         r"模板.*文档", r"requirements?\.md", r"design\.md",
     ],
-    "task-swarm": [
-        r"task[- ]swarm", r"\breviewer\b", r"\bvalidator\b",
-        r"v[- ]?fix", r"p0[- ]?fix",
-        r"@writes", r"@depends[- ]on", r"@reads",
-        r"writeback", r"deadloop", r"task_swarm",
-    ],
-    "task-swarm-example": [
-        r"tasks\.md.*?示例", r"task-swarm.*?例子",
-        r"tasks\.md.*?例", r"task-swarm.*?demo",
-    ],
 }
 
 

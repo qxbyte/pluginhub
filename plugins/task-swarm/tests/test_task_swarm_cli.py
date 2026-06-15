@@ -251,23 +251,24 @@ def test_resolve_abort_sets_status(tmp_path, run_swarm):
     assert out["status"] == "aborted"
 
 
-def test_resolve_clears_session_task_swarm_run_id(tmp_path, run_swarm, monkeypatch):
+def test_init_resolve_never_touch_host_session(tmp_path, run_swarm, monkeypatch):
+    """0.10.x 解耦:task-swarm 不再读/写 ~/.specode/sessions/<id>.json。
+
+    --session 仅作为日志维度透传,init/resolve 都不得碰宿主 session 文件
+    （task_swarm_run_id 字段彻底移除）。"""
     monkeypatch.setenv("HOME", str(tmp_path / "_home"))
-    sessions_dir = tmp_path / "_home" / ".specode" / "sessions"
-    sessions_dir.mkdir(parents=True, exist_ok=True)
     sid = "test-sess-123"
-    sess_file = sessions_dir / f"{sid}.json"
-    sess_file.write_text(json.dumps({"session_id": sid, "mode": "active",
-                                     "task_swarm_run_id": None}), encoding="utf-8")
     p = _write_tasks_md(tmp_path, num_stages=1)
     init = json.loads(run_swarm("init", "--tasks", str(p), "--session", sid).stdout)
-    # 验证 init 写了 task_swarm_run_id
-    saved = json.loads(sess_file.read_text(encoding="utf-8"))
-    assert saved["task_swarm_run_id"] == init["run_id"]
-    # resolve 后应清空
+    # init 不应创建任何宿主 session 文件
+    sess_file = tmp_path / "_home" / ".specode" / "sessions" / f"{sid}.json"
+    assert not sess_file.exists()
+    # session_id 仍被记录进 state.json
+    state = json.loads((Path(init["run_dir"]) / "state.json").read_text(encoding="utf-8"))
+    assert state["session_id"] == sid
+    # resolve 同样不碰宿主 session
     run_swarm("resolve", "--run", init["run_id"])
-    saved2 = json.loads(sess_file.read_text(encoding="utf-8"))
-    assert saved2["task_swarm_run_id"] is None
+    assert not (tmp_path / "_home" / ".specode").exists()
 
 
 def test_v_fix_prompt_files_match_state_in_flight(tmp_path, run_swarm):
@@ -314,41 +315,22 @@ def test_v_fix_prompt_files_match_state_in_flight(tmp_path, run_swarm):
         )
 
 
-def test_coder_prompt_includes_project_root_from_spec_config(tmp_path, run_swarm):
-    """0.10.15+：spec_dir/.config.json.project_root 必须被 task-swarm prompt
-    渲染为 `## 项目根目录与路径规约` 段，明确告知 subagent 写到 project_root
-    不是 spec_dir。
-
-    note: 把 spec_dir 设为 tmp_path 本身（fixture monkeypatch.chdir 已切到 tmp_path），
-    这样 _find_run_dir 能从 cwd 同级找到 run_dir。
-    """
-    # spec_dir == tmp_path（cwd），让 init 自动推断 + plan 能定位 run_dir
+def test_coder_prompt_includes_project_root_from_flag(tmp_path, run_swarm):
     project_root = tmp_path / "my-app"
     project_root.mkdir()
-    (tmp_path / ".config.json").write_text(json.dumps({
-        "slug": "demo",
-        "phase": "tasks",
-        "project_root": str(project_root),
-    }), encoding="utf-8")
     tasks_md = tmp_path / "tasks.md"
     tasks_md.write_text(
         "## 阶段 1: 阶段 1\n"
         "- [ ] 1.1 任务 @writes:src/f1.py _需求：1.1_\n",
         encoding="utf-8",
     )
-
-    init = json.loads(run_swarm("init", "--tasks", str(tasks_md)).stdout)
-    run_dir = Path(init["run_dir"])
+    init = json.loads(run_swarm("init", "--tasks", str(tasks_md),
+                                "--workdir", str(tmp_path),
+                                "--project-root", str(project_root)).stdout)
     run_swarm("plan", "--run", init["run_id"])
-
-    coder_task_md = run_dir / "agents" / "coder-g1-s1-r1" / "task.md"
-    assert coder_task_md.exists(), f"coder task.md 不存在：{coder_task_md}"
-    content = coder_task_md.read_text(encoding="utf-8")
-    # project_root 出现在 context block + 路径规约段
-    assert str(project_root) in content
-    assert "项目根目录与路径规约" in content
-    assert "spec_dir" in content
-    assert "严禁" in content  # 禁止把代码写到 spec_dir
+    run_dir = Path(init["run_dir"])
+    task_md = next(run_dir.glob("agents/coder-*/task.md"))
+    assert str(project_root) in task_md.read_text(encoding="utf-8")
 
 
 def test_writeback_handles_multi_line_reproduce_cmd(tmp_path, run_swarm):
@@ -493,26 +475,3 @@ def test_skip_validator_writeback_writes_skipped_note(tmp_path, run_swarm):
     assert "人工验收模式" in tasks_after
     # 不应当出现 "✅ validator g1-rN pass"
     assert "✅ validator" not in tasks_after
-
-
-def test_coder_prompt_fallback_when_project_root_unset(tmp_path, run_swarm):
-    """老 spec 兼容：.config.json 没有 project_root → prompt 给出 fallback 文本，
-    不阻断流程（保持 0.10.14 及之前的行为）。"""
-    (tmp_path / ".config.json").write_text(json.dumps({
-        "slug": "legacy",
-        "phase": "tasks",
-        # project_root 字段缺失（模拟 pre-0.10.15 spec）
-    }), encoding="utf-8")
-    tasks_md = tmp_path / "tasks.md"
-    tasks_md.write_text(
-        "## 阶段 1: 阶段 1\n- [ ] 1.1 任务 @writes:src/f.py _需求：1.1_\n",
-        encoding="utf-8",
-    )
-    init = json.loads(run_swarm("init", "--tasks", str(tasks_md)).stdout)
-    run_dir = Path(init["run_dir"])
-    run_swarm("plan", "--run", init["run_id"])
-
-    coder_task_md = run_dir / "agents" / "coder-g1-s1-r1" / "task.md"
-    content = coder_task_md.read_text(encoding="utf-8")
-    # fallback 提示出现（未设置 project_root 时）
-    assert "未设置" in content

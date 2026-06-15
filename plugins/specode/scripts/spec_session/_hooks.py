@@ -1,8 +1,8 @@
-'''spec_session package 内部实现：所有 hook 子命令（hook_on_*）+ safe wrapper + task-swarm plan 提醒辅助。
+'''spec_session package 内部实现：所有 hook 子命令（hook_on_*）+ safe wrapper。
 
 hook 子命令仅由 hooks/hooks.json 调用；全部 exit 0、任何异常通过 @_safe_hook
-内部 catch（PreToolUse 对 task-swarm 受控路径与 tasks.md 的 exit 2 强阻断除外，
-见 hook_on_pre_tool_use）。
+内部 catch（PreToolUse 对 AskUserQuestion selector 参数 hallucinate 的 exit 2
+校验除外，见 hook_on_pre_tool_use）。
 
 不要直接运行本文件。stdlib-only。
 '''
@@ -183,7 +183,6 @@ def hook_on_session_start(args: argparse.Namespace) -> None:
             "spec_id": None,
             "phase": None,
             "lock_state": "released",
-            "task_swarm_run_id": None,
             "pending_selector": None,
         }
         try:
@@ -270,7 +269,7 @@ def hook_on_user_prompt(args: argparse.Namespace) -> None:
         elif flag == "sync-status":
             # v0.6 暂未实现 sync-status CLI；输出占位
             content = json.dumps({
-                "note": "sync-status 在 v0.6 尚未实现；将随 v0.7 task-swarm 引入。",
+                "note": "sync-status 暂未实现；占位输出。",
             }, ensure_ascii=False, indent=2)
         else:
             content = "(unknown vault fast-path)"
@@ -496,157 +495,6 @@ def hook_on_session_end(args: argparse.Namespace) -> None:
     # 不输出 additionalContext
 
 
-# ---- v0.7 on-task-completed（task-swarm 节点提醒） ----
-
-TASK_COMPLETED_TRAILER = "\n\n本提醒仅供参考；fork 谁、是否 fork、何时 writeback 仍由你判断；可忽略。"
-
-
-def _run_task_swarm_plan(run_id: str) -> Optional[dict]:
-    """调子进程 task_swarm.py plan --run <run_id>，解析 stdout JSON 返回 dict。
-
-    任何失败（exit != 0、JSON 解析失败、子进程异常）返回 None。
-    """
-    try:
-        proc = subprocess.run(
-            [sys.executable, str(_THIS_DIR / "task_swarm.py"), "plan", "--run", run_id],
-            capture_output=True, text=True, timeout=10,
-        )
-    except Exception:
-        return None
-    if proc.returncode != 0:
-        return None
-    out = (proc.stdout or "").strip()
-    if not out:
-        return None
-    try:
-        obj = json.loads(out)
-        if isinstance(obj, dict):
-            return obj
-    except Exception:
-        return None
-    return None
-
-
-def _format_plan_context(plan: dict) -> str:
-    """按 references/task-swarm.md §6 hook 提醒矩阵把 plan dict 渲染成 additionalContext 文本。"""
-    phase = str(plan.get("phase") or "?")
-    action = str(plan.get("action") or "")
-    group = plan.get("group")
-    rnd = plan.get("round")
-    in_flight = plan.get("in_flight") or []
-    fork = plan.get("fork") or []
-    msg = str(plan.get("message") or "")
-    n_fork = len(fork) if isinstance(fork, list) else 0
-    n_in_flight = len(in_flight) if isinstance(in_flight, list) else 0
-
-    # 选择具体建议文本（references/task-swarm.md §6 9 种状态）
-    if action == "deadloop" or phase == "error":
-        body = (
-            f"⚠️ 死循环检测：g{group} 已连续 3 轮同一 fail 签名。\n"
-            "建议停止本 group，向用户报告 `failed-deadloop`，让用户介入。"
-        )
-    elif action == "all-done" or phase == "done":
-        body = (
-            "全部 group 已完成。请按 SKILL.md 退出 task-swarm 模式，"
-            "回到 spec-mode acceptance phase。"
-        )
-    elif phase == "coding" and action == "coding-waiting":
-        body = (
-            f"coding phase 还在等 {n_in_flight} 个 subagent；"
-            "无需 fork 新 agent，等齐后再判断。"
-        )
-    elif phase == "coding" and action == "coding-fork":
-        body = (
-            f"本 group 开始 coding。请按下面 {n_fork} 个 coder agent_key fork"
-            "（同 message 内并发）。"
-        )
-    elif phase == "review" and action == "review-fork":
-        body = (
-            "本 group coder 已全部返回。请 fork **1 个** `task-swarm-reviewer`，"
-            "prompt 已生成。"
-        )
-    elif phase == "p0-fix" and action == "p0-fix-fork":
-        body = (
-            f"reviewer 提了带证据 P0。请按 P0 涉及文件 fork **{n_fork}** 个 "
-            "`task-swarm-coder`（p0-fix），prompt 已生成。\n"
-            "提醒：reviewer 修复**只触发一次**，不 re-review。"
-        )
-    elif phase == "p0-fix" and action == "p0-fix-waiting":
-        body = f"p0-fix 仍有 {n_in_flight} 个 coder 未返回，等齐后再判断。"
-    elif phase == "validation" and action == "validation-fork":
-        body = (
-            "reviewer 无带证据 P0（或全部降级为 advisory）。"
-            "请 fork **1 个** `task-swarm-validator`，prompt 已生成。"
-        )
-    elif phase == "validation" and action == "validation-fork-after-p0":
-        body = (
-            "p0-fix coder 已返回。请 fork **1 个** `task-swarm-validator`，"
-            "prompt 已生成。"
-        )
-    elif phase == "validation" and action == "validation-after-vfix":
-        body = (
-            "v-fix coder 已返回。请 fork **1 个** `task-swarm-validator` 验证。"
-        )
-    elif phase == "writeback" and action == "writeback":
-        body = (
-            "validator pass。请调 `task_swarm.py writeback "
-            f"--run <run_id> --group {group}` 回写 tasks.md，然后进入下一 group。"
-        )
-    elif phase == "v-fix" and action == "v-fix-fork":
-        body = (
-            f"validator fail。请按 validation.md 的 fix_targets 各文件 "
-            f"fork **{n_fork}** 个 `task-swarm-coder`（v-fix）。\n"
-            "注意：validator fail 循环修复直到 pass。"
-            f"本轮是 g{group}-r{rnd}。"
-        )
-    elif phase == "v-fix" and action == "v-fix-waiting":
-        body = f"v-fix 仍有 {n_in_flight} 个 coder 未返回，等齐后再判断。"
-    else:
-        body = msg or f"phase={phase} action={action}（详见 plan 输出）"
-
-    header = (
-        f"## task-swarm 节点提醒（phase={phase}, "
-        f"group={group if group is not None else '?'}, "
-        f"round={rnd if rnd is not None else '?'}）\n\n"
-    )
-    return header + body + TASK_COMPLETED_TRAILER
-
-
-@_safe_hook
-def hook_on_task_completed(args: argparse.Namespace) -> None:
-    payload = _read_stdin_payload()
-    session_id = (
-        payload.get("session_id")
-        or payload.get("sessionId")
-        or args.session_override
-    )
-    if not session_id:
-        return
-    sess = read_session(session_id)
-    if sess is None:
-        return
-    run_id = sess.get("task_swarm_run_id")
-    if not run_id:
-        return
-
-    plan = _run_task_swarm_plan(run_id)
-    if isinstance(plan, dict):
-        text = _format_plan_context(plan)
-    else:
-        # plan 调用失败 → 兜底文本
-        text = (
-            "## task-swarm 节点提醒\n\n"
-            f"无法自动获取 task-swarm run `{run_id}` 的下一步建议——"
-            "请手动调用：\n\n"
-            "```bash\n"
-            f"task_swarm.py plan --run {run_id}\n"
-            "```\n\n"
-            "拿到输出后再判断 fork 谁 / 是否 writeback。"
-            + TASK_COMPLETED_TRAILER
-        )
-    _emit_hook_additional_context(text, hook_event_name="PostToolUse")
-
-
 # ---- v0.8 on-heartbeat-quiet（静默续锁） ----
 
 @_safe_hook
@@ -693,39 +541,7 @@ def hook_on_heartbeat_quiet(args: argparse.Namespace) -> None:
     # 不输出 additionalContext
 
 
-# ---- v0.8 on-pre-tool-use（tasks.md 直写提醒 + task-swarm 受控路径阻断） ----
-
-def _task_swarm_protected_reason(spec_dir: Path, edited: Path) -> Optional[str]:
-    """若 edited 落在 task-swarm 管理路径下（state.json / agent task.md /
-    agent outbox/*），返回简短的拒绝标签；否则返回 None。
-
-    阻断动机：这些文件是 task_swarm.py advance/writeback 的内部状态与产物。
-    主代理直接 Edit 会破坏状态机契约（典型事故：state in_flight 与磁盘
-    agent 目录的 round 号对不上时，手工抹平 state.json 反而越改越乱）。
-    所有变更必须通过 task_swarm.py CLI 走。
-    """
-    try:
-        ts_root = (spec_dir / ".task-swarm" / "runs").resolve()
-    except Exception:
-        return None
-    try:
-        rel = edited.relative_to(ts_root)
-    except ValueError:
-        return None
-    parts = rel.parts
-    if len(parts) < 2:
-        return None
-    # parts[0] = <run_id>
-    if parts[1] == "state.json":
-        return "state.json"
-    if parts[1] == "agents" and len(parts) >= 4:
-        # parts[2] = <agent_key>
-        if parts[3] == "task.md":
-            return "agent task.md"
-        if parts[3] == "outbox":
-            return "agent outbox"
-    return None
-
+# ---- v0.8 on-pre-tool-use（模板章节大纲注入） ----
 
 @_safe_hook
 def hook_on_pre_tool_use(args: argparse.Namespace) -> None:
@@ -788,71 +604,7 @@ def hook_on_pre_tool_use(args: argparse.Namespace) -> None:
         return
     spec_dir = Path(spec_dir_str)
 
-    # --- 1. task-swarm 强阻断：仅当 task-swarm run 进行中触发 ---
-    run_id = sess.get("task_swarm_run_id")
-    if run_id:
-        # 强阻断：task-swarm 受控路径（state.json / agent task.md / agent outbox/*）
-        protected = _task_swarm_protected_reason(spec_dir, edited)
-        if protected:
-            if protected == "state.json":
-                target_hint = "task_swarm.py advance --run <run> --phase <phase>"
-                why = (
-                    "`state.json` 是 task_swarm.py 状态机的唯一事实来源。手工 Edit 会让\n"
-                    "in_flight / done / phase / round 与磁盘 agent 目录脱节（已知事故：\n"
-                    "state 是 r2、磁盘是 r3 时，手工把 r2 改成 r3 抹平差异 → 再 advance\n"
-                    "时状态机走错分支 → validator/coder 名字越漂越远）。"
-                )
-            elif protected == "agent task.md":
-                target_hint = "task_swarm.py advance（让状态机重新 render prompt）"
-                why = (
-                    "`agents/<key>/task.md` 是 task_swarm.py 为 subagent 生成的 prompt。\n"
-                    "主代理改它不会让 subagent 重新读——只会让产物与意图脱节。"
-                )
-            else:  # agent outbox
-                target_hint = "重新 fork 对应 subagent 让它输出合规产物"
-                why = (
-                    "`agents/<key>/outbox/*` 是 subagent 的产物。主代理手工补 STATUS / 改\n"
-                    "result.md 等同于伪造 subagent 工作，advance 解析时看似 ok，但实际\n"
-                    "代码未改。请重新 fork subagent 或汇报 task_swarm.py 解析 bug。"
-                )
-            reason = (
-                f"specode 阻断：主代理不得直接 Edit/Write task-swarm 受控路径"
-                f"（{protected}）。\n\n"
-                f"文件: {edited}\n"
-                f"run_id: {run_id}\n\n"
-                f"{why}\n\n"
-                f"正确路径: {target_hint}\n"
-            )
-            sys.stderr.write(reason)
-            sys.exit(2)
-
-        # 0.10.21+：tasks.md 直写从软提醒升级为强阻断
-        # 理由：login-page 现场显示主代理见 writeback 越界报错就手工 Edit tasks.md
-        # 把 `[ ]` 改成 `[x]`，破坏了 state.json 与 tasks.md 行号一致性，后续
-        # writeback 永远过不去。跟 state.json / outbox 同等待遇——只能走 CLI。
-        try:
-            tasks_md = (spec_dir / "tasks.md").resolve()
-        except Exception:
-            tasks_md = None
-        if tasks_md is not None and edited == tasks_md:
-            reason = (
-                f"specode 阻断：主代理不得直接 Edit/Write `tasks.md`\n\n"
-                f"文件: {edited}\n"
-                f"run_id: {run_id}\n\n"
-                "`tasks.md` 在 task-swarm run 进行中是受控产物——所有 checkbox toggle "
-                "（`[ ]` → `[x]`）和评审注释块都必须通过 `task_swarm.py writeback` CLI 走，\n"
-                "走 line-safe diff 算法保证 state.json 行号引用不被破坏。\n\n"
-                "已知反模式：见 writeback 越界报错就手工改 tasks.md → state.json 行号失效 → 后续\n"
-                "writeback 永远过不去 → 主代理陷入死循环（参 0.10.13 user-login / 0.10.21 login-page 事故）。\n\n"
-                "正确路径: task_swarm.py writeback --run <run_id> --group <N>\n"
-                "若 writeback 本身报越界，请保留现场报告用户，让 task-swarm 算法层修，**不要**\n"
-                "手工抹平。\n"
-            )
-            sys.stderr.write(reason)
-            sys.exit(2)
-
-    # --- 2. 模板章节大纲注入：Write 4 份核心文档时前置提醒（0.10.26+） ---
-    # 与 task-swarm 阻断独立；requirements/design phase 没有 run_id 时这里仍会触发。
+    # --- 模板章节大纲注入：Write 4 份核心文档时前置提醒（0.10.26+） ---
     # 仅 Write（不含 Edit/MultiEdit）—— Edit 类工具的章节漂移由 B 层 spec_lint 后置兜底。
     if tool_name != "Write":
         return

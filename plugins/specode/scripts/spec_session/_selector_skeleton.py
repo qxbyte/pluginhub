@@ -201,7 +201,7 @@ def validate_ask_user_question_input(
 SELECTOR_OUTLINES: dict[str, dict] = {
     "project-root-choice": {
         "kind": "fixed",
-        "question": "代码写到哪个目录？project_root 决定 task-swarm subagent 的 cwd",
+        "question": "代码写到哪个目录？project_root 决定 coder / 实现 agent 的 cwd",
         "header": "项目目录",
         "multi_select": False,
         "labels": [
@@ -277,8 +277,7 @@ SELECTOR_OUTLINES: dict[str, dict] = {
         "header": "执行方式",
         "multi_select": False,
         "labels": [
-            "task-swarm + validator 自动验收（推荐）",
-            "task-swarm + 人工验收（跳过 validator）",
+            "用 task-swarm plugin 执行（独立）",
             "顺序执行（同时处理 optional）",
             "暂停 / 调整 tasks.md",
         ],
