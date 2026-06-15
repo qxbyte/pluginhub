@@ -117,6 +117,128 @@ class GroupState:
         """给 _schedule.compute_schedule 的精简视图。"""
         return {"id": self.id, "needs": self.needs, "writes": self.writes, "status": self.status}
 
+    # ---- phase 推进（从 StateMachine 顶层下沉，逐组实例化；事件由 cli 层 append）----
+
+    def begin_coding(self) -> None:
+        self.phase = "coding"
+        self.round = 1
+        self.coder_in_flight = [f"coder-{self.id}-s{it['number']}-r1" for it in self.items]
+        self.coder_done = []
+        self.reviewer_done = False
+        self.p0_in_flight = []
+        self.p0_done = []
+        self.validator_in_flight = False
+        self.vfix_in_flight = []
+        self.vfix_done = []
+        self.findings = []
+        self.p0_pending = []
+        self.fix_targets = []
+        self.validator_history = []
+        self.fail_signature = ""
+        self.status = "coding"
+
+    def mark_coder_done(self, agent_key: str) -> None:
+        if agent_key in self.coder_in_flight:
+            self.coder_in_flight.remove(agent_key)
+        if agent_key not in self.coder_done:
+            self.coder_done.append(agent_key)
+
+    def all_coders_returned(self) -> bool:
+        return not self.coder_in_flight
+
+    def begin_review(self) -> None:
+        self.phase = "review"
+        self.reviewer_done = False
+        self.status = "review"
+
+    def mark_reviewer_done(self) -> None:
+        self.reviewer_done = True
+
+    def begin_p0_fix(self, p0_pending: list[dict]) -> list[str]:
+        self.phase = "p0-fix"
+        self.round = 1
+        self.p0_pending = list(p0_pending)
+        files: list[str] = []
+        for p in p0_pending:
+            f = (p.get("file_hint") or "unknown").strip()
+            if f not in files:
+                files.append(f)
+        self.p0_in_flight = [f"coder-p0fix-{self.id}-r1-f{i}" for i in range(len(files))]
+        self.p0_done = []
+        self.status = "p0-fix"
+        return files
+
+    def mark_p0_done(self, agent_key: str) -> None:
+        if agent_key in self.p0_in_flight:
+            self.p0_in_flight.remove(agent_key)
+        if agent_key not in self.p0_done:
+            self.p0_done.append(agent_key)
+
+    def all_p0_returned(self) -> bool:
+        return not self.p0_in_flight
+
+    def begin_validation(self) -> None:
+        self.phase = "validation"
+        self.validator_in_flight = True
+        self.status = "validation"
+
+    def mark_validator_done(self) -> None:
+        self.validator_in_flight = False
+
+    def record_round_signature(self, fail_sig: str) -> None:
+        self.validator_history.append({
+            "group": self.id,
+            "round": self.round,
+            "verdict": "fail" if fail_sig else "pass",
+            "signature": fail_sig,
+            "at": _now_iso(),
+        })
+        self.fail_signature = fail_sig
+
+    def detect_deadloop(self) -> bool:
+        sigs = [h["signature"] for h in self.validator_history
+                if h.get("verdict") == "fail" and h.get("signature")]
+        if len(sigs) < DEADLOOP_THRESHOLD:
+            return False
+        return all(s == sigs[-1] for s in sigs[-DEADLOOP_THRESHOLD:])
+
+    def begin_v_fix(self, fix_targets: list[dict]) -> list[str]:
+        self.phase = "v-fix"
+        self.round += 1
+        files: list[str] = []
+        for t in fix_targets:
+            f = (t.get("file_path") or "unknown").strip()
+            if f and f not in files:
+                files.append(f)
+        if not files:
+            files = ["unknown"]
+        self.fix_targets = list(fix_targets)
+        self.vfix_in_flight = [f"coder-vfix-{self.id}-r{self.round}-f{i}" for i in range(len(files))]
+        self.vfix_done = []
+        self.status = "v-fix"
+        return files
+
+    def mark_vfix_done(self, agent_key: str) -> None:
+        if agent_key in self.vfix_in_flight:
+            self.vfix_in_flight.remove(agent_key)
+        if agent_key not in self.vfix_done:
+            self.vfix_done.append(agent_key)
+
+    def all_vfix_returned(self) -> bool:
+        return not self.vfix_in_flight
+
+    def begin_writeback(self) -> None:
+        self.phase = "writeback"
+        self.status = "writeback"
+
+    def finalize(self, status: str = "done") -> None:
+        self.status = status
+        self.phase = "done"
+
+    def fail_deadloop(self) -> None:
+        self.status = "failed-deadloop"
+        self.phase = "error"
+
 
 # Phase 枚举（同 references/task-swarm.md §3）
 PHASES = {
