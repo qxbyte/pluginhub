@@ -1145,6 +1145,16 @@ def cmd_writeback(args: argparse.Namespace) -> int:
     if gi != sm.current_group_index and sm.group_status[gi] not in ("done",):
         sys.stderr.write(f"--group {args.group} 不是当前 group（current={sm.current_group_index + 1}）\n")
         return 1
+    # yml 路径：writeback 退化为 finalize_group（不碰 markdown）
+    if sm.pipeline_path:
+        final_verdict = "failed-deadloop" if sm.group_status[gi] == "failed-deadloop" else "pass"
+        sm.events_append({"type": "writeback", "group": gi + 1, "pipeline": True})
+        if gi == sm.current_group_index:
+            sm.finalize_group("done" if final_verdict == "pass" else "failed")
+        sm.save()
+        _emit({"ok": True, "group": gi + 1, "finalized": True, "pipeline": True, "verdict": final_verdict})
+        return 0
+    # ---- markdown 路径（legacy）：原 line-safe writeback，保持不动 ----
     # 组装 findings
     stages = sm.groups[gi]
     stage_numbers = [s.number for s in stages]
