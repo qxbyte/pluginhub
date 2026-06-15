@@ -6,7 +6,7 @@ description: Use when 准备调 AskUserQuestion 呈现 phase-gate selector，或
 
 每个 phase-gate 节点必须**调用宿主内置 `AskUserQuestion` 工具**呈现选择器；工具自身渲染 chip-tabs / 选项列表 / 上下键导航 / 回车提交 / ESC 取消 / "Other" 自定义输入 UI。模型只负责传参，**绝不**自己输出 markdown 列表让用户回复编号。
 
-本文件给出 8 个固定场景的**类型骨架 + 总览索引**；完整模板文本是 `spec_session/_selectors.py` 的 `SELECTOR_PROMPTS` 字典字面量（按 key 查找）。`doc-confirm-tasks` 已合并进 `tasks-execution`（见总览表 §A4 行）。
+本文件给出 8 个固定场景的**类型骨架 + 总览索引**；完整模板文本是 `spec_session/_selectors.py` 的 `SELECTOR_PROMPTS` 字典字面量（按 key 查找）。M4 起 `tasks`/`implementation` 阶段合并为 `delegated`，原 `tasks-execution` selector 改为 `delegation`（委托 task-swarm / specode 自执行 / 调整 design）。
 
 ---
 
@@ -87,7 +87,7 @@ drift 和歧义。
 | §A3 | `doc-confirm-requirements` | A | requirements.md 生成后 | 需求确认 | L187 |
 | §A3 | `doc-confirm-bugfix` | A | bugfix.md 生成后 | 缺陷确认 | L222 |
 | §A3 | `doc-confirm-design` | A | design.md 生成后 | 设计确认 | L257 |
-| §A4 | `tasks-execution` | A | tasks.md 生成后（含调整回退） | 执行方式 | L292 |
+| §A4 | `delegation` | A | design 完成后（委托执行选择） | 执行方式 | L292 |
 | §A5 | `takeover-options` | A | `/specode:continue` LockHeld | 接管选项 | L332 |
 | §A6 | `acceptance-gate` | A | acceptance 完成 | 验收门 | L365 |
 | §B1 | `clarification-wizard` | B | intake，写需求前 | 需求澄清 wizard | L107 |
@@ -127,7 +127,7 @@ string，markdown 语法直接渲染可读。运行时 hook 命中 `pending_sele
 
 | kind | selector keys | 比对策略 |
 |---|---|---|
-| **fixed**（10 个）| `project-root-choice`, `workflow-choice`, `clarification-done`, `doc-confirm-{requirements,bugfix,design}`, `tasks-execution`, `takeover-options`, `acceptance-gate`, `iteration-scope` | `labels` 集合相等比对 + `multiSelect` 比对 |
+| **fixed**（10 个）| `project-root-choice`, `workflow-choice`, `clarification-done`, `doc-confirm-{requirements,bugfix,design}`, `delegation`, `takeover-options`, `acceptance-gate`, `iteration-scope` | `labels` 集合相等比对 + `multiSelect` 比对 |
 | **dynamic**（1 个）| `clarification-wizard` | 仅结构：`questions` 数组 2-4 个 / 每个 `multiSelect=false` / 每个 `options ≥ 2`；labels 内容由主代理生成 |
 
 ### 反例：用户血淋淋的现场（0.10.26 已发版后）

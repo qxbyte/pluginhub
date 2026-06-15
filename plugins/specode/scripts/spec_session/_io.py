@@ -29,8 +29,7 @@ VALID_PHASES = {
     "requirements",
     "bugfix",
     "design",
-    "tasks",
-    "implementation",
+    "delegated",
     "acceptance",
     "iteration",
 }
@@ -122,6 +121,11 @@ def read_session(session_id: str) -> Optional[dict]:
             # 兼容老 sessions/<id>.json：字段名曾叫 claude_session_id，迁移到 session_id
             if "session_id" not in data and "claude_session_id" in data:
                 data["session_id"] = data["claude_session_id"]
+            # M4：tasks/implementation 阶段合并为 delegated（读端回退迁移）
+            if data.get("phase") in ("tasks", "implementation"):
+                data["phase"] = "delegated"
+            if data.get("pending_selector") == "tasks-execution":
+                data["pending_selector"] = "delegation"
             return data
     except Exception:
         return None

@@ -51,6 +51,8 @@ def _update_session_for_spec(session_id: str, spec_dir: Path, cfg: dict,
         "phase": cfg.get("phase"),
         "lock_state": lock_state,
         "pending_selector": pending,
+        # M4：design 完成后委托 task-swarm 执行时记录其 run_id；常规更新沿用已有值。
+        "delegated_run_id": existing.get("delegated_run_id"),
     }
     return payload
 
@@ -262,13 +264,11 @@ def _auto_pending_selector(phase: str, cfg: dict) -> Optional[str]:
         return "doc-confirm-bugfix"
     if phase == "design":
         return "doc-confirm-design"
-    if phase == "tasks":
-        return "tasks-execution"
-    if phase == "implementation":
-        return None
+    if phase == "delegated":
+        return "delegation"
     if phase == "acceptance":
         return "acceptance-gate"
-    # phase == "iteration" / "implementation" / 其它：不自动注入 selector。
+    # phase == "iteration" / 其它：不自动注入 selector。
     # iteration 是已交付常驻态，停在 chat 等用户显式提出下一轮调整意图后，
     # 主代理判断到调整范围明确时再主动呈现 iteration-scope。
     return None

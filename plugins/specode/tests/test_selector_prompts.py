@@ -157,16 +157,16 @@ def test_doc_confirm_design_snapshot(run_script, fake_home, selector_setup):
     assert "继续沟通" in ctx
 
 
-def test_tasks_execution_snapshot(run_script, fake_home, selector_setup):
-    """M1b：tasks-execution 3 选项（独立 task-swarm plugin / 顺序执行 / 暂停）。"""
-    sid = selector_setup("tasks-execution", phase="tasks")
+def test_delegation_snapshot(run_script, fake_home, selector_setup):
+    """M4：delegation 3 选项（委托 task-swarm / specode 自执行 / 调整 design）。"""
+    sid = selector_setup("delegation", phase="delegated")
     ctx = _fetch_ctx(run_script, fake_home, sid)
-    assert "任务执行选择" in ctx
-    # 独立 task-swarm plugin 选项
-    assert "用 task-swarm plugin 执行（独立）" in ctx
-    # 顺序执行 + 暂停/调整保留
-    assert "顺序执行（同时处理 optional）" in ctx
-    assert "暂停 / 调整 tasks.md" in ctx
+    assert "委托执行选择" in ctx
+    # 委托 task-swarm 选项
+    assert "委托 task-swarm 执行（多 agent 并发）" in ctx
+    # specode 自执行降级 + 调整 design 保留
+    assert "specode 自执行（顺序，单 agent）" in ctx
+    assert "暂停 / 调整 design" in ctx
 
 
 def test_takeover_options_snapshot(run_script, fake_home, selector_setup):
