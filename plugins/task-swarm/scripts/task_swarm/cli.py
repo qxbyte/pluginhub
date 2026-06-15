@@ -3,24 +3,27 @@
 由 `scripts/task_swarm.py` launcher 调用（launcher 负责 sys.path 注入）。
 实现拆到同包内：
 
-    _state.py     phase 状态机 + state.json 单一事实源 + 死循环检测
-    _parse_md.py  tasks.md 解析 + 按文件冲突切 group
-    _outbox.py    coder/reviewer/validator 三类产物 schema 校验
-    _prompt.py    各 subagent 角色的 prompt 渲染
-    _writeback.py tasks.md line-safe diff 写回
+    _state.py      per-group 子状态机 + state.json 单一事实源 + 死循环检测
+    _pipeline.py   pipeline.yml schema 校验 + 组级调度状态映射
+    _schedule.py   needs 拓扑 + writes 不相交并发调度
+    _outbox.py     coder/reviewer/validator 三类产物 schema 校验
+    _prompt.py     各 subagent 角色的 prompt 渲染
+    _writeback.py  本组 finalize
 
 子命令：
-    init      --tasks <abs> [--workdir <dir>] [--project-root <dir>] [--spec-id <id>]
+    init      --pipeline <abs> [--workdir <dir>] [--project-root <dir>] [--spec-id <id>]
               [--max-parallel N] [--max-rounds N] [--session <id>] [--skip-validator]
+              [--serial-validation]
     status    --run <run_id>
     plan      --run <run_id>
-    advance   --run <run_id> --phase <coding|review|p0-fix|validation|v-fix> --round <n>
-    writeback --run <run_id> --group <N>
+    advance   --run <run_id> --group <gid> --phase <coding|review|p0-fix|validation|v-fix> [--round <n>]
+    writeback --run <run_id> --group <gid>
     heartbeat --run <run_id>
     resolve   --run <run_id> [--abort]
 
-主代理通过 plan→fork→advance 循环驱动；本脚本只负责"确定性查询 / 状态推进 /
-outbox 解析 / tasks.md line-safe diff 写回"。
+主代理通过 plan→fork→advance 循环驱动：plan 给出多组并发调度，主代理同 message
+fork 多组 coder（总并发受 max_parallel），各组等齐后 `advance --group <gid>`。
+本脚本只负责"确定性查询 / 状态推进 / outbox 解析"。
 
 stdlib-only。
 """
@@ -231,7 +234,7 @@ PLAN_TEMPLATES = {
     "p0-fix-fork": "reviewer 提了 {n} 个带证据 P0。请按 P0 涉及文件 fork **{n}** 个 `task-swarm-coder`（p0-fix）。注意：reviewer 修复**只触发一次**，不 re-review。",
     "validation-fork": "请 fork **1 个** `task-swarm-validator`。",
     "validation-fork-after-p0": "p0-fix coder 已返回。请 fork **1 个** `task-swarm-validator`。",
-    "writeback": "validator pass。请调 `task_swarm.py writeback --run {run} --group {g}` 回写 tasks.md，然后进入下一 group。",
+    "writeback": "validator pass。请调 `task_swarm.py writeback --run {run} --group {g}` finalize 本组，下游组 needs 满足后解锁。",
     "v-fix-fork": "validator fail。请按 validation.md 的 fix_targets 各文件 fork **{n}** 个 `task-swarm-coder`（v-fix）。注意：validator fail 循环修复直到 pass。本轮是 {g}-r{r}。",
     "validation-after-vfix": "v-fix coder 已返回。请 fork **1 个** `task-swarm-validator` 验证。",
     "deadloop": "⚠️ 死循环检测：{g} 已连续 3 轮同一 fail 签名。建议停止本 group，向用户报告 `failed-deadloop`，让用户介入。",
