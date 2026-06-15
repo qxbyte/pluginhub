@@ -115,6 +115,25 @@ session 已 ended（`/specode:end` 调用成功）。
 """
 
 
+DELEGATION_FOOTER_LINE = (
+    "⏳ 委托 task-swarm 执行中（run <run_short>）；"
+    "驱动其 plan/advance，resolve 后 `phase-transition --to acceptance`"
+)
+
+DELEGATION_STOP_REMINDER = """## ⏳ 委托 task-swarm 进行中（turn 结束侧）
+
+active spec：<slug>（phase=delegated，run <run_short>）
+
+委托 run 尚未收口。本 turn 结束前请自检：按 task-swarm SKILL 驱动该 run 到
+**resolve（status=done）**，然后：
+
+  1. `set-delegated-run --clear`（清空 session.delegated_run_id）
+  2. `phase-transition --from delegated --to acceptance`（回到验收阶段）
+
+在 run resolve 之前，不要 `/specode:end`，也不要把 spec 当作已完成。
+"""
+
+
 # -------------------------------------------------------------------------
 # 帮助 fast-path 文本（hook emit verbatim）
 # -------------------------------------------------------------------------

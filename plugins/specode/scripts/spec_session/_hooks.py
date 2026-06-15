@@ -29,6 +29,8 @@ from spec_session._io import (
 )
 from spec_session._reminders import (
     CODE_DOC_SYNC_STOP,
+    DELEGATION_FOOTER_LINE,
+    DELEGATION_STOP_REMINDER,
     DOC_PRIORITY_REMINDER_ACTIVE,
     DOC_PRIORITY_REMINDER_READONLY,
     SPEC_MODE_CONTINUE_REMINDER,
@@ -407,6 +409,15 @@ def hook_on_user_prompt(args: argparse.Namespace) -> None:
         )
         parts.append(footer)
 
+    # (d2) 委托态提示（M4）：phase=delegated 且 delegated_run_id 非空时
+    #      追加一行委托 run 指引（run 短 id 前 8 位；空 run id 不输出，避免噪音）。
+    if mode == "active" and phase == "delegated":
+        run_id = sess.get("delegated_run_id")
+        if run_id:
+            parts.append(
+                DELEGATION_FOOTER_LINE.replace("<run_short>", _session_short(run_id))
+            )
+
     # (e) 模式提醒
     if mode == "active":
         parts.append(
@@ -453,6 +464,15 @@ def hook_on_stop(args: argparse.Namespace) -> None:
             CODE_DOC_SYNC_STOP.replace("<slug>", slug).replace("<phase>", phase),
             SPEC_MODE_CONTINUE_REMINDER.replace("<slug>", slug).replace("<phase>", phase),
         ]
+        # M4：委托态收口提醒（phase=delegated 且 delegated_run_id 非空）。
+        if phase == "delegated":
+            run_id = sess.get("delegated_run_id")
+            if run_id:
+                text_parts.append(
+                    DELEGATION_STOP_REMINDER
+                    .replace("<slug>", slug)
+                    .replace("<run_short>", _session_short(run_id))
+                )
     else:
         text_parts = [
             SPEC_MODE_READONLY_REMINDER.replace("<slug>", slug).replace("<phase>", phase),
