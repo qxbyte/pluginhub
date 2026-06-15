@@ -16,6 +16,26 @@ task-swarm 多 agent 编排不再内置于 specode，迁出为同一 marketplace
 
 无持久 schema 破坏：`task_swarm_run_id` 是仅在 task-swarm 运行期写入的可选字段，移除后读侧不再引用，旧 session 文件照常加载。
 
+## 0.10.29 (2026-06-03)
+
+### Improved -- SessionStart startup 输出排版优化
+
+SessionStart hook 的 `systemMessage` 输出从括号注释格式改为结构化列表，提升可读性：
+
+- 标题加 8 字符 session_id 前缀，一眼辨识
+- session_id / mode / 调用方式改为列表项
+- 命令提示改为 `可用命令：` + 列表
+
+内容不变（完整 session_id、mode、spec、操作提示均保留），仅排版调整。
+
+## 0.10.28 (2026-06-03)
+
+### Fixed -- Stop/SessionStart hook Claude Code schema 校验失败
+
+Claude Code 的 `hookSpecificOutput` schema 只支持 `PreToolUse` / `UserPromptSubmit` / `PostToolUse` / `PostToolBatch` 四种事件类型，`Stop` 和 `SessionStart` hook 输出 `hookSpecificOutput` + `additionalContext` 时 JSON schema 校验失败（`Invalid input`）。
+
+**修复**：`_emit_hook_additional_context` 对 `Stop` / `SessionStart` 同时输出顶层 `systemMessage`（Claude Code 读取）和 `hookSpecificOutput`（CodeBuddy 读取），双宿主各取所需。
+
 ## 0.10.27 (2026-05-30)
 
 ### Added -- selector 参数硬约束三处（A 层 SKILL 铁律 + C 层 PreToolUse 阻断 + UserPromptSubmit cheat sheet 前置）

@@ -81,7 +81,7 @@ def test_on_session_start_additional_context_contains_session_id(
                     stdin=json.dumps({"session_id": sid}))
     payload = _parse_hook(cp.stdout)
     ctx = _ctx(payload)
-    assert sid in ctx
+    assert sid in ctx  # session_id 完整注入供 CLI 调用
     assert "Specode session" in ctx
 
 

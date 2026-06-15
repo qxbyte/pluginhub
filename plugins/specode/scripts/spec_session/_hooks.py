@@ -89,13 +89,24 @@ def _read_stdin_payload() -> dict:
 
 
 def _emit_hook_additional_context(text: str, hook_event_name: str = "UserPromptSubmit") -> None:
-    """按宿主 hook 协议 emit additionalContext JSON。"""
+    """按宿主 hook 协议 emit additionalContext JSON。
+
+    Claude Code 的 hookSpecificOutput 只支持 PreToolUse / UserPromptSubmit /
+    PostToolUse / PostToolBatch 四种事件类型；Stop / SessionStart 需要用顶层
+    systemMessage 字段注入上下文。CodeBuddy 对 hookSpecificOutput 校验更宽松，
+    接受任意 hookEventName。为兼容双宿主，对不被 Claude Code hookSpecificOutput
+    schema 覆盖的事件类型同时输出 systemMessage（Claude Code 读）和
+    hookSpecificOutput（CodeBuddy 读）。
+    """
+    _UNSUPPORTED_EVENTS = {"Stop", "SessionStart"}
     payload = {
         "hookSpecificOutput": {
             "hookEventName": hook_event_name,
             "additionalContext": text,
         }
     }
+    if hook_event_name in _UNSUPPORTED_EVENTS:
+        payload["systemMessage"] = text
     sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
@@ -192,17 +203,19 @@ def hook_on_session_start(args: argparse.Namespace) -> None:
 
     mode = existing.get("mode") or "idle"
     slug = existing.get("active_spec_slug") or "无"
+    short_id = _session_short(session_id)
     text = (
-        "## Specode session 就绪\n\n"
-        f"当前会话 session_id: {session_id}\n"
-        f"后续调用 specode CLI 时请始终用 `--session {session_id}` 传入。\n\n"
-        f"（此 session 当前 mode={mode}，spec={slug}；\n"
-        "  如需开始新 spec，使用 `/specode:spec <需求>`；\n"
-        "  如需恢复，使用 `/specode:continue [slug]`。）\n"
+        f"## Specode session 就绪 ({short_id})\n\n"
+        f"- session_id: `{session_id}`\n"
+        f"- mode: {mode} | spec: {slug}\n"
+        f"- 调用 specode CLI 时请始终用 `--session {session_id}` 传入\n\n"
+        "可用命令：\n"
+        "  - `/specode:spec <需求>` — 开始新 spec\n"
+        "  - `/specode:continue [slug]` — 恢复已有 spec\n"
     )
     if mode == "active" and existing.get("active_spec_slug"):
         text += "\n"
-        text += SPEC_MODE_CONTINUE_REMINDER.replace("<slug>", existing.get("active_spec_slug") or "?").replace("<phase>", existing.get("phase") or "?")
+        text += SPEC_MODE_CONTINUE_REMINDER.replace("<slug>", slug).replace("<phase>", existing.get("phase") or "?")
 
     _emit_hook_additional_context(text, hook_event_name="SessionStart")
 
