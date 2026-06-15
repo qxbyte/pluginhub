@@ -302,7 +302,7 @@ PLAN_TEMPLATES = {
     "v-fix-fork": "validator fail。请按 validation.md 的 fix_targets 各文件 fork **{n}** 个 `task-swarm-coder`（v-fix）。注意：validator fail 循环修复直到 pass。本轮是 g{g}-r{r}。",
     "validation-after-vfix": "v-fix coder 已返回。请 fork **1 个** `task-swarm-validator` 验证。",
     "deadloop": "⚠️ 死循环检测：g{g} 已连续 3 轮同一 fail 签名。建议停止本 group，向用户报告 `failed-deadloop`，让用户介入。",
-    "all-done": "全部 group 已完成。请按 SKILL.md 退出 task-swarm 模式，回到 spec-mode acceptance phase。",
+    "all-done": "全部 group 已完成。请调 `task_swarm.py resolve` 收尾，再 `report` 出报告。",
 }
 
 
@@ -1226,10 +1226,10 @@ def cmd_writeback(args: argparse.Namespace) -> int:
 # -------------------------------------------------------------------------
 
 def cmd_heartbeat(args: argparse.Namespace) -> int:
-    """透传给 spec_session.py heartbeat 保活 spec 锁。
+    """刷新 state.json.last_activity_at（长流程保活，状态层）。
 
-    本命令本身仅刷新 state.json.last_activity_at；spec 锁刷新由调用方主代理
-    单独再调 spec_session.py heartbeat 完成（保持 task_swarm/spec_session 互不 import）。
+    task-swarm 独立运行，无 spec 锁概念；本命令只更新 last_activity_at，
+    供后续监控/超时里程碑使用。
     """
     try:
         run_dir = _find_run_dir(args.run)
@@ -1244,8 +1244,7 @@ def cmd_heartbeat(args: argparse.Namespace) -> int:
         "run_id": sm.run_id,
         "spec_dir": sm.spec_dir,
         "session_id": sm.session_id,
-        "hint": ("如需保活 spec 锁，请额外调用 spec_session.py heartbeat "
-                 "--spec <dir> --session <id>"),
+        "hint": "已刷新 last_activity_at。",
     })
     return 0
 
