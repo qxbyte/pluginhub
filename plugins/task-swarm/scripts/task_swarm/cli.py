@@ -1279,8 +1279,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("init")
-    pi.add_argument("--tasks", required=False, default=None)
-    pi.add_argument("--pipeline", default=None, help="pipeline.yml 路径(与 --tasks 二选一)")
+    pi.add_argument("--tasks", required=False, default=None,
+                    help="legacy markdown tasks.md 路径(已软废弃;推荐 --pipeline)")
+    pi.add_argument("--pipeline", default=None,
+                    help="pipeline.yml 路径(主编排格式;与 --tasks 二选一)")
     pi.add_argument("--max-parallel", type=int, default=4)
     pi.add_argument("--max-rounds", type=int, default=6)
     pi.add_argument("--session", default=None)

@@ -9,6 +9,7 @@ argument-hint: "[<spec-dir>/tasks.md] [--max-parallel N] [--max-rounds N]"
 
 本文件**只列**入口路由 + 关键禁止项。所有实操细节都在 `references/task-swarm.md`：
 
+- pipeline.yml 编排格式（主输入格式）→ `references/pipeline-yaml.md`
 - §1 角色 / 并发度
 - §2 文件冲突 / group 切分（`@writes` 不相交 + `@depends-on` 拓扑）
 - §3 Phase 状态机（reviewer / p0-fix / validator / v-fix 转换规则）
@@ -55,7 +56,16 @@ sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
 
 ## 第二步：init
 
-校验通过后用 step 1 拿到的 `active_spec_dir`：
+校验通过后用 step 1 拿到的 `active_spec_dir`。**主输入格式是 pipeline.yml**（`--pipeline`，编排主格式，schema 见 `references/pipeline-yaml.md`）：
+
+```sh
+sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
+   "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/task_swarm.py" \
+   init --pipeline "<pipeline.yml 绝对路径>" --workdir "<项目根>" \
+   [--project-root "<代码根>"] [--spec-id <id>] [--session <id>] [--skip-validator]
+```
+
+legacy markdown 路径（`--tasks <tasks.md>`，**已软废弃**，仍受支持；二者二选一）：
 
 ```sh
 sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
@@ -64,7 +74,8 @@ sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
    [--project-root "<代码根>"] [--spec-id <id>] [--session <id>] [--skip-validator]
 ```
 
-- `--tasks` 是 **tasks.md 的绝对路径**（不是 spec 目录），用 step 1 的 `active_spec_dir + /tasks.md`
+- `--pipeline` 是 **pipeline.yml 的绝对路径**（主编排格式，推荐）；格式详见 `references/pipeline-yaml.md`
+- `--tasks` 是 **tasks.md 的绝对路径**（**legacy 软废弃**，不是 spec 目录），用 step 1 的 `active_spec_dir + /tasks.md`；与 `--pipeline` **二选一**
 - `--workdir`：state 落盘根（state 根 = `<workdir>/.task-swarm/runs/`）。specode 集成模式用 `active_spec_dir`；独立模式用项目根（缺省 = 当前 cwd）
 - `--project-root`（可选）：被改代码的根目录（缺省 = `--workdir`）
 - `--spec-id`（可选）：spec 标识，写入 state 供产物引用

@@ -27,7 +27,9 @@ reviewer / validator 单实例的理由：
 
 ## 2. 文件冲突避免
 
-`task_swarm.py init` 解析 tasks.md 时按以下规则把 stage 切成 group：
+> **编排格式说明**：pipeline.yml 现在是 task-swarm 的**主编排格式**（`--pipeline`，schema 见 `references/pipeline-yaml.md`）；markdown `tasks.md`（`--tasks`，`## 阶段 N:` 解析）为 **legacy 路径，已软废弃但仍受支持**（writeback 仍依赖它）。两条路径在 init 后都收敛到同一套 group / stage 状态机，本节及以下协议对两者通用。
+
+`task_swarm.py init` 解析 tasks.md（或 pipeline.yml）时按以下规则把 stage 切成 group：
 
 1. 提取每个 stage 的 `@writes:<files>` 列表（含通配符展开）。
 2. 在同一 group 内：任意两个 stage 的 @writes 集合**不相交**且**无 @depends-on 关系**。
@@ -295,9 +297,11 @@ writeback 严格 line-safe：禁止改动 stage 标题、`@writes` / `@reads` / 
 ## 9. CLI 接口速查
 
 ```text
-task_swarm.py init --tasks <abs> [--max-parallel N] [--max-rounds N]
+task_swarm.py init (--pipeline <abs> | --tasks <abs>) [--max-parallel N] [--max-rounds N]
  [--workdir <dir>] [--project-root <dir>] [--spec-id <id>] [--session <session_id>]
  → {"run_id", "groups": [...], ...}
+ # --pipeline：pipeline.yml 路径（主编排格式，推荐；schema 见 references/pipeline-yaml.md）
+ # --tasks：tasks.md 路径（legacy 软废弃，仍支持；与 --pipeline 二选一）
  # --workdir：state 根所在目录（缺省 = cwd）；state 根 = <workdir>/.task-swarm/runs/
  # --project-root：被改代码的根目录（缺省 = --workdir）
  # --spec-id（可选）：spec 标识，写入 state 供产物引用
