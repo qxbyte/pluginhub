@@ -199,120 +199,120 @@ def validate_ask_user_question_input(
 # =========================================================================
 
 SELECTOR_OUTLINES: dict[str, dict] = {
-    "project-root-choice": {
-        "kind": "fixed",
-        "question": "代码写到哪个目录？project_root 决定 coder / 实现 agent 的 cwd",
-        "header": "项目目录",
-        "multi_select": False,
-        "labels": [
-            "cwd（在已有项目里迭代）",
-            "cwd/slug（新项目子目录）",
-            "自定义路径",
+    'project-root-choice': {
+        'kind': 'fixed',
+        'question': '代码写到哪个目录？project_root 决定 coder / 实现 agent 的 cwd',
+        'header': '项目目录',
+        'multi_select': False,
+        'labels': [
+            'cwd（在已有项目里迭代）',
+            'cwd/slug（新项目子目录）',
+            '自定义路径',
         ],
     },
-    "workflow-choice": {
-        "kind": "fixed",
-        "question": "工作流选择 —— 决定走哪条 spec 流程？",
-        "header": "工作流选择",
-        "multi_select": False,
-        "labels": [
-            "Requirements first",
-            "Technical Design first",
-            "Bugfix",
+    'workflow-choice': {
+        'kind': 'fixed',
+        'question': '工作流选择 —— 决定走哪条 spec 流程？',
+        'header': '工作流选择',
+        'multi_select': False,
+        'labels': [
+            'Requirements first',
+            'Technical Design first',
+            'Bugfix',
         ],
     },
-    "clarification-wizard": {
-        "kind": "dynamic",
-        "min_questions": 2,
-        "max_questions": 4,
-        "multi_select": False,
-        "min_options_per_question": 2,
+    'clarification-wizard': {
+        'kind': 'dynamic',
+        'min_questions': 2,
+        'max_questions': 4,
+        'multi_select': False,
+        'min_options_per_question': 2,
     },
-    "clarification-done": {
-        "kind": "fixed",
-        "question": "需求澄清是否完成？",
-        "header": "澄清完成?",
-        "multi_select": False,
-        "labels": [
-            "进入下一阶段（推荐）",
-            "继续澄清",
+    'clarification-done': {
+        'kind': 'fixed',
+        'question': '需求澄清是否完成？',
+        'header': '澄清完成?',
+        'multi_select': False,
+        'labels': [
+            '进入下一阶段（推荐）',
+            '继续澄清',
         ],
     },
-    "doc-confirm-requirements": {
-        "kind": "fixed",
-        "question": "requirements.md 已生成。下一步？",
-        "header": "需求确认",
-        "multi_select": False,
-        "labels": [
-            "确认（推荐）",
-            "查看全文",
-            "继续沟通",
+    'doc-confirm-requirements': {
+        'kind': 'fixed',
+        'question': 'requirements.md 已生成。下一步？',
+        'header': '需求确认',
+        'multi_select': False,
+        'labels': [
+            '确认（推荐）',
+            '查看全文',
+            '继续沟通',
         ],
     },
-    "doc-confirm-bugfix": {
-        "kind": "fixed",
-        "question": "bugfix.md 已生成。下一步？",
-        "header": "缺陷确认",
-        "multi_select": False,
-        "labels": [
-            "确认（推荐）",
-            "查看全文",
-            "继续沟通",
+    'doc-confirm-bugfix': {
+        'kind': 'fixed',
+        'question': 'bugfix.md 已生成。下一步？',
+        'header': '缺陷确认',
+        'multi_select': False,
+        'labels': [
+            '确认（推荐）',
+            '查看全文',
+            '继续沟通',
         ],
     },
-    "doc-confirm-design": {
-        "kind": "fixed",
-        "question": "design.md 已生成。下一步？",
-        "header": "设计确认",
-        "multi_select": False,
-        "labels": [
-            "确认（推荐）",
-            "查看全文",
-            "继续沟通",
+    'doc-confirm-design': {
+        'kind': 'fixed',
+        'question': 'design.md 已生成。下一步？',
+        'header': '设计确认',
+        'multi_select': False,
+        'labels': [
+            '确认（推荐）',
+            '查看全文',
+            '继续沟通',
         ],
     },
-    "tasks-execution": {
-        "kind": "fixed",
-        "question": "tasks.md 已生成。怎么执行？",
-        "header": "执行方式",
-        "multi_select": False,
-        "labels": [
-            "用 task-swarm plugin 执行（独立）",
-            "顺序执行（同时处理 optional）",
-            "暂停 / 调整 tasks.md",
+    'delegation': {
+        'kind': 'fixed',
+        'question': 'design 已完成。怎么执行？',
+        'header': '执行方式',
+        'multi_select': False,
+        'labels': [
+            '委托 task-swarm 执行（多 agent 并发）',
+            'specode 自执行（顺序，单 agent）',
+            '暂停 / 调整 design',
         ],
     },
-    "takeover-options": {
-        "kind": "fixed",
-        "question": "该 spec 已被其他会话窗口持有，怎么处理？",
-        "header": "接管选项",
-        "multi_select": False,
-        "labels": [
-            "强制接管",
-            "只读查看",
-            "取消",
+    'takeover-options': {
+        'kind': 'fixed',
+        'question': '该 spec 已被其他会话窗口持有，怎么处理？',
+        'header': '接管选项',
+        'multi_select': False,
+        'labels': [
+            '强制接管',
+            '只读查看',
+            '取消',
         ],
     },
-    "acceptance-gate": {
-        "kind": "fixed",
-        "question": "验收结论？",
-        "header": "验收门",
-        "multi_select": False,
-        "labels": [
-            "验收通过，进入 iteration（推荐）",
-            "继续修改",
+    'acceptance-gate': {
+        'kind': 'fixed',
+        'question': '验收结论？',
+        'header': '验收门',
+        'multi_select': False,
+        'labels': [
+            '验收通过，进入 iteration（推荐）',
+            '继续修改',
         ],
     },
-    "iteration-scope": {
-        "kind": "fixed",
-        "question": "本轮 iteration 要调整哪些文档/动作？（可多选）",
-        "header": "迭代范围",
-        "multi_select": True,
-        "labels": [
-            "改 requirements",
-            "改 design",
-            "改 tasks",
-            "重跑测试",
+    'iteration-scope': {
+        'kind': 'fixed',
+        'question': '本轮 iteration 要调整哪些文档/动作？（可多选）',
+        'header': '迭代范围',
+        'multi_select': True,
+        'labels': [
+            '改 requirements',
+            '改 design',
+            '改 tasks',
+            '重跑测试',
         ],
     },
 }

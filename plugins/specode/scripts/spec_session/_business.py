@@ -13,6 +13,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# spec_log 兜底：launcher 已把 scripts/ 注入 sys.path，spec_log import 应可用。
+try:
+    from spec_log import write_event as _log_event  # type: ignore
+except Exception:
+    def _log_event(event: str, payload: Optional[dict] = None,
+                   session_id: Optional[str] = None) -> None:
+        return None
+
 from spec_session._io import (
     VALID_PHASES,
     _atomic_write_json,
@@ -51,6 +59,8 @@ def _update_session_for_spec(session_id: str, spec_dir: Path, cfg: dict,
         "phase": cfg.get("phase"),
         "lock_state": lock_state,
         "pending_selector": pending,
+        # M4：design 完成后委托 task-swarm 执行时记录其 run_id；常规更新沿用已有值。
+        "delegated_run_id": existing.get("delegated_run_id"),
     }
     return payload
 
@@ -262,13 +272,11 @@ def _auto_pending_selector(phase: str, cfg: dict) -> Optional[str]:
         return "doc-confirm-bugfix"
     if phase == "design":
         return "doc-confirm-design"
-    if phase == "tasks":
-        return "tasks-execution"
-    if phase == "implementation":
-        return None
+    if phase == "delegated":
+        return "delegation"
     if phase == "acceptance":
         return "acceptance-gate"
-    # phase == "iteration" / "implementation" / 其它：不自动注入 selector。
+    # phase == "iteration" / 其它：不自动注入 selector。
     # iteration 是已交付常驻态，停在 chat 等用户显式提出下一轮调整意图后，
     # 主代理判断到调整范围明确时再主动呈现 iteration-scope。
     return None
@@ -537,6 +545,43 @@ def cmd_read_session(args: argparse.Namespace) -> int:
         _emit_json({"ok": False, "reason": "session_not_found"})
         return 0
     _emit_json(sess)
+    return 0
+
+
+def cmd_set_delegated_run(args: argparse.Namespace) -> int:
+    """M4：set/clear session.delegated_run_id（纯 session 字段，不牵涉 spec 双写）。
+
+    design 完成后委托 task-swarm 执行时记录其 run_id；委托结束后清空。
+
+    args:
+      --session <id>      目标 session（必须存在且 active）
+      --run-id <rid>      要写入的 run_id；与 --clear 互斥
+      --clear             清空 delegated_run_id（置 None）
+    """
+    sess = read_session(args.session)
+    if sess is None:
+        _emit_json({"ok": False, "reason": "session_not_found", "session_id": args.session})
+        return 1
+    if sess.get("mode") != "active":
+        _emit_json({
+            "ok": False,
+            "reason": "session_not_active",
+            "mode": sess.get("mode"),
+        })
+        return 1
+
+    run_id = None if args.clear else args.run_id
+    sess["delegated_run_id"] = run_id
+    sess["last_activity_at"] = _now_iso()
+    try:
+        write_session_atomic(args.session, sess)
+    except Exception as e:
+        sys.stderr.write(f"写 sessions 失败：{e}\n")
+        return 1
+    _log_event("set_delegated_run",
+               {"delegated_run_id": run_id, "clear": bool(args.clear)},
+               session_id=args.session)
+    _emit_json({"ok": True, "delegated_run_id": run_id})
     return 0
 
 

@@ -235,12 +235,68 @@ def test_phase_transition_phase_mismatch_blocks(
     slug, sid, spec_dir, _ = init_spec()
     cp = run_script("spec_session.py", "phase-transition",
                     "--spec", str(spec_dir), "--session", sid,
-                    "--from", "design", "--to", "tasks")
+                    "--from", "design", "--to", "delegated")
     assert cp.returncode == 1
     out = json.loads(cp.stdout)
     assert out["reason"] == "phase_mismatch"
     assert out["current"] == "intake"
     assert _spec_cfg(spec_dir)["phase"] == "intake"
+
+
+def test_phase_transition_design_to_delegated(
+    run_script, init_spec, fake_home
+):
+    """M4：design → delegated 合法（VALID_PHASES 已含 delegated）。"""
+    slug, sid, spec_dir, _ = init_spec()
+    cfg = _spec_cfg(spec_dir)
+    cfg["phase"] = "design"
+    (spec_dir / ".config.json").write_text(
+        json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    cp = run_script("spec_session.py", "phase-transition",
+                    "--spec", str(spec_dir), "--session", sid,
+                    "--from", "design", "--to", "delegated")
+    assert cp.returncode == 0, cp.stderr
+    rs = run_script("spec_session.py", "read-session", "--session", sid)
+    assert rs.returncode == 0, rs.stderr
+    assert json.loads(rs.stdout)["phase"] == "delegated"
+
+
+def test_phase_transition_delegated_to_acceptance(
+    run_script, init_spec, fake_home
+):
+    """M4：delegated → acceptance 合法。"""
+    slug, sid, spec_dir, _ = init_spec()
+    cfg = _spec_cfg(spec_dir)
+    cfg["phase"] = "delegated"
+    (spec_dir / ".config.json").write_text(
+        json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    cp = run_script("spec_session.py", "phase-transition",
+                    "--spec", str(spec_dir), "--session", sid,
+                    "--from", "delegated", "--to", "acceptance")
+    assert cp.returncode == 0, cp.stderr
+    rs = run_script("spec_session.py", "read-session", "--session", sid)
+    assert rs.returncode == 0, rs.stderr
+    assert json.loads(rs.stdout)["phase"] == "acceptance"
+
+
+# --- set-delegated-run ----------------------------------------------------
+
+def test_set_delegated_run_id(run_script, init_spec, fake_home):
+    """M4：set-delegated-run 写/清 session.delegated_run_id（纯 session 字段）。"""
+    slug, sid, spec_dir, _ = init_spec()
+    cp = run_script("spec_session.py", "set-delegated-run",
+                    "--session", sid, "--run-id", "rid-abc")
+    assert cp.returncode == 0, cp.stderr
+    rs = run_script("spec_session.py", "read-session", "--session", sid)
+    assert json.loads(rs.stdout)["delegated_run_id"] == "rid-abc"
+    # 清空
+    cp = run_script("spec_session.py", "set-delegated-run",
+                    "--session", sid, "--clear")
+    assert cp.returncode == 0, cp.stderr
+    rs = run_script("spec_session.py", "read-session", "--session", sid)
+    assert json.loads(rs.stdout).get("delegated_run_id") is None
 
 
 # --- end ------------------------------------------------------------------
@@ -298,6 +354,51 @@ def test_read_session_migrates_legacy_claude_session_id(
     assert payload["session_id"] == sid
     # 老字段仍保留（向后兼容；后续写入才会被覆盖为新格式）
     assert payload.get("claude_session_id") == sid
+
+
+def test_read_session_migrates_legacy_tasks_phase(
+    run_script, fake_home, make_session_id
+):
+    """M4：tasks/implementation 合并为 delegated；老 session 里 phase=tasks +
+    pending_selector=tasks-execution 应在 read_session 时被迁移为 delegated / delegation。"""
+    sid = make_session_id()
+    sess_dir = fake_home / ".specode" / "sessions"
+    sess_dir.mkdir(parents=True, exist_ok=True)
+    legacy = {
+        "session_id": sid,
+        "started_at": "2026-01-01T00:00:00Z",
+        "last_activity_at": "2026-01-01T00:00:00Z",
+        "mode": "active",
+        "phase": "tasks",
+        "pending_selector": "tasks-execution",
+    }
+    (sess_dir / f"{sid}.json").write_text(json.dumps(legacy), encoding="utf-8")
+    cp = run_script("spec_session.py", "read-session", "--session", sid)
+    assert cp.returncode == 0, cp.stderr
+    payload = json.loads(cp.stdout)
+    assert payload["phase"] == "delegated"
+    assert payload["pending_selector"] == "delegation"
+
+
+def test_read_session_migrates_legacy_implementation_phase(
+    run_script, fake_home, make_session_id
+):
+    """M4：老 session 里 phase=implementation 应被迁移为 delegated。"""
+    sid = make_session_id()
+    sess_dir = fake_home / ".specode" / "sessions"
+    sess_dir.mkdir(parents=True, exist_ok=True)
+    legacy = {
+        "session_id": sid,
+        "started_at": "2026-01-01T00:00:00Z",
+        "last_activity_at": "2026-01-01T00:00:00Z",
+        "mode": "active",
+        "phase": "implementation",
+    }
+    (sess_dir / f"{sid}.json").write_text(json.dumps(legacy), encoding="utf-8")
+    cp = run_script("spec_session.py", "read-session", "--session", sid)
+    assert cp.returncode == 0, cp.stderr
+    payload = json.loads(cp.stdout)
+    assert payload["phase"] == "delegated"
 
 
 def test_status_emits_human_summary(run_script, init_spec, fake_home):

@@ -324,6 +324,78 @@ def test_on_user_prompt_readonly_footer_has_readonly_marker(
     assert "只读模式" in ctx
 
 
+def test_status_footer_shows_delegation(
+    run_script, fake_home, make_session_id, doc_root
+):
+    """M4：phase=delegated 且 delegated_run_id 非空 → UserPromptSubmit 注入委托提示，
+    含 run 短 id（前 8 位）与回 acceptance 的指引。"""
+    sid = make_session_id()
+    spec_dir = doc_root / "specs" / "deleg-spec"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / ".config.json").write_text(json.dumps({
+        "specId": "dg",
+        "slug": "deleg-spec",
+        "phase": "delegated",
+        "pending_selector": None,
+        "lock": {"holder": sid},
+    }), encoding="utf-8")
+    _write_session(
+        fake_home, sid,
+        mode="active",
+        active_spec_slug="deleg-spec",
+        active_spec_dir=str(spec_dir),
+        phase="delegated",
+        pending_selector=None,
+        lock_state="ok",
+        delegated_run_id="rid-xyz123",
+    )
+    cp = run_script(
+        "spec_session.py", "on-user-prompt",
+        stdin=json.dumps({"session_id": sid, "prompt": "继续"})
+    )
+    ctx = _ctx(_parse_hook(cp.stdout))
+    assert "委托" in ctx
+    assert "rid-xyz1" in ctx          # run 短 id（前 8 位）
+    assert "rid-xyz123" not in ctx    # 不应泄露完整 run id
+    assert "acceptance" in ctx
+
+
+def test_no_delegation_hint_when_run_id_absent(
+    run_script, fake_home, make_session_id, doc_root
+):
+    """phase=delegated 但 delegated_run_id 为 None → 不注入委托 run 提示，
+    避免空委托噪音（footer / 其它段落仍正常输出）。"""
+    sid = make_session_id()
+    spec_dir = doc_root / "specs" / "deleg-empty"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / ".config.json").write_text(json.dumps({
+        "specId": "de",
+        "slug": "deleg-empty",
+        "phase": "delegated",
+        "pending_selector": None,
+        "lock": {"holder": sid},
+    }), encoding="utf-8")
+    _write_session(
+        fake_home, sid,
+        mode="active",
+        active_spec_slug="deleg-empty",
+        active_spec_dir=str(spec_dir),
+        phase="delegated",
+        pending_selector=None,
+        lock_state="ok",
+        delegated_run_id=None,
+    )
+    cp = run_script(
+        "spec_session.py", "on-user-prompt",
+        stdin=json.dumps({"session_id": sid, "prompt": "继续"})
+    )
+    ctx = _ctx(_parse_hook(cp.stdout))
+    # footer 仍输出（仍在 spec active 模式）
+    assert "状态行" in ctx
+    # 但没有委托 run 行
+    assert "委托 task-swarm 执行中" not in ctx
+
+
 def test_on_user_prompt_help_fastpath_only_emits_help(
     run_script, fake_home, make_session_id
 ):
@@ -425,6 +497,30 @@ def test_on_stop_readonly_only_readonly_reminder(
     assert "只读模式" in ctx
     # No code-doc sync segment in readonly
     assert "代码-文档同步提醒" not in ctx
+
+
+def test_stop_reminds_return_to_acceptance_when_delegated(
+    run_script, fake_home, make_session_id, doc_root
+):
+    """M4：phase=delegated 且 delegated_run_id 非空 → Stop hook 提醒
+    驱动 task-swarm 到 resolve，然后回 acceptance。"""
+    sid = make_session_id()
+    _write_session(
+        fake_home, sid,
+        mode="active",
+        active_spec_slug="dg",
+        phase="delegated",
+        active_spec_dir=str(doc_root / "specs" / "dg"),
+        delegated_run_id="rid-xyz123",
+    )
+    cp = run_script(
+        "spec_session.py", "on-stop",
+        stdin=json.dumps({"session_id": sid})
+    )
+    ctx = _ctx(_parse_hook(cp.stdout))
+    assert "resolve" in ctx
+    assert "acceptance" in ctx
+    assert "rid-xyz1" in ctx
 
 
 # --------------------------------------------------------------------------
