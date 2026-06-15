@@ -51,7 +51,7 @@ sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
 ### Hook safety contract
 Hooks in `spec_session.py` are advisory. Every handler MUST:
 1. Be wrapped in `@_safe_hook` (catches all exceptions, returns 0).
-2. **Never `exit 2`** — push guidance via `additionalContext` JSON to stdout and still `exit 0`. The one exception is `hook_on_pre_tool_use` for direct edits to `tasks.md`, which escalated to a hard block in 0.10.21 (see CHANGELOG); do not add other exit-2 paths without explicit need.
+2. **Never `exit 2`** — push guidance via `additionalContext` JSON to stdout and still `exit 0`. The one exception is `hook_on_pre_tool_use`'s `AskUserQuestion` selector-hallucination guard (verbatim-validates `questions` / `options[*].label` against `SELECTOR_PROMPTS`; an invented selector triggers `sys.exit(2)` — see `_hooks.py`); do not add other exit-2 paths without explicit need.
 3. Honour `SPECODE_GUARD=off` for global bypass (early-return with no output and no state writes).
 4. Tolerate non-TTY stdin (`_read_stdin_payload()` handles this).
 

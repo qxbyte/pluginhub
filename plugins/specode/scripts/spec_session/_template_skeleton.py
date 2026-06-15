@@ -9,7 +9,7 @@
 为什么是常量而不是运行时解析：
   PreToolUse hook budget <100ms（详 CONTRIBUTING §Performance budget）。Python 冷启
   动 + import 链路已吃掉 60-90ms，留给业务的预算只剩 20-40ms。常量字典在 import
-  时直接进内存（O(1) 查表，零 IO 零解析），远低于运行时读 4 份模板 + 正则解析的
+  时直接进内存（O(1) 查表，零 IO 零解析），远低于运行时读核心模板 + 正则解析的
   5-15ms。
 
 如何同步：
