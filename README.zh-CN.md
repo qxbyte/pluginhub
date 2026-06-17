@@ -33,11 +33,11 @@ specode 1.0.0 把一句话需求变成一条「文档优先」的纪律化交付
 ```sh
 # CodeBuddy
 codebuddy plugin marketplace add https://github.com/qxbyte/specode
-codebuddy plugin install specode@specode
+codebuddy plugin install specode@qxbyte
 
 # Claude Code
 claude plugin marketplace add https://github.com/qxbyte/specode
-claude plugin install specode@specode
+claude plugin install specode@qxbyte
 ```
 
 如需完整的 superpowers 加持体验，请额外安装 **superpowers** 插件；如需多代理并发执行，请额外安装同一 marketplace 下的 **task-swarm** 插件。specode 不依赖这两者，原生降级路径开箱即用。
@@ -59,8 +59,8 @@ codebuddy --plugin-dir ./specode/plugins/specode
 ### 卸载
 
 ```sh
-claude plugin uninstall specode@specode
-claude plugin marketplace remove specode
+claude plugin uninstall specode@qxbyte
+claude plugin marketplace remove qxbyte
 # 可选：清理用户级配置
 rm -rf ~/.config/specode
 ```
@@ -69,12 +69,12 @@ rm -rf ~/.config/specode
 
 ```sh
 # Claude Code
-claude plugin update specode@specode
-claude plugin marketplace update specode
+claude plugin update specode@qxbyte
+claude plugin marketplace update qxbyte
 
 # CodeBuddy
-codebuddy plugin update specode@specode
-codebuddy plugin marketplace update specode
+codebuddy plugin update specode@qxbyte
+codebuddy plugin marketplace update qxbyte
 ```
 
 ## 使用

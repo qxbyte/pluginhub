@@ -23,9 +23,11 @@
 - **文档即状态**：无任何持久状态文件——活跃态与 phase 由「当前对话上下文 + spec 目录下哪些固定文档存在 + design.md 里 `- [ ]` 勾选进度」推断。
 - `project_root` 默认取当前终端 cwd（约定先 `cd` 到项目目录再开聊），不再设项目目录 selector。
 
-### Migration -- 无读端回退
+### Migration
 
-- 破坏性重构，**无读端回退迁移**：旧 `~/.specode/sessions/<id>.json`、旧 `<spec-dir>/.config.json`、旧 `config.json.obsidianRoot` 一律不再读取 / 写入，新版完全忽略它们。可手动清理 `rm -rf ~/.specode`（旧 sessions/logs）。新版只读 `~/.config/specode/config.json.specsRoot`。
+- 旧 `~/.specode/sessions/<id>.json`、旧 `<spec-dir>/.config.json` 一律不再读取 / 写入，新版完全忽略它们，可手动清理 `rm -rf ~/.specode`（旧 sessions/logs）。
+- **唯一保留的读端兼容**：`~/.config/specode/config.json.obsidianRoot`（1.0.0 前的旧键）在 `specsRoot` 缺失时仍会被读作回退——老用户升级即用、不必重设文档目录；新版写入只用 `specsRoot`。
+- **marketplace 改名 `specode` → `qxbyte`**：安装命令改为 `claude plugin install specode@qxbyte`（`marketplace add` 仍用仓库 URL `github.com/qxbyte/specode`，仓库名未变）。已按旧名 `add` 过 marketplace 的用户需重新 `claude plugin marketplace add <url>` 或 `update`。
 
 ## 0.11.0 (2026-06-15)
 

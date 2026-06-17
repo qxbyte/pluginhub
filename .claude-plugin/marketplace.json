@@ -1,6 +1,6 @@
 {
-  "name": "specode",
-  "description": "Marketplace for specode (spec-driven workflow) and task-swarm (multi-agent orchestration).",
+  "name": "qxbyte",
+  "description": "qxbyte's plugin marketplace: specode (spec-driven workflow) and task-swarm (multi-agent orchestration).",
   "owner": {
     "name": "qxbyte",
     "url": "https://github.com/qxbyte"

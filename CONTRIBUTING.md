@@ -167,8 +167,8 @@ Once a release is in user hands, prefer a new patch version.
 
 ```sh
 # Adjust the CLI name for whichever host you use (claude / codebuddy).
-claude plugin marketplace update specode
-claude plugin install specode@specode         # or `update`
+claude plugin marketplace update qxbyte
+claude plugin install specode@qxbyte         # or `update`
 claude plugin list | grep specode             # confirm new version
 ```
 

@@ -65,11 +65,11 @@ CodeBuddy verified on 2.97.1.
 ```sh
 # CodeBuddy
 codebuddy plugin marketplace add https://github.com/qxbyte/specode
-codebuddy plugin install specode@specode
+codebuddy plugin install specode@qxbyte
 
 # Claude Code
 claude plugin marketplace add https://github.com/qxbyte/specode
-claude plugin install specode@specode
+claude plugin install specode@qxbyte
 ```
 
 For the full superpowers-backed experience, also install the
@@ -94,8 +94,8 @@ codebuddy --plugin-dir ./specode/plugins/specode
 ### Uninstall
 
 ```sh
-claude plugin uninstall specode@specode
-claude plugin marketplace remove specode
+claude plugin uninstall specode@qxbyte
+claude plugin marketplace remove qxbyte
 # optional: wipe user-level config
 rm -rf ~/.config/specode
 ```
@@ -104,12 +104,12 @@ rm -rf ~/.config/specode
 
 ```sh
 # Claude Code
-claude plugin update specode@specode
-claude plugin marketplace update specode
+claude plugin update specode@qxbyte
+claude plugin marketplace update qxbyte
 
 # CodeBuddy
-codebuddy plugin update specode@specode
-codebuddy plugin marketplace update specode
+codebuddy plugin update specode@qxbyte
+codebuddy plugin marketplace update qxbyte
 ```
 
 ## Usage
