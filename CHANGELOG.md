@@ -4,7 +4,7 @@
 
 ## 0.11.0 (2026-06-15)
 
-> task-swarm 拆为独立 plugin（M1）+ specode 委托衔接 / `delegated` 阶段（M4）+ tasks.md 退场。**破坏性**：移除 `/specode:task-swarm` 命令、task-swarm-* agent、`tasks`/`implementation` 阶段。phase 取值变更有读端回退迁移，旧 session 照常加载。
+> task-swarm 拆为独立 plugin（M1）+ specode 委托衔接 / `delegated` 阶段（M4）+ tasks.md 退场。**破坏性**：移除 `/specode:task-swarm` 命令、task-swarm-* agent、`tasks`/`implementation` 阶段。phase 取值变更有读端回退迁移，旧 session 照常加载。  
 
 ### Changed -- task-swarm 移出为独立 plugin（M1）
 
