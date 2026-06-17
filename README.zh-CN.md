@@ -3,9 +3,11 @@
 # specode
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.zh-CN.md#许可证)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![specode](https://img.shields.io/badge/specode-1.0.0-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![task-swarm](https://img.shields.io/badge/task--swarm-0.3.0-blue.svg)](./plugins/task-swarm/.claude-plugin/plugin.json)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/specode#installation)
 [![CodeBuddy](https://img.shields.io/badge/CodeBuddy-2.97.1%2B-1E90FF)](https://github.com/qxbyte/specode#installation)
+[![Tests](https://img.shields.io/badge/pytest-12%20cases-success)](./plugins/specode/tests)
 
 > 面向 CLI 编码代理（Claude Code / CodeBuddy）的轻量级规格驱动工作流插件。
 
@@ -40,7 +42,16 @@ claude plugin marketplace add https://github.com/qxbyte/specode
 claude plugin install specode@qxbyte
 ```
 
-如需完整的 superpowers 加持体验，请额外安装 **superpowers** 插件；如需多代理并发执行，请额外安装同一 marketplace 下的 **task-swarm** 插件。specode 不依赖这两者，原生降级路径开箱即用。
+如需完整的 superpowers 加持体验，请额外安装 **superpowers** 插件。如需多 agent 并发执行，请从同一 marketplace 额外安装 **task-swarm**（**无需**再 `marketplace add`）——装了它 specode 会在执行阶段委托给它，没装则 specode 顺序自执行：
+
+```sh
+# Claude Code
+claude plugin install task-swarm@qxbyte
+# CodeBuddy
+codebuddy plugin install task-swarm@qxbyte
+```
+
+specode 不依赖这两者，原生降级路径开箱即用。
 
 ### 一次性会话（仅 Claude Code）
 
@@ -54,15 +65,19 @@ claude --plugin-url https://github.com/qxbyte/specode/archive/refs/heads/main.zi
 git clone https://github.com/qxbyte/specode.git
 claude    --plugin-dir ./specode/plugins/specode
 codebuddy --plugin-dir ./specode/plugins/specode
+
+# 想用委托式多 agent 执行就把 task-swarm 也挂上
+claude --plugin-dir ./specode/plugins/specode --plugin-dir ./specode/plugins/task-swarm
 ```
 
 ### 卸载
 
 ```sh
 claude plugin uninstall specode@qxbyte
+claude plugin uninstall task-swarm@qxbyte   # 若已安装
 claude plugin marketplace remove qxbyte
-# 可选：清理用户级配置
-rm -rf ~/.config/specode
+# 可选：清理用户级配置（含旧 ~/.specode 状态）
+rm -rf ~/.specode ~/.config/specode
 ```
 
 ### 升级

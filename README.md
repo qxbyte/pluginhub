@@ -3,9 +3,11 @@
 # specode
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.md#license)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![specode](https://img.shields.io/badge/specode-1.0.0-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![task-swarm](https://img.shields.io/badge/task--swarm-0.3.0-blue.svg)](./plugins/task-swarm/.claude-plugin/plugin.json)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/specode#installation)
 [![CodeBuddy](https://img.shields.io/badge/CodeBuddy-2.97.1%2B-1E90FF)](https://github.com/qxbyte/specode#installation)
+[![Tests](https://img.shields.io/badge/pytest-12%20cases-success)](./plugins/specode/tests)
 
 > A lightweight spec-driven workflow plugin for CLI coding agents
 > (Claude Code / CodeBuddy).
@@ -73,9 +75,19 @@ claude plugin install specode@qxbyte
 ```
 
 For the full superpowers-backed experience, also install the
-**superpowers** plugin; for multi-agent parallel execution, also install
-**task-swarm** (in this same marketplace). specode runs fine without
-either via its native fallbacks.
+**superpowers** plugin. For multi-agent parallel execution, also install
+**task-swarm** from this same marketplace (no second `marketplace add`
+needed) — specode delegates the execution phase to it when installed, and
+self-executes sequentially otherwise:
+
+```sh
+# Claude Code
+claude plugin install task-swarm@qxbyte
+# CodeBuddy
+codebuddy plugin install task-swarm@qxbyte
+```
+
+specode runs fine without either via its native fallbacks.
 
 ### One-shot (Claude Code only)
 
@@ -89,15 +101,19 @@ claude --plugin-url https://github.com/qxbyte/specode/archive/refs/heads/main.zi
 git clone https://github.com/qxbyte/specode.git
 claude    --plugin-dir ./specode/plugins/specode
 codebuddy --plugin-dir ./specode/plugins/specode
+
+# add task-swarm too if you want delegated multi-agent execution
+claude --plugin-dir ./specode/plugins/specode --plugin-dir ./specode/plugins/task-swarm
 ```
 
 ### Uninstall
 
 ```sh
 claude plugin uninstall specode@qxbyte
+claude plugin uninstall task-swarm@qxbyte   # if installed
 claude plugin marketplace remove qxbyte
-# optional: wipe user-level config
-rm -rf ~/.config/specode
+# optional: wipe user-level config (and legacy ~/.specode state)
+rm -rf ~/.specode ~/.config/specode
 ```
 
 ### Update
