@@ -33,7 +33,8 @@ def _read_config() -> dict:
     if not p.exists():
         return {}
     try:
-        return json.loads(p.read_text(encoding="utf-8")) or {}
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
     except (ValueError, OSError):
         return {}
 
@@ -43,11 +44,17 @@ def _atomic_write_json(path: Path, data: dict) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = -1  # fdopen 接管 fd
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
     finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         if os.path.exists(tmp):
             os.remove(tmp)
 
@@ -111,9 +118,9 @@ def main(argv=None) -> int:
     s.add_argument("--root", required=True)
     s.set_defaults(func=cmd_set_root)
 
-    l = sub.add_parser("list-specs")
-    l.add_argument("--root")
-    l.set_defaults(func=cmd_list_specs)
+    lp = sub.add_parser("list-specs")
+    lp.add_argument("--root")
+    lp.set_defaults(func=cmd_list_specs)
 
     args = parser.parse_args(argv)
     return args.func(args)

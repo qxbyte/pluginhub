@@ -80,3 +80,20 @@ def test_list_specs_lists_dirs_with_requirements(run_script, fake_home, tmp_path
 def test_list_specs_unconfigured_exits_3(run_script, fake_home):
     cp = run_script("resolve_root.py", "list-specs")
     assert cp.returncode == 3, cp.stderr
+
+
+def test_get_root_flag_beats_env(run_script, fake_home, tmp_path):
+    flag_target = tmp_path / "flag-specs"
+    flag_target.mkdir()
+    cp = run_script("resolve_root.py", "get-root", "--root", str(flag_target),
+                    extra_env={"SPECODE_ROOT": str(tmp_path / "env-specs")})
+    assert cp.returncode == 0, cp.stderr
+    assert cp.stdout.strip() == str(flag_target)
+
+
+def test_get_root_unparseable_config_falls_through(run_script, fake_home, tmp_path):
+    cfgp = fake_home / ".config" / "specode" / "config.json"
+    cfgp.parent.mkdir(parents=True, exist_ok=True)
+    cfgp.write_text("42", encoding="utf-8")  # 合法 JSON 但非 dict
+    cp = run_script("resolve_root.py", "get-root")
+    assert cp.returncode == 3, cp.stderr  # 非 dict → 视为空配置 → 未配置 exit 3
