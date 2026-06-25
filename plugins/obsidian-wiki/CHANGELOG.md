@@ -4,6 +4,65 @@ obsidian-wiki 是维护 Obsidian LLM-Wiki 的多 agent 插件（从独立 skills
 
 ## Unreleased
 
+## 1.1.0 (2026-06-25)
+
+### BREAKING: spec-distill 完全重写输出层（v2）
+
+为接入 AI-Enterprise-Delivery-System 四层记忆模型（L0/L1 由
+`codemap-aimemory>=0.3.2` 在 `<project_root>/.ai-memory/` 下写；L2/L3
+由本 skill 写），spec-distill 抛弃所有 markdown 输出，改产纯 yml 知识：
+
+- **目标位置**：`<project_root>/.ai-memory/knowledge/{rules,business,
+  modules,cases,pitfalls}/<id>.yml`（不在 vault 内，不再按"系统"分层）。
+- **废弃产物**：v1 的 `10-Work/知识库/<系统>/<知识点>.md` /
+  `MEMORY.md` / `00-Index/_system/wiki-log.md` 一律不再写。
+- **vault 内仅保留两个状态文件**：
+  - `00-Index/_system/spec-distill-state.yml` — sync 完成后追加的已沉淀
+    spec 索引（`{spec_id: {project_root, synced_at, new_count}}`）。
+  - `00-Index/_system/spec-distill-report.yml` — scan 命令覆盖式产出
+    （pending / done 列表 + counts）。
+
+### sync 流程变化
+
+- **project_root 解析**：优先级 `--project <abs>` → spec 的
+  `requirements.md` 顶部 YAML frontmatter `project_root` 字段（由 specode
+  v2 写入）→ 报错请求用户指定。**不再猜测**。
+- **拆分启发式 → 五类目录映射**（5 维 + cases/pitfalls 额外两类）：
+  - 业务流程 / 功能页 → `business/biz-*.yml`
+  - 表/字段 / 调用链 → `modules/mod-*.yml`
+  - 机制 / 规则 → `rules/rule-*.yml`
+  - 本次实现（每个 spec 必产 1 篇）→ `cases/case-*.yml`
+  - 可复用坑点 → `pitfalls/pit-*.yml`
+- 同 ID 升级规则：`updated_at` 推进、`version` +1、`related_requirements`
+  追加；不重写已有结构性字段。
+
+### references 重组
+
+- `references/doc-template.md` — 完全重写为 5 类 yml schema 模板
+  （公共字段 + 类型特异字段）。
+- `references/breakdown-heuristics.md` — 5 维启发式保留，开头加 5 维 → 5
+  类目录映射表，"拆分流程"步骤补 `category` + `knowledge_id` 要求。
+- `references/memory-rules.md` — **删除**（不再维护 MEMORY.md）。
+
+### scripts/kn_scan.py 重写
+
+- 抛弃 v1 的"读各系统 MEMORY 表反向解析"逻辑。
+- 改为读 `<vault>/00-Index/_system/spec-distill-state.yml`（JSON-as-YAML，
+  零外部依赖），与 SpecIn 源目录做差集得 pending / done。
+- 输出 `spec-distill-report.yml`（之前是 `.md`）。
+- 17 个新单测覆盖 discovery / state / scan / report 四组路径，全部通过。
+
+### 配合 specode 改造
+
+本 PR 同步更新 specode v2.0.0（plugin.json 不变）：
+
+- `assets/templates/requirements.md` 顶部加 YAML frontmatter，含
+  `spec_id` / `project_root` / `created_at`。
+- `skills/specode/SKILL.md` "requirements" phase 流程：写 requirements.md
+  前必须用 `AskUserQuestion` 让用户确认 `project_root`（默认 `git
+  rev-parse --show-toplevel` 或 cwd），把确认值写入 frontmatter；下游
+  spec-distill v2 从此 frontmatter 读 `project_root`。
+
 ## 1.0.1 (2026-06-20)
 
 首个发布。维护 Obsidian LLM-Wiki（Karpathy 方法论：Sources 只读 / Wiki LLM 写 / Schema 规约）的四个 skill + 家目录多库配置注册表。

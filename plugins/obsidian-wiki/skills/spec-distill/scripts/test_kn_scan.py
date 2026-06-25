@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
+"""Tests for the v2 spec-distill scan script.
+
+v1 read each system's MEMORY.md table to derive coverage; v2 reads a single
+vault-side ``00-Index/_system/spec-distill-state.yml`` (JSON-as-YAML) that
+the LLM ``sync`` flow appends. These tests cover that contract."""
+import json
 import os
-import sys
 import shutil
+import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "lib"))
-import wikicommon as wc
+import wikicommon as wc  # noqa: F401  (kept for symmetry with v1 imports)
 import kn_scan as ks
 
 
@@ -21,16 +27,12 @@ def make_vault(tree):
 
 
 def minimal_cfg(**overrides):
-    """Return a minimal config dict suitable for passing to kn_scan functions."""
     cfg = {
         "system_dir": "00-Index/_system",
         "knowledge": {
-            "kb_root": "10-Work/知识库",
             "spec_in_candidates": ["SpecIn", "spec-in"],
             "spec_source_default": "windows-Public/specs",
-            "memory_file": "MEMORY.md",
-            "memory_reverse_section": "需求反向索引",
-        }
+        },
     }
     for k, v in overrides.items():
         if isinstance(v, dict) and k in cfg and isinstance(cfg[k], dict):
@@ -40,234 +42,202 @@ def minimal_cfg(**overrides):
     return cfg
 
 
-class KeyTest(unittest.TestCase):
-    def test_numeric_prefix(self):
-        self.assertEqual(ks.project_key("114371-银行账号加密重构"), "114371")
-        self.assertEqual(ks.project_key("128978-财务中台更换MQ订阅-wesure-fap"), "128978")
+# ---------- discovery ----------
 
-    def test_no_prefix(self):
-        self.assertEqual(ks.project_key("小程序"), "小程序")
 
-    def test_find_specin_root(self):
+class FindSpecInRootTest(unittest.TestCase):
+    def test_specin_picked_first(self):
         v = make_vault({"SpecIn/README.md": "x"})
         self.addCleanup(shutil.rmtree, v, True)
-        cfg = minimal_cfg()
-        self.assertEqual(ks.find_specin_root(v, cfg), "SpecIn")
-        v2 = make_vault({"spec-in/README.md": "x"})
-        self.addCleanup(shutil.rmtree, v2, True)
-        self.assertEqual(ks.find_specin_root(v2, cfg), "spec-in")
+        self.assertEqual(ks.find_specin_root(v, minimal_cfg()), "SpecIn")
 
-    def test_find_specin_root_uses_config_candidates(self):
-        """find_specin_root iterates cfg["knowledge"]["spec_in_candidates"], not hardcoded names."""
-        v = make_vault({"my-specs-in/README.md": "x"})
+    def test_spec_in_fallback(self):
+        v = make_vault({"spec-in/README.md": "x"})
         self.addCleanup(shutil.rmtree, v, True)
-        cfg = minimal_cfg(knowledge={"spec_in_candidates": ["my-specs-in", "SpecIn"],
-                                     "kb_root": "10-Work/知识库",
-                                     "spec_source_default": "windows-Public/specs",
-                                     "memory_file": "MEMORY.md",
-                                     "memory_reverse_section": "需求反向索引"})
-        self.assertEqual(ks.find_specin_root(v, cfg), "my-specs-in")
+        self.assertEqual(ks.find_specin_root(v, minimal_cfg()), "spec-in")
 
-
-class ParseMemoryTest(unittest.TestCase):
-    MEM = (
-        "# Knowledge Base Index — 新收付（fin）\n\n"
-        "## 知识文档索引\n\n"
-        "| 知识文档 | 摘要 | 关联需求 |\n"
-        "|---|---|---|\n"
-        "| [[A]] | a | 121659, 123000 |\n\n"
-        "## 需求反向索引\n\n"
-        "| 需求ID | 需求名称 | 关联知识 |\n"
-        "|--------|----------|----------|\n"
-        "| 114371 | 脱敏 | [[A]] |\n"
-        "| 121659 | 授权 | [[A]], [[B]] |\n"
-        "| 125577 | 关闭 | [[C]] |\n\n"
-        "## 知识关联图\n\n```\n图\n```\n"
-    )
-
-    def test_extracts_only_reverse_index_ids(self):
-        ids = ks.parse_memory_requirements(self.MEM)
-        self.assertEqual(ids, {"114371", "121659", "125577"})
-
-    def test_header_and_separator_skipped(self):
-        ids = ks.parse_memory_requirements(self.MEM)
-        self.assertNotIn("需求ID", ids)
-        self.assertFalse(any(set(x) <= set("-: ") for x in ids))
-
-    def test_multi_id_cell_split(self):
-        mem = ("## 需求反向索引\n| 需求ID | x |\n|---|---|\n| 121659、123000 | y |\n")
-        self.assertEqual(ks.parse_memory_requirements(mem), {"121659", "123000"})
-
-    def test_parse_failure_returns_empty(self):
-        self.assertEqual(ks.parse_memory_requirements("没有任何表格"), set())
-
-    def test_empty_placeholder_skipped(self):
-        mem = ("## 需求反向索引\n| 需求ID | x |\n|---|---|\n| <空> | y |\n")
-        self.assertEqual(ks.parse_memory_requirements(mem), set())
-
-    def test_table_after_next_section_not_picked_up(self):
-        mem = (
-            "## 需求反向索引\n| 需求ID | x |\n|---|---|\n| 111 | a |\n\n"
-            "## 其他节\n| 需求ID | x |\n|---|---|\n| 999 | b |\n"
+    def test_uses_cfg_candidates(self):
+        v = make_vault({"my-specs/README.md": "x"})
+        self.addCleanup(shutil.rmtree, v, True)
+        cfg = minimal_cfg(
+            knowledge={
+                "spec_in_candidates": ["my-specs", "SpecIn"],
+                "spec_source_default": "windows-Public/specs",
+            }
         )
-        ids = ks.parse_memory_requirements(mem)
-        self.assertEqual(ids, {"111"})
-        self.assertNotIn("999", ids)
+        self.assertEqual(ks.find_specin_root(v, cfg), "my-specs")
 
-    def test_memory_reverse_section_from_config(self):
-        """parse_memory_requirements uses the section name passed in, not hardcoded string."""
-        mem = (
-            "## 需求反向索引\n| 需求ID | x |\n|---|---|\n| 111 | a |\n\n"
-            "## Requirement Index\n| 需求ID | x |\n|---|---|\n| 999 | b |\n"
-        )
-        # Default section name → only picks up 111
-        ids_default = ks.parse_memory_requirements(mem)
-        self.assertEqual(ids_default, {"111"})
-        self.assertNotIn("999", ids_default)
-        # Custom section name from config → only picks up 999
-        ids_custom = ks.parse_memory_requirements(mem, reverse_section="Requirement Index")
-        self.assertEqual(ids_custom, {"999"})
-        self.assertNotIn("111", ids_custom)
-
-
-class CoveredTest(unittest.TestCase):
-    def setUp(self):
-        fin = ("## 需求反向索引\n| 需求ID | x | y |\n|---|---|---|\n"
-               "| 114371 | a | [[A]] |\n| 121659 | b | [[B]] |\n")
-        sfmi = ("## 需求反向索引\n| 需求ID | x | y |\n|---|---|---|\n"
-                "| 114371-Global | g | [[G]] |\n")
-        self.v = make_vault({
-            "10-Work/知识库/新收付（fin）/MEMORY.md": fin,
-            "10-Work/知识库/SFMI 保险核心系统（Global）/MEMORY.md": sfmi,
-        })
-        self.addCleanup(shutil.rmtree, self.v, True)
-        self.cfg = minimal_cfg()
-
-    def test_union_and_mapping(self):
-        ids, mapping = ks.covered_requirements(self.v, self.cfg)
-        self.assertEqual(ids, {"114371", "121659", "114371-Global"})
-        self.assertIn("新收付（fin）", mapping["114371"])
-        self.assertIn("SFMI 保险核心系统（Global）", mapping["114371-Global"])
-
-    def test_no_kb_dir(self):
+    def test_none_when_missing(self):
         v = make_vault({"README.md": "x"})
         self.addCleanup(shutil.rmtree, v, True)
-        ids, mapping = ks.covered_requirements(v, self.cfg)
-        self.assertEqual(ids, set())
-        self.assertEqual(mapping, {})
+        self.assertIsNone(ks.find_specin_root(v, minimal_cfg()))
 
-    def test_covered_uses_config_kb_root(self):
-        """covered_requirements uses cfg["knowledge"]["kb_root"], not hardcoded path."""
-        mem = ("## 需求反向索引\n| 需求ID | x |\n|---|---|\n| 999 | a |\n")
-        v = make_vault({"custom-kb/sys/MEMORY.md": mem})
-        self.addCleanup(shutil.rmtree, v, True)
-        cfg = minimal_cfg(knowledge={"kb_root": "custom-kb",
-                                     "spec_in_candidates": ["SpecIn", "spec-in"],
-                                     "spec_source_default": "windows-Public/specs",
-                                     "memory_file": "MEMORY.md",
-                                     "memory_reverse_section": "需求反向索引"})
-        ids, mapping = ks.covered_requirements(v, cfg)
-        self.assertIn("999", ids)
 
-    def test_covered_uses_config_memory_reverse_section(self):
-        """covered_requirements reads the reverse section name from config."""
-        mem = (
-            "## 需求反向索引\n| 需求ID | x |\n|---|---|\n| 111 | a |\n\n"
-            "## Custom Reverse Index\n| 需求ID | x |\n|---|---|\n| 999 | a |\n"
+class ListSpecsTest(unittest.TestCase):
+    def test_lists_top_level_dirs_only(self):
+        v = make_vault(
+            {
+                "SpecIn/windows-Public/specs/REQ-001/requirements.md": "x",
+                "SpecIn/windows-Public/specs/REQ-002/requirements.md": "x",
+                "SpecIn/windows-Public/specs/REQ-002/sub/extra.md": "x",
+                "SpecIn/windows-Public/specs/loose-file.md": "ignored",
+            }
         )
-        v = make_vault({"10-Work/知识库/sys/MEMORY.md": mem})
         self.addCleanup(shutil.rmtree, v, True)
-        # With default section name: picks up 111
-        cfg_default = minimal_cfg()
-        ids_default, _ = ks.covered_requirements(v, cfg_default)
-        self.assertIn("111", ids_default)
-        self.assertNotIn("999", ids_default)
-        # With custom section name from config: picks up 999
-        cfg_custom = minimal_cfg(knowledge={"kb_root": "10-Work/知识库",
-                                            "spec_in_candidates": ["SpecIn", "spec-in"],
-                                            "spec_source_default": "windows-Public/specs",
-                                            "memory_file": "MEMORY.md",
-                                            "memory_reverse_section": "Custom Reverse Index"})
-        ids_custom, _ = ks.covered_requirements(v, cfg_custom)
-        self.assertIn("999", ids_custom)
-        self.assertNotIn("111", ids_custom)
+        self.assertEqual(
+            ks.list_specs(v, "SpecIn/windows-Public/specs"),
+            ["REQ-001", "REQ-002"],
+        )
+
+    def test_missing_source_returns_empty(self):
+        v = make_vault({"README.md": "x"})
+        self.addCleanup(shutil.rmtree, v, True)
+        self.assertEqual(ks.list_specs(v, "SpecIn/nope"), [])
+
+
+# ---------- state ----------
+
+
+class LoadStateTest(unittest.TestCase):
+    def test_missing_returns_empty(self):
+        v = make_vault({"README.md": "x"})
+        self.addCleanup(shutil.rmtree, v, True)
+        self.assertEqual(ks.load_state(v, minimal_cfg()), {})
+
+    def test_parses_json_yaml_state(self):
+        state = {
+            "synced": {
+                "REQ-001": {
+                    "project_root": "/abs/path",
+                    "synced_at": "2026-06-25T16:00:00+00:00",
+                    "new_count": 3,
+                },
+                "REQ-002": {"project_root": "/abs/other", "synced_at": "2026-06-26T10:00:00+00:00"},
+            }
+        }
+        v = make_vault(
+            {"00-Index/_system/spec-distill-state.yml": json.dumps(state, ensure_ascii=False)}
+        )
+        self.addCleanup(shutil.rmtree, v, True)
+        synced = ks.load_state(v, minimal_cfg())
+        self.assertEqual(set(synced.keys()), {"REQ-001", "REQ-002"})
+        self.assertEqual(synced["REQ-001"]["new_count"], 3)
+
+    def test_corrupt_yaml_returns_empty(self):
+        v = make_vault({"00-Index/_system/spec-distill-state.yml": "not: valid: ::: yaml :: !!"})
+        self.addCleanup(shutil.rmtree, v, True)
+        self.assertEqual(ks.load_state(v, minimal_cfg()), {})
+
+    def test_missing_synced_key_returns_empty(self):
+        v = make_vault(
+            {"00-Index/_system/spec-distill-state.yml": json.dumps({"other_key": 1})}
+        )
+        self.addCleanup(shutil.rmtree, v, True)
+        self.assertEqual(ks.load_state(v, minimal_cfg()), {})
+
+
+# ---------- scan ----------
 
 
 class ScanTest(unittest.TestCase):
     def setUp(self):
-        fin = ("## 需求反向索引\n| 需求ID | x | y |\n|---|---|---|\n"
-               "| 114371 | a | [[A]] |\n| 121659 | b | [[B]] |\n")
-        self.v = make_vault({
-            "10-Work/知识库/新收付（fin）/MEMORY.md": fin,
-            "SpecIn/windows-Public/specs/114371-脱敏/design.md": "x",
-            "SpecIn/windows-Public/specs/121659-授权/design.md": "x",
-            "SpecIn/windows-Public/specs/116274-财务中台-fap/design.md": "x",
-            "SpecIn/windows-Public/specs/小程序/design.md": "x",
-        })
+        state = json.dumps(
+            {
+                "synced": {
+                    "REQ-114371-脱敏": {
+                        "project_root": "/p/a",
+                        "synced_at": "2026-06-25T16:00:00+00:00",
+                        "new_count": 4,
+                    }
+                }
+            },
+            ensure_ascii=False,
+        )
+        self.v = make_vault(
+            {
+                "00-Index/_system/spec-distill-state.yml": state,
+                "SpecIn/windows-Public/specs/REQ-114371-脱敏/requirements.md": "x",
+                "SpecIn/windows-Public/specs/REQ-121659-授权/requirements.md": "x",
+                "SpecIn/windows-Public/specs/小程序/design.md": "x",
+            }
+        )
         self.addCleanup(shutil.rmtree, self.v, True)
         self.cfg = minimal_cfg()
 
-    def test_list_projects(self):
-        ps = ks.list_specin_projects(self.v, "SpecIn/windows-Public/specs")
-        names = {n for n, k in ps}
-        self.assertIn("116274-财务中台-fap", names)
-        keys = dict(ps)
-        self.assertEqual(keys["116274-财务中台-fap"], "116274")
-
-    def test_scan_pending_vs_done(self):
-        res = ks.scan(self.v, self.cfg, "SpecIn/windows-Public/specs")
-        pending_keys = {k for n, k in res["pending"]}
-        done_keys = {k for n, k in res["done"]}
-        self.assertIn("116274", pending_keys)
-        self.assertIn("小程序", pending_keys)
-        self.assertEqual(done_keys, {"114371", "121659"})
-
-    def test_scan_autodetects_source(self):
-        res = ks.scan(self.v, self.cfg)  # 不传 source，自动探测 SpecIn/windows-Public/specs
+    def test_pending_vs_done_split(self):
+        res = ks.scan(self.v, self.cfg)
         self.assertEqual(res["source"], "SpecIn/windows-Public/specs")
+        self.assertEqual(res["counts"]["pending"], 2)
+        self.assertEqual(res["counts"]["done"], 1)
+        self.assertEqual(res["counts"]["synced_total"], 1)
+        self.assertEqual(set(res["pending"]), {"REQ-121659-授权", "小程序"})
+        done_ids = {d["spec_id"] for d in res["done"]}
+        self.assertEqual(done_ids, {"REQ-114371-脱敏"})
 
-    def test_scan_no_specin_dir(self):
-        v = make_vault({"10-Work/知识库/sys/MEMORY.md": "## 需求反向索引\n| 需求ID | x |\n|---|---|\n| 1 | a |\n"})
+    def test_done_carries_state_metadata(self):
+        res = ks.scan(self.v, self.cfg)
+        done = next(d for d in res["done"] if d["spec_id"] == "REQ-114371-脱敏")
+        self.assertEqual(done["project_root"], "/p/a")
+        self.assertEqual(done["new_count"], 4)
+
+    def test_no_specin_dir(self):
+        v = make_vault({"README.md": "x"})
         self.addCleanup(shutil.rmtree, v, True)
         res = ks.scan(v, self.cfg)
         self.assertIsNone(res["source"])
         self.assertEqual(res["pending"], [])
         self.assertEqual(res["done"], [])
-        self.assertEqual(res["covered_ids"], ["1"])
+        self.assertEqual(res["counts"]["pending"], 0)
 
-    def test_scan_uses_config_spec_source_default(self):
-        """scan() builds default source from cfg["knowledge"]["spec_source_default"]."""
-        mem = ("## 需求反向索引\n| 需求ID | x |\n|---|---|\n| 999 | a |\n")
-        v = make_vault({
-            "10-Work/知识库/sys/MEMORY.md": mem,
-            "SpecIn/custom-source/111-proj/design.md": "x",
-        })
+    def test_explicit_source_override(self):
+        v = make_vault(
+            {
+                "SpecIn/other-source/REQ-A/requirements.md": "x",
+            }
+        )
         self.addCleanup(shutil.rmtree, v, True)
-        cfg = minimal_cfg(knowledge={"kb_root": "10-Work/知识库",
-                                     "spec_in_candidates": ["SpecIn", "spec-in"],
-                                     "spec_source_default": "custom-source",
-                                     "memory_file": "MEMORY.md",
-                                     "memory_reverse_section": "需求反向索引"})
+        res = ks.scan(v, self.cfg, "SpecIn/other-source")
+        self.assertEqual(res["source"], "SpecIn/other-source")
+        self.assertEqual(res["pending"], ["REQ-A"])
+
+    def test_scan_uses_cfg_spec_source_default(self):
+        v = make_vault({"SpecIn/custom-source/REQ-A/requirements.md": "x"})
+        self.addCleanup(shutil.rmtree, v, True)
+        cfg = minimal_cfg(
+            knowledge={
+                "spec_in_candidates": ["SpecIn"],
+                "spec_source_default": "custom-source",
+            }
+        )
         res = ks.scan(v, cfg)
         self.assertEqual(res["source"], "SpecIn/custom-source")
-        pending_keys = {k for n, k in res["pending"]}
-        self.assertIn("111", pending_keys)
+        self.assertEqual(res["pending"], ["REQ-A"])
+
+    def test_report_has_schema_version_and_timestamp(self):
+        res = ks.scan(self.v, self.cfg)
+        self.assertEqual(res["schema_version"], "1.0")
+        # ISO format with timezone
+        self.assertRegex(res["generated_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
-class ReportTest(unittest.TestCase):
-    def test_render_report(self):
-        res = {"source": "SpecIn/windows-Public/specs",
-               "covered_ids": ["114371", "121659"],
-               "systems": ["新收付（fin）"],
-               "pending": [("116274-财务中台-fap", "116274"), ("小程序", "小程序")],
-               "done": [("114371-脱敏", "114371")],
-               "mapping": {"114371": ["新收付（fin）"]}}
-        md = ks.render_report(res)
-        self.assertIn("# spec-distill 增量报告", md)
-        self.assertIn("116274-财务中台-fap", md)
-        self.assertIn("待沉淀", md)
-        self.assertIn("已覆盖", md)
-        self.assertIn("SpecIn/windows-Public/specs", md)
+class WriteReportTest(unittest.TestCase):
+    def test_writes_yml_as_json(self):
+        v = make_vault({"README.md": "x"})
+        self.addCleanup(shutil.rmtree, v, True)
+        cfg = minimal_cfg()
+        res = {
+            "schema_version": "1.0",
+            "generated_at": "2026-06-25T16:00:00+00:00",
+            "source": "SpecIn/windows-Public/specs",
+            "counts": {"pending": 1, "done": 0, "synced_total": 0},
+            "pending": ["REQ-A"],
+            "done": [],
+        }
+        path = ks.write_report(v, cfg, res)
+        self.assertTrue(os.path.isfile(path))
+        with open(path, encoding="utf-8") as f:
+            reloaded = json.loads(f.read())
+        self.assertEqual(reloaded, res)
 
 
 if __name__ == "__main__":
