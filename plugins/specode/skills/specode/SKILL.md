@@ -47,17 +47,18 @@ The resolver tries the env var first (works wherever the host exports it), verif
 | `set-root --root <abs>` | Absolute path, persisted to `~/.config/specode/config.json.specsRoot` | 0 / 1 path not absolute |
 | `list-specs [--root P]` | List subdirectory names (slugs, one per line) under root that contain `requirements.md` | 0 / 3 unconfigured |
 
-**First-time setup flow**: `get-root` exits 3 → call `AskUserQuestion` to ask the user for the document directory (absolute path, used **verbatim** as the specs root; specode makes no assumptions about its structure and appends nothing) → after the user provides it, persist with `set-root --root <abs>` → never ask again. `project_root` defaults to the **current terminal cwd** (the convention is to `cd` into the project directory before chatting) and is not asked. Path-resolution details are in `references/obsidian.md`.
+**First-time setup flow**: `get-root` exits 3 → call `AskUserQuestion` to ask the user for the document directory (absolute path, used **verbatim** as the specs root; specode makes no assumptions about its structure and appends nothing) → after the user provides it, persist with `set-root --root <abs>` → never ask again. `project_root` is **inferred per-spec** (default: `git rev-parse --show-toplevel` of cwd, falling back to cwd itself) and **confirmed once via `AskUserQuestion`** before requirements is written — see §requirements phase. Path-resolution details are in `references/obsidian.md`.
 
 ## Flow (start → coding complete)
 
 Each phase is annotated "if superpowers is installed, call it / otherwise go native". To decide "installed or not": **first try to call the matching superpowers skill via the `Skill` tool; if it is unavailable (skill missing / call fails), take the native branch.**
 
-1. **specsRoot**: `get-root` (first-time setup if missing) → obtain `<specsRoot>` → `mkdir -p <specsRoot>/<slug>/` (the host agent derives the kebab-case slug from the request); `project_root = cwd`.
+1. **specsRoot**: `get-root` (first-time setup if missing) → obtain `<specsRoot>` → `mkdir -p <specsRoot>/<slug>/` (the host agent derives the kebab-case slug from the request).
 2. **requirements (clarify + requirements)**:
    - superpowers installed → call `superpowers:brainstorming` (it internally does clarification + requirements exploration + the user-approval gate).
    - not installed → **specode-native**: the host agent clarifies with an `AskUserQuestion` wizard (2-4 blocking sub-questions), then writes per the `assets/templates/requirements.md` template.
    - Relocate the artifact to `<specsRoot>/<slug>/requirements.md` (see §superpowers orchestration + relocation).
+   - **`project_root` frontmatter (required)**: before writing requirements.md, infer the default — first `git rev-parse --show-toplevel` in cwd, fall back to cwd itself — and call `AskUserQuestion` **once** with that default pre-selected to let the user confirm or override. Persist the confirmed absolute path into the file's YAML frontmatter (`project_root: <abs path>` alongside `spec_id: <slug>` and `created_at: YYYY-MM-DD`). Downstream skills (e.g. `spec-distill`) read `project_root` from this frontmatter to write the project's `.ai-memory/knowledge/` layout.
 3. **design (executable plan)**:
    - superpowers installed → call `superpowers:writing-plans` (it internally does self-review + user review).
    - not installed → **specode-native**: break down into `## Task N` + `**Files:**` + `验证: AC-N` + `- [ ]` TDD steps per the `assets/templates/design.md` template.

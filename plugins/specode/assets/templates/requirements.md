@@ -1,3 +1,9 @@
+---
+spec_id: <kebab-case slug，与 specsRoot/<slug>/ 保持一致>
+project_root: <绝对路径；写 requirements 前由 host agent 通过 AskUserQuestion 与用户确认，默认值为当前 cwd 或 `git rev-parse --show-toplevel`>
+created_at: YYYY-MM-DD
+---
+
 # <feature> 需求
 
 > specode requirements — 散文描述 + 验收标准追溯标签。

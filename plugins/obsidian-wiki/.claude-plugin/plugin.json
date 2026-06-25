@@ -1,7 +1,7 @@
 {
   "name": "obsidian-wiki",
-  "version": "1.0.1",
-  "description": "Maintain an Obsidian LLM-Wiki: deterministic structure layer (Home tree / per-dir READMEs / partition pages), SpecIn->knowledge-base distillation + MEMORY upkeep, content curation (lint/ingest/curate), and a unified orchestrator. Generic code + per-vault .wiki/config.json, zero hardcoded structure.",
+  "version": "1.1.0",
+  "description": "Maintain an Obsidian LLM-Wiki + AI-Enterprise-Delivery-System knowledge: deterministic structure layer (Home tree / per-dir READMEs / partition pages), spec-distill v2 (writes yml knowledge to <project_root>/.ai-memory/knowledge/{rules,business,modules,cases,pitfalls}/ — discards all .md outputs), content curation (lint/ingest/curate), and a unified orchestrator. Generic code + per-vault .wiki/config.json, zero hardcoded structure.",
   "author": {
     "name": "xueqiang",
     "email": "xueqiang361@gmail.com"

@@ -1,17 +1,36 @@
-# 知识点拆分启发式
+# 知识点拆分启发式（spec-distill v2）
 
-> 供 `spec-distill sync` 流程中 LLM 提议知识点拆分时参考。拆分方案由 LLM 提议、用户最终拍板（§5.3）。
+> 供 `spec-distill sync` 流程第 4 步 LLM 提议知识点拆分时参考。
+> 拆分方案由 LLM 提议、用户在 `AskUserQuestion` 中最终拍板。
+>
+> **v2 重要变化**：5 维启发式映射到 `.ai-memory/knowledge/` 下的 **5 类目录**；
+> 每个候选知识点必须明确 `category` + `knowledge_id`（前缀必须正确）。
+> 写 `.yml` 而非 `.md` — schema 见 `references/doc-template.md`。
+
+## 五维 → 五类目录映射表
+
+| 启发式维度 | 目录 | ID 前缀 | type 字段 |
+|---|---|---|---|
+| 1. 按业务流程 | `business/` | `biz-` | `business_process` |
+| 2. 按表 / 字段 | `modules/` | `mod-` | `module_map` |
+| 3. 按功能页 / 特性 | `business/` | `biz-` | `business_process` |
+| 4. 按调用链 | `modules/` | `mod-` | `module_map` |
+| 5. 按机制 / 规则 | `rules/` | `rule-` | `business_rule` |
+| **额外**：本 spec 实现案例 | `cases/` | `case-` | `case` |
+| **额外**：可复用坑点 | `pitfalls/` | `pit-` | `pitfall` |
+
+> 每个 spec 至少产 1 篇 `case-*.yml`（必有 — 来自 `implementation-log.md`），其他类按需。`implementation-log` / `bugfix` 中"有复用价值的坑"单独拎出 `pit-*.yml`，不要塞到 case 内。
 
 ---
 
 ## 什么是一个知识点
 
-**知识点 = 一个可独立复用、可被别处 `[[..]]` 引用的结论单元。**
+**知识点 = 一个可独立复用、可被别处 `related_knowledge` 引用的结论单元。**
 
 具体说：
-- 它回答一个清晰的业务或技术问题（"这张表的 PAYSTATUS 枚举值是什么""Q01入库时 paymentComCode 怎么赋值"）。
-- 别处的知识文档或需求文档可以直接 `[[引用]]` 它，无需再重新解释。
-- 它不依赖同一项目的其他知识点也能被人看懂（自洽）。
+- 它回答一个清晰的业务或技术问题（"这张表的 PAYSTATUS 枚举值是什么""Q01 入库时 paymentComCode 怎么赋值"）。
+- 别处的知识 yml 或需求文档可以直接通过 `knowledge_id` 引用，无需再重新解释。
+- 它不依赖同一项目的其他知识点也能被读懂（自洽）。
 
 ---
 
@@ -106,9 +125,11 @@
 
 ## 拆分流程
 
-1. LLM 读完全项目文档后，按上述五种维度各提一批候选（拟标题 + 一句摘要 + 拟 tags）。
-2. 用 `AskUserQuestion` 呈现给用户，让用户**增删/合并/改名**。
-3. 用户确认后才开始写文档，**不自动跳过此步**。
+1. LLM 读完全 spec 文档后，按上述五种维度各提一批候选；**每个候选必须标注** `category` + 拟 `knowledge_id`（前缀正确）+ 拟标题 + 一句摘要 + 拟 tags。
+2. 至少强制一篇 `cases/case-<spec-id>.yml`（记录本次实现，来源 `implementation-log.md` / `bugfix.md` / `acceptance-checklist.md`）。
+3. 用 `AskUserQuestion` 呈现给用户，让用户**增删/合并/改名/改归属**。
+4. 用户确认后才开始写 `.yml`，**不自动跳过此步**。
+5. 按 `references/doc-template.md` 中对应类型的 schema 写文件到 `<project_root>/.ai-memory/knowledge/<category>/<knowledge_id>.yml`。
 
 ---
 
