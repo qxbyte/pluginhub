@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 3.3.2 (2026-06-28) — specode
+
+### Added — SessionStart hook cache vs marketplace drift hint（v0.9 试跑 M8）
+
+第二轮试跑 wework-ops-assistant 暴露真痛：merge pluginhub PR 后 host CLI 的 plugin cache 仍是旧版本（specode 3.3.0 / task-swarm 0.7.2），但 marketplace.json 已升到 3.3.1 / 0.7.3——**本会话直接走 cache 老代码，方案 D 完全不生效**；用户 / host agent 全无感知，只有"绕开 cache 直接调 git repo"才能跑出新行为。
+
+**架构修法**：spec_hooks.py 增加 `_check_plugin_cache_drift()` 静默 check（无网络访问）：
+
+1. 解析 `__file__` 推当前 hook 被哪个 cache version 装载（`/plugins/cache/<marketplace>/<plugin>/<version>/scripts/spec_hooks.py` 正则）。`--plugin-dir` 模式或不匹配 → 返回 None silently（无 drift 可查）。
+2. 找本地 pluginhub git 仓库：`$PLUGINHUB_REPO_PATH` env var → `~/Git/pluginhub` → `~/pluginhub`。都不存在 → return None silently。
+3. 读 `.claude-plugin/marketplace.json`，取当前 plugin 的版本号。
+4. 不一致时在 `additionalContext` 末尾拼一段中文提示（"⚠ specode cache drift detected ... 必须 reload Claude Code"）。
+5. 任何 exception 都吞掉（hook 是 advisory，绝不可能 noise / 阻断）。
+
+**Why 不查 GitHub API**：网络访问不能进 SessionStart hook（性能 + 失败时无 fallback）；本地 git checkout 是合理的"开发者环境"假设——非开发者（仅安装用户）不会受影响（找不到 repo 直接 silent skip）。
+
+**Tests**: 11 个 case in `tests/test_cache_drift_hint.py`，覆盖 cache 路径解析（cache vs --plugin-dir）/ pluginhub repo 发现（env var / 默认路径 / 缺失）/ marketplace.json 读取（正常 / 缺失 / 损坏）/ 集成 case（drift / no-drift / silent fallback）。specode 测试总数 33 → 44 全过。
+
 ## 3.3.1 (2026-06-28) — specode
 
 ### Added — step 2.2 注入要求渲染「## 项目级约束」段（AI-EDS v0.9 痛点 #14 方案 D）
