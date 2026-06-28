@@ -5,6 +5,14 @@ indent, block lists, flow lists, single-line scalars, single/double quoted
 strings, full-line + inline comments). Anything outside the subset raises
 ``PipelineYamlError`` with a line number and the offending construct name —
 the parser never silently mis-parses.
+
+The strict subset is a **design feature**, not a limitation worth fixing
+with PyYAML: pipeline.yml is configuration not arbitrary YAML, and the
+parser's per-construct line-number errors are higher signal than PyYAML's
+silent yes/no→bool / 1.0→float quirks. v0.9 试跑 M11（"YAML subset 不支持
+anchor/flow map"）评估结论：**不引入 PyYAML**——这违反"never silently
+mis-parse"的核心契约。如需更复杂 YAML feature，重写 pipeline.yml 为 subset
+即可。
 """
 from __future__ import annotations
 

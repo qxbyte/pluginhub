@@ -166,3 +166,71 @@ def test_project_root_none_returns_empty(tmp_path: Path) -> None:
         project_root=None,
     )
     assert "## 项目级约束（必读）" not in text
+
+
+def test_inbox_sentinel_dropped_when_agent_docs_found(tmp_path: Path) -> None:
+    """0.7.4 (M6+M10): when agent docs are scanned, an inbox sentinel
+    ``_PROJECT_AGENT_DOCS.md`` is written too — redundant signal so
+    subagents catch the constraint a second time (and inbox/ stops being
+    empty, fixing the M10 'name vs fact inconsistency')."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    claude = proj / "CLAUDE.md"
+    claude.write_text("# rules\n", encoding="utf-8")
+
+    stage = _stage(writes=["src/foo.py"])
+    run_dir = tmp_path / "run"
+    render_coder_prompt(
+        stage=stage, run_dir=run_dir, run_id="r1", spec_id="s",
+        spec_dir=str(tmp_path / "spec"), group="g1", round_=1, mode="initial",
+        project_root=str(proj),
+    )
+
+    sentinel = run_dir / "agents" / "coder-g1-s1.1-r1" / "inbox" / "_PROJECT_AGENT_DOCS.md"
+    assert sentinel.is_file(), "sentinel must exist when agent docs are found"
+    content = sentinel.read_text(encoding="utf-8")
+    assert str(claude.resolve()) in content, "sentinel must list the scanned doc paths"
+    assert "硬约束" in content
+    assert "reviewer" in content
+
+
+def test_no_sentinel_when_no_agent_docs(tmp_path: Path) -> None:
+    """If no agent docs scanned, no sentinel — inbox stays clean."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    # no CLAUDE.md anywhere
+
+    stage = _stage(writes=["src/foo.py"])
+    run_dir = tmp_path / "run"
+    render_coder_prompt(
+        stage=stage, run_dir=run_dir, run_id="r1", spec_id="s",
+        spec_dir=str(tmp_path / "spec"), group="g1", round_=1, mode="initial",
+        project_root=str(proj),
+    )
+
+    sentinel = run_dir / "agents" / "coder-g1-s1.1-r1" / "inbox" / "_PROJECT_AGENT_DOCS.md"
+    assert not sentinel.exists(), "no sentinel when no agent docs scanned"
+
+
+def test_task_md_block_carries_subdir_scan_explanation(tmp_path: Path) -> None:
+    """0.7.4 (M5): block must document the @writes-subdir scan rule so a
+    backend subagent doesn't mistake the absence of ``ops-web/CLAUDE.md``
+    for 'no relevant web-side rules exist'. Also pins the hard-constraint
+    wording (M6) and sentinel mention."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "CLAUDE.md").write_text("# rules\n", encoding="utf-8")
+
+    stage = _stage(writes=["src/foo.py"])
+    run_dir = tmp_path / "run"
+    text = render_coder_prompt(
+        stage=stage, run_dir=run_dir, run_id="r1", spec_id="s",
+        spec_dir=str(tmp_path / "spec"), group="g1", round_=1, mode="initial",
+        project_root=str(proj),
+    )
+    # M5: must mention that the path set depends on @writes
+    assert "路径覆盖规则" in text
+    assert "`@writes`" in text
+    # M6: hard-constraint wording
+    assert "Edit / Write / Bash 之前" in text
+    assert "_PROJECT_AGENT_DOCS.md" in text  # mention of the sentinel

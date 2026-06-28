@@ -108,20 +108,84 @@ def _agent_docs_paths(project_root: Optional[str],
 
 def _agent_docs_block(project_root: Optional[str],
                       writes: Optional[list[str]] = None) -> str:
-    """Render the '## 项目级约束（必读）' section, or empty string if no docs."""
+    """Render the '## 项目级约束（必读）' section, or empty string if no docs.
+
+    Path discovery is delegated to :func:`_agent_docs_paths` (3-layer scan:
+    project_root / immediate parent / each ``@writes`` directory upward to
+    project_root). The set of paths returned therefore depends on what this
+    subagent's ``@writes`` touches — different groups see different subdir
+    docs (a backend group sees ``ops-app/CLAUDE.md`` but not
+    ``ops-web/CLAUDE.md``, and vice-versa). The block header documents that
+    so subagents don't mistake the omission for "no relevant doc exists".
+
+    0.7.4 (M6) tightens the wording to a hard constraint: the reviewer
+    treats "started Edit/Bash without Read on these paths" as a violation,
+    and a companion ``_PROJECT_AGENT_DOCS.md`` sentinel is dropped into
+    the agent's inbox (see :func:`_drop_agent_docs_sentinel`) so even a
+    subagent that skims past this section catches the signal a second time.
+    """
     docs = _agent_docs_paths(project_root, writes)
     if not docs:
         return ""
     lines = [
         "## 项目级约束（必读）",
         "",
-        ("以下文件是项目/工作区根目录下的 agent 指南，**优先于本任务指令**；"
-         "subagent 进程不会自动加载它们，开工前请逐一 Read 一遍再动手"
-         "（这里仅列路径，避免内容重复占用 token）："),
+        ("⚠ 以下文件是项目 / 工作区根目录及本任务 `@writes` 上溯目录里的 agent 指南，"
+         "**优先级高于本任务指令**。subagent 进程不自动加载这些文件——"
+         "**在你发出第一个 Edit / Write / Bash 之前**必须用 Read 工具逐一读完，"
+         "否则视为违反任务边界（reviewer 会以此扣分）。"
+         "本段只列**绝对路径**，不复制内容；inbox 里还会有一份 "
+         "`_PROJECT_AGENT_DOCS.md` 二次提醒，两处一致是冗余信号设计。"),
     ]
     for p in docs:
         lines.append(f"- `{p}`")
+    lines.append("")
+    lines.append("> 路径覆盖规则：本组 task 看到的子目录 agent 文件取决于本组 `@writes` "
+                 "实际触达的子目录（如 backend 组看到 `ops-app/CLAUDE.md` 但不会看到 "
+                 "`ops-web/CLAUDE.md`）；如果某条你预期会出现的路径缺席，先确认 "
+                 "`@writes` 是否覆盖到那个子目录。")
     return "\n".join(lines) + "\n\n"
+
+
+def _drop_agent_docs_sentinel(inbox: Path, project_root: Optional[str],
+                               writes: Optional[list[str]] = None) -> None:
+    """Write ``inbox/_PROJECT_AGENT_DOCS.md`` sentinel as a redundant signal
+    of the same path list rendered in the task.md '项目级约束（必读）' block.
+
+    Rationale (M6 + M10 unified fix, 0.7.4):
+      - M6: '项目级约束' section in task.md alone relied on subagent
+        self-discipline to Read; missing a strong second-channel signal.
+      - M10: inbox/ ended up empty in every task-swarm run because no
+        orchestrator step ever populated it — the "上游产物（只读）" naming
+        was therefore name-vs-fact inconsistent.
+
+    One write addresses both: the sentinel makes inbox non-empty (truthful
+    inbox) AND duplicates the agent-doc signal in a place the subagent
+    will inevitably encounter when listing inbox contents.
+    """
+    docs = _agent_docs_paths(project_root, writes)
+    if not docs:
+        return
+    body = [
+        "# _PROJECT_AGENT_DOCS.md — sentinel",
+        "",
+        "本文件是 task-swarm 0.7.4+ 自动放在每个 subagent inbox 的二次提醒"
+        "（与 task.md 的「## 项目级约束（必读）」段冗余对齐）。",
+        "",
+        "**硬约束**：在你发出第一个 Edit / Write / Bash 之前，必须用 Read 工具"
+        "逐一读完下面列出的所有路径。reviewer 会以此扣分。",
+        "",
+        "## 必读路径（覆盖本组 @writes 触达的所有子目录）",
+        "",
+    ]
+    for p in docs:
+        body.append(f"- `{p}`")
+    body.append("")
+    body.append("> 如某路径在你的本地缺席（如 `/CLAUDE.md` 真不存在），跳过该条即可——"
+                "这是 path discovery 的 3 层兜底；只有 `is_file()` 为 true 的路径会被列出。")
+    inbox.mkdir(parents=True, exist_ok=True)
+    sentinel = inbox / "_PROJECT_AGENT_DOCS.md"
+    _atomic_write_text(sentinel, "\n".join(body) + "\n")
 
 
 # -------------------------------------------------------------------------
@@ -257,10 +321,13 @@ def render_coder_prompt(
     lines.append("")
 
     # v0.9 痛点 #14：subagent 不会自动加载项目级 CLAUDE.md/AGENT.md
-    agent_docs = _agent_docs_block(project_root, _stage_writes(stage))
+    coder_writes = _stage_writes(stage)
+    agent_docs = _agent_docs_block(project_root, coder_writes)
     if agent_docs:
         lines.append(agent_docs.rstrip("\n"))
         lines.append("")
+        # 0.7.4 (M6+M10): redundant signal sentinel in inbox
+        _drop_agent_docs_sentinel(inbox, project_root, coder_writes)
 
     if mode == "initial":
         lines.append("## 任务清单（按顺序逐条完成）")
@@ -364,6 +431,8 @@ def render_reviewer_prompt(
     if agent_docs:
         lines.append(agent_docs.rstrip("\n"))
         lines.append("")
+        # 0.7.4 (M6+M10): redundant signal sentinel in inbox
+        _drop_agent_docs_sentinel(inbox, project_root, all_writes)
     lines.append("## 评审范围")
     for s in group_stages:
         st_writes = _stage_writes(s)
@@ -447,6 +516,8 @@ def render_validator_prompt(
     if agent_docs:
         lines.append(agent_docs.rstrip("\n"))
         lines.append("")
+        # 0.7.4 (M6+M10): redundant signal sentinel in inbox
+        _drop_agent_docs_sentinel(inbox, project_root, all_writes)
     lines.append("## 验证范围")
     for s in group_stages:
         lines.append(f"- 阶段 {s.number}: {s.title}")
