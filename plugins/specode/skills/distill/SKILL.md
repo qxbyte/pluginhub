@@ -1,20 +1,20 @@
 ---
-name: specode-distill
+name: distill
 description: >
   Manually distill a single specode-managed spec into Obsidian-friendly
   markdown knowledge files. Default output: md-only, written to
   `/Volumes/External HD/Obsidian/Notes/11-KnowledgeBase/<slug>/`. Trigger
-  ONLY via `/specode:specode-distill <slug>` — never auto-triggered by
+  ONLY via `/specode:distill <slug>` — never auto-triggered by
   the main specode flow (v4.0.0+). No codemap recall, no .ai-memory yml,
   no auto-injection into future specs. Pure "human-curated wiki organizer
   for Obsidian".
 ---
 
-# specode-distill — manual Obsidian knowledge organizer
+# distill — manual Obsidian knowledge organizer
 
 ## v4.0.0 breaking redesign
 
-Previous v1-v3 specode-distill was a "knowledge ingest pipeline" that
+Previous v1-v3 distill was a "knowledge ingest pipeline" that
 wrote dual yml + md to `<project_root>/.ai-memory/knowledge/` for codemap
 recall to consume in future specs. Round 1/2 baseline experiments
 showed the memory-injection round-trip did not net save token (recall
@@ -31,7 +31,7 @@ elsewhere.
 ## Trigger
 
 ```
-/specode:specode-distill <slug> [--target-dir <abs-path>] [--format md|yml|both]
+/specode:distill <slug> [--target-dir <abs-path>] [--format md|yml|both]
 ```
 
 | Arg | Default | Meaning |

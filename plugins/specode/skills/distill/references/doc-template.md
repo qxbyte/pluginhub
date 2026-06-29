@@ -1,6 +1,6 @@
-# specode-distill — 字段参考（payload `fields` + md 正文）
+# distill — 字段参考（payload `fields` + md 正文）
 
-> **重要（FIX-2）**：specode-distill **不再手写 yml**。它构造 *content payload*
+> **重要（FIX-2）**：distill **不再手写 yml**。它构造 *content payload*
 > 交给单一写入器 `codemap knowledge write`（见 `SKILL.md` Step 5）。本文件因此
 > 是**字段参考**：每类 payload 的 `fields` 应包含哪些语义字段、md 正文长什么样。
 >

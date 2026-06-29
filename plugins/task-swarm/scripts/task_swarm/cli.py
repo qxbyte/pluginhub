@@ -1473,7 +1473,7 @@ def cmd_resolve(args: argparse.Namespace) -> int:
     # <project_root>/.ai-memory/knowledge/cases/*.yml or pitfalls/*.yml after
     # resolve. Round 1/2 baseline experiments showed memory-injection
     # round-trip did not net save token. If user wants per-spec md knowledge
-    # in Obsidian wiki, they run `/specode:specode-distill <slug>` (md-only,
+    # in Obsidian wiki, they run `/specode:distill <slug>` (md-only,
     # manual). See pluginhub backup/specode-v3.4.0-task-swarm-v0.9.2 branch
     # for the v0.9.x ingest pipeline if rollback ever needed.
 

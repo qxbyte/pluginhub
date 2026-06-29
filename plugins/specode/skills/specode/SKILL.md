@@ -1,6 +1,7 @@
 ---
 name: specode
-description: Lightweight spec-driven workflow orchestration shell. Across the requirements → design → 「执行方式」 → execute → acceptance phases it autonomously calls mature superpowers skills to do the heavy lifting (clarification, design, TDD execution, acceptance), falling back to specode-native when superpowers is absent, and files the three fixed artifacts (requirements.md / design.md / implementation-log.md) into the user's document directory. Activates only when the user invokes `/specode:specode-spec <request>`, `/specode:specode-continue <slug>`, `/specode:specode-list`, or explicitly asks to enter spec mode; otherwise behave as a normal conversation.
+user-invocable: false
+description: Lightweight spec-driven workflow orchestration shell. Across the requirements → design → 「执行方式」 → execute → acceptance phases it autonomously calls mature superpowers skills to do the heavy lifting (clarification, design, TDD execution, acceptance), falling back to specode-native when superpowers is absent, and files the three fixed artifacts (requirements.md / design.md / implementation-log.md) into the user's document directory. Activates only when the user invokes `/specode:spec <request>`, `/specode:continue <slug>`, `/specode:list`, or explicitly asks to enter spec mode; otherwise behave as a normal conversation.
 ---
 
 # specode — orchestration shell
@@ -11,7 +12,7 @@ specode is no longer a state machine. It is an **orchestration shell** that hand
 
 Activate only in one of these cases:
 
-- The current user input is `/specode:specode-spec <request>`, `/specode:specode-continue <slug>`, or `/specode:specode-list`.
+- The current user input is `/specode:spec <request>`, `/specode:continue <slug>`, or `/specode:list`.
 - The user explicitly says "use spec mode" / "按 spec 流程做" / equivalent.
 
 Otherwise **do not activate**; handle as normal conversation. There is **no session file** — whether a spec is active is inferred entirely from the **current conversation context** (which slug is running this turn) plus the **documents under that slug's directory in obsidian**. No persistent state file is ever read.
@@ -39,7 +40,7 @@ R="${CLAUDE_PLUGIN_ROOT:-$CODEBUDDY_PLUGIN_ROOT}"; [ -f "$R/scripts/run.sh" ] ||
 sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" <verb> <args...>
 ```
 
-The resolver tries the env var first (works wherever the host exports it), verifies `run.sh` actually exists there, and otherwise locates the cached install with `find` and picks the newest version (`sort -V | tail -1`) — never a hard-coded version. Use `find` (not a shell glob): under zsh an unmatched glob aborts with `no matches found`, which `2>/dev/null` does not suppress; `find` stays silent on missing dirs / no match. `run.sh` auto-probes the interpreter (`python3 → python → py`) and execs through the args. The verbs match the `commands/specode-*.md` command files:
+The resolver tries the env var first (works wherever the host exports it), verifies `run.sh` actually exists there, and otherwise locates the cached install with `find` and picks the newest version (`sort -V | tail -1`) — never a hard-coded version. Use `find` (not a shell glob): under zsh an unmatched glob aborts with `no matches found`, which `2>/dev/null` does not suppress; `find` stays silent on missing dirs / no match. `run.sh` auto-probes the interpreter (`python3 → python → py`) and execs through the args. The verbs match the `commands/*.md` command files:
 
 | verb | Purpose | exit |
 |---|---|---|
@@ -80,7 +81,7 @@ else
 fi
 ```
 
-**project_root single-source-of-truth rule 🔒**: project_root lives in exactly one place — the spec's `requirements.md` frontmatter. specode writes it once (via `write-project-root`); every later phase and downstream skill (specode-distill, task-swarm) obtains it via `read-project-root`. No component re-derives it from cwd / workdir / guessing.
+**project_root single-source-of-truth rule 🔒**: project_root lives in exactly one place — the spec's `requirements.md` frontmatter. specode writes it once (via `write-project-root`); every later phase and downstream skill (distill, task-swarm) obtains it via `read-project-root`. No component re-derives it from cwd / workdir / guessing.
 
 **First-time setup flow**: `get-root` exits 3 → call `AskUserQuestion` to ask the user for the document directory (absolute path, used **verbatim** as the specs root; specode makes no assumptions about its structure and appends nothing) → after the user provides it, persist with `set-root --root <abs>` → never ask again. `project_root` is **inferred per-spec** (default: `git rev-parse --show-toplevel` of cwd, falling back to cwd itself) and **confirmed once via `AskUserQuestion`** before requirements is written — see §requirements phase. Path-resolution details are in `references/obsidian.md`.
 
@@ -104,7 +105,7 @@ Each phase is annotated "if superpowers is installed, call it / otherwise go nat
 
       为何 path-only 而非内容拷贝：主 agent 的上下文里已经有完整内容，requirements.md 复制一遍只是冗余 + 内容陈旧风险。task-swarm 0.7.3+ 渲染 task.md 时会按同样的扫描规则把这些路径塞进 coder/reviewer/validator prompt（subagent 进程不自动加载这些文件，必须用路径告知），所以 specode + task-swarm 联合保证从 requirements → design → 执行 → subagent 整条链路都看得见项目级约束。若一个文件都没扫到（典型的 fresh 项目），**整段省略**（不要写「无」之类占位）。
 
-      > **v4.0.0 BREAKING**: 之前的 P3-1 codemap recall 注入 prior knowledge 段 + 冷启动 code_context 段 **已被完全移除**。requirements.md 不再含 `## 已知约束 / 历史坑` 段，不再自动从 `.ai-memory/knowledge/` 召回任何东西。如果你想手动整理 prior knowledge 到 Obsidian wiki，用 `/specode:specode-distill <slug>` (md-only, 见 §specode-distill)。
+      > **v4.0.0 BREAKING**: 之前的 P3-1 codemap recall 注入 prior knowledge 段 + 冷启动 code_context 段 **已被完全移除**。requirements.md 不再含 `## 已知约束 / 历史坑` 段，不再自动从 `.ai-memory/knowledge/` 召回任何东西。如果你想手动整理 prior knowledge 到 Obsidian wiki，用 `/specode:distill <slug>` (md-only, 见 §distill)。
    3. **draft requirements**:
       - superpowers installed → call `superpowers:brainstorming` (it internally does clarification + requirements exploration + the user-approval gate).
       - not installed → **specode-native**: the host agent clarifies with an `AskUserQuestion` wizard (2-4 blocking sub-questions), then writes per the `assets/templates/requirements.md` template.
@@ -128,7 +129,7 @@ Each phase is annotated "if superpowers is installed, call it / otherwise go nat
    - not installed → **specode-native**: the host agent verifies item by item against `design.md` test points / the `AC-N` in `requirements.md`.
    - Say "请验收" in prose and write an acceptance summary in `implementation-log.md`. **There is no formal acceptance-gate selector.**
 
-   > **v4.0.0 BREAKING**: 之前的 acceptance 后**自动 AskUserQuestion 触发 distill** sub-step **已被完全移除**。acceptance 写完即结束，不再询问沉淀。如需手动沉淀本 spec 知识到 Obsidian wiki, 后续运行 `/specode:specode-distill <slug>` (md-only, 默认写到 `/Volumes/External HD/Obsidian/Notes/11-KnowledgeBase/<slug>/`, 详见 `skills/specode-distill/SKILL.md`)。
+   > **v4.0.0 BREAKING**: 之前的 acceptance 后**自动 AskUserQuestion 触发 distill** sub-step **已被完全移除**。acceptance 写完即结束，不再询问沉淀。如需手动沉淀本 spec 知识到 Obsidian wiki, 后续运行 `/specode:distill <slug>` (md-only, 默认写到 `/Volumes/External HD/Obsidian/Notes/11-KnowledgeBase/<slug>/`, 详见 `skills/distill/SKILL.md`)。
 
 phase ↔ skill quick map: `requirements` → brainstorming; `design` → writing-plans; execution → subagent-driven-development / executing-plans (the task-swarm path does not use superpowers); acceptance → verification-before-completion / requesting-code-review.
 
@@ -169,7 +170,7 @@ When presenting, pass question / header / options **verbatim** per the `referenc
 
 ## Continuation (documents-as-state)
 
-`/specode:specode-continue <slug>` (slug required; missing or nonexistent → error + suggest `/specode:specode-list` first): locate `<specsRoot>/<slug>/`, read the directory contents, and infer the phase to resume per this table:
+`/specode:continue <slug>` (slug required; missing or nonexistent → error + suggest `/specode:list` first): locate `<specsRoot>/<slug>/`, read the directory contents, and infer the phase to resume per this table:
 
 | Directory state | Inferred phase | Resume action |
 |---|---|---|
@@ -178,7 +179,7 @@ When presenting, pass question / header / options **verbatim** per the `referenc
 | has `design.md` with unchecked `- [ ]` Tasks | executing | resume execution (task-swarm checks run state / superpowers resumes executing-plans / native resumes sequentially) |
 | all Tasks in `design.md` checked | complete | run acceptance / report already complete |
 
-`/specode:specode-list` lists every spec under `<specsRoot>` with each one's inferred phase (for looking up slugs / overview; **does not resume**); if there are no specs → suggest `/specode:specode-spec <request>` first.
+`/specode:list` lists every spec under `<specsRoot>` with each one's inferred phase (for looking up slugs / overview; **does not resume**); if there are no specs → suggest `/specode:spec <request>` first.
 
 ## task-swarm handoff (zero hard dependency)
 
