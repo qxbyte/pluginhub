@@ -4,6 +4,26 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → exec
 
 ## Unreleased
 
+## 5.0.0 (2026-06-30) — BREAKING: 命令去 `specode-` 前缀 + 内核 skill 隐藏
+
+命令名 = specode 的 semver API surface。本版把命令去掉冗余的 `specode-` 前缀（插件命名空间已提供 `specode:`），并把不该被直接点的编排内核 skill 从斜杠菜单隐藏 —— 对齐 superpowers 的命名形态（无裸 `/superpowers`）。
+
+### Changed (BREAKING — 命令重命名)
+
+- `/specode:specode-spec` → **`/specode:spec`**（`commands/specode-spec.md` → `commands/spec.md`）
+- `/specode:specode-continue` → **`/specode:continue`**（`commands/specode-continue.md` → `commands/continue.md`）
+- `/specode:specode-list` → **`/specode:list`**（`commands/specode-list.md` → `commands/list.md`）
+- `/specode:specode-distill` → **`/specode:distill`**（`commands/specode-distill.md` → `commands/distill.md`）
+- distill skill 目录 `skills/specode-distill/` → **`skills/distill/`**，frontmatter `name: specode-distill` → `name: distill`
+
+### Changed (斜杠菜单)
+
+- 编排内核 skill `specode`（`skills/specode/SKILL.md`）加 `user-invocable: false` —— 裸 `/specode` 不再出现在斜杠菜单（它只应经上述命令 / 「按 spec 流程做」自然语言激活，Claude 仍可自动调用）
+
+### Migration
+
+- 把 `/specode:specode-X` 改成 `/specode:X` 即可，行为不变。SessionStart 提示文案、主 SKILL、references、README（EN/zh）、CLAUDE.md 已全部同步。CHANGELOG 历史条目按惯例保留旧命令名。
+
 ## 4.0.0 (2026-06-29) — BREAKING: 拔出记忆注入工程
 
 Round 1/2 baseline 实验 (`/Volumes/External HD/Obsidian/Notes/07-Ideas/AI-Enterprise-Delivery-System/基线AB对照实验/`) 证明: 记忆注入未 net 节省 token。用户决策完全拔出, specode 专注 "spec → design → execute → acceptance 编排" 本质能力。

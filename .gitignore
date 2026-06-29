@@ -8,3 +8,4 @@ state/*
 .pytest_cache/
 .claude/
 DEV.md
+.venv/
