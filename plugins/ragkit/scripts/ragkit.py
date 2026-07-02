@@ -149,6 +149,26 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    from rag.evaluate import run_evalset
+
+    kb = Path(args.kb).resolve()
+    evalset_path = Path(args.evalset) if args.evalset else (
+        Path(__file__).resolve().parent / "rag" / "evalset.json")
+    evalset = json.loads(evalset_path.read_text(encoding="utf-8"))
+    channels_filter = args.channels.split(",") if args.channels else None
+    report = run_evalset(kb, evalset, top=args.top, channels_filter=channels_filter)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=1))
+    else:
+        print(f"n={report['n']}  recall@{args.top}={report['recall_at_top']}  mrr={report['mrr']}")
+        for b, m in report["by_bucket"].items():
+            print(f"  [{b}] n={m['n']} recall={m['recall_at_top']} mrr={m['mrr']}")
+        for miss in report["misses"]:
+            print(f"  MISS: {miss['query']} → got {miss['got'][:3]}")
+    return 0
+
+
 def cmd_backend(args: argparse.Namespace) -> int:
     kb = Path(args.kb).resolve()
     if args.action == "set":
@@ -212,6 +232,14 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--base-url", default="")
     b.add_argument("--key-env", default="")
     b.set_defaults(func=cmd_backend)
+
+    ev = sub.add_parser("eval", help="run golden evalset")
+    ev.add_argument("--kb", default="./knowledge-base")
+    ev.add_argument("--evalset", default="")
+    ev.add_argument("--top", type=int, default=5)
+    ev.add_argument("--channels", default="")
+    ev.add_argument("--json", action="store_true")
+    ev.set_defaults(func=cmd_eval)
     return p
 
 

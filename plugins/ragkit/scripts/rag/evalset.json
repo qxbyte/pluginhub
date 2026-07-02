@@ -1,0 +1,18 @@
+[
+  {"query": "银行账号在页面展示需要脱敏，规则是什么", "expect": ["114371-mask-bank-account-rule"], "bucket": "case"},
+  {"query": "加密表的查询日期字段应该用创建日期还是更新日期", "expect": ["114371-encrypt-date-field-convention"], "bucket": "case"},
+  {"query": "加密接口从单个 transDate 参数改成起止日期", "expect": ["114371-encrypt-interface-date-refactor"], "bucket": "case"},
+  {"query": "加密任务多张表并行处理，线程池怎么收集错误", "expect": ["114371-encrypt-parallel-threadpool"], "bucket": "case"},
+  {"query": "收付系统哪些页面的银行账号要脱敏，编辑场景怎么处理", "expect": ["114371-mask-pages-scope"], "bucket": "case"},
+  {"query": "按收付登记号查询授权的后端三步链路", "expect": ["121659-authority-query-by-paymentno-chain"], "bucket": "case"},
+  {"query": "SfPlanAuthority 页面收付登记号查询模式的联动逻辑", "expect": ["121659-planauthority-vue-paymentno-query-mode"], "bucket": "case"},
+  {"query": "sfpolicypayment 分片表新增更新方法要走什么模式", "expect": ["121659-sfpolicypayment-update-routeutil-pattern"], "bucket": "case"},
+  {"query": "Q01 承保数据送收付入库的全流程", "expect": ["121659-underwriting-q01-trans-payment-flow"], "bucket": "case"},
+  {"query": "见费出单收付授权保存时哪些表要同步 paymentComCode", "expect": ["123000-cod-authority-save-three-table-sync"], "bucket": "case"},
+  {"query": "理赔批量结算批次明细领款人一致性校验在哪里做", "expect": ["124620-q18-payee-consistency-check"], "bucket": "case"},
+  {"query": "共保批量结算 coinsCode 一致性校验", "expect": ["124620-q27-coins-consistency-check"], "bucket": "case"},
+  {"query": "见费出单收款页面在哪个文件，提交接口是什么", "expect": ["cod-receipt-page"], "bucket": "navigation"},
+  {"query": "加密相关的表和方法入口有哪些", "expect": ["encryption-tables-methods-entry"], "bucket": "navigation"},
+  {"query": "收付授权页面见费和非见费有什么区别", "expect": ["payment-authority-cod-vs-noncod"], "bucket": "navigation"},
+  {"query": "预收账户现金流水在哪里看", "expect": ["prereceive-account-cashflow"], "bucket": "navigation"}
+]
