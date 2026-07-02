@@ -150,3 +150,9 @@ def test_bundled_evalset_is_valid_json():
     data = json.loads((Path(rag.__file__).parent / "evalset.json").read_text(encoding="utf-8"))
     assert len(data) >= 15
     assert all({"query", "expect", "bucket"} <= set(item) for item in data)
+
+
+def test_cli_eval_unknown_channel_returns_2(kb, run_cli):
+    res = run_cli("eval", "--kb", str(kb), "--channels", "lexcial")
+    assert res.returncode == 2
+    assert "未知通道" in res.stderr
