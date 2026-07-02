@@ -69,12 +69,50 @@ def test_list_specs_lists_dirs_with_requirements(run_script, fake_home, tmp_path
     (root / "login" / "requirements.md").write_text("# login", encoding="utf-8")
     (root / "payment").mkdir()
     (root / "payment" / "requirements.md").write_text("# payment", encoding="utf-8")
-    (root / "not-a-spec").mkdir()  # no requirements.md → excluded
+    (root / "not-a-spec").mkdir()  # 只装无关内容、无任何固定产物 → excluded
+    (root / "not-a-spec" / "notes.txt").write_text("misc", encoding="utf-8")
     run_script("resolve_root.py", "set-root", "--root", str(root))
     cp = run_script("resolve_root.py", "list-specs")
     assert cp.returncode == 0, cp.stderr
     slugs = set(cp.stdout.split())
     assert slugs == {"login", "payment"}
+
+
+def test_list_specs_includes_empty_intake_dir(run_script, fake_home, tmp_path):
+    # intake 阶段：目录已 mkdir、requirements.md 未写 → 也要在 list 里可见，
+    # 与续接表的 intake 状态保持一致。
+    root = tmp_path / "specs-root"
+    (root / "login").mkdir(parents=True)
+    (root / "login" / "requirements.md").write_text("# login", encoding="utf-8")
+    (root / "fresh-intake").mkdir()  # 空目录 = intake
+    run_script("resolve_root.py", "set-root", "--root", str(root))
+    cp = run_script("resolve_root.py", "list-specs")
+    assert cp.returncode == 0, cp.stderr
+    slugs = set(cp.stdout.split())
+    assert slugs == {"login", "fresh-intake"}
+
+
+def test_list_specs_includes_dir_with_any_fixed_doc(run_script, fake_home, tmp_path):
+    # 只有 design.md（无 requirements.md）的目录也是 spec，不应隐身。
+    root = tmp_path / "specs-root"
+    (root / "half-done").mkdir(parents=True)
+    (root / "half-done" / "design.md").write_text("# d", encoding="utf-8")
+    run_script("resolve_root.py", "set-root", "--root", str(root))
+    cp = run_script("resolve_root.py", "list-specs")
+    assert cp.returncode == 0, cp.stderr
+    assert set(cp.stdout.split()) == {"half-done"}
+
+
+def test_list_specs_excludes_hidden_dirs(run_script, fake_home, tmp_path):
+    # specsRoot 常是 Obsidian vault 子目录：.obsidian 等隐藏目录（即使为空）不是 spec。
+    root = tmp_path / "specs-root"
+    (root / ".obsidian").mkdir(parents=True)
+    (root / "login").mkdir()
+    (root / "login" / "requirements.md").write_text("# login", encoding="utf-8")
+    run_script("resolve_root.py", "set-root", "--root", str(root))
+    cp = run_script("resolve_root.py", "list-specs")
+    assert cp.returncode == 0, cp.stderr
+    assert set(cp.stdout.split()) == {"login"}
 
 
 def test_list_specs_unconfigured_exits_3(run_script, fake_home):

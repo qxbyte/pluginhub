@@ -4,7 +4,9 @@
 verbs:
   get-root  [--root P]   解析 specsRoot：--root > env SPECODE_ROOT > config.specsRoot
   set-root  --root P     绝对路径，持久化到 ~/.config/specode/config.json.specsRoot
-  list-specs [--root P]  列出 root 下含 requirements.md 的子目录名（每行一个 slug）
+  list-specs [--root P]  列出 root 下的 spec 目录名（每行一个 slug）：含任一固定产物
+                         （requirements/design/implementation-log.md）的子目录，或
+                         空子目录（intake：目录已建、requirements 未写）；隐藏目录除外
 
   resolve-project-root [--cwd P]   计算 project_root 默认值（git toplevel || cwd），供
                                    host agent AskUserQuestion 确认用
@@ -112,6 +114,23 @@ def cmd_set_root(args) -> int:
     return 0
 
 
+_FIXED_DOCS = ("requirements.md", "design.md", "implementation-log.md")
+
+
+def _is_spec_dir(child: Path) -> bool:
+    """含任一固定产物 → spec；空目录 → intake spec（目录已建、requirements 未写）。
+    只装无关内容的目录（如 attachments/）不算 spec。"""
+    if any((child / doc).exists() for doc in _FIXED_DOCS):
+        return True
+    try:
+        next(child.iterdir())
+    except StopIteration:
+        return True  # 空目录 = intake
+    except OSError:
+        return False
+    return False
+
+
 def cmd_list_specs(args) -> int:
     root = _resolve(args.root)
     if not root:
@@ -121,7 +140,9 @@ def cmd_list_specs(args) -> int:
     if not base.is_dir():
         return 0  # 配置了但目录还不存在 → 空列表
     for child in sorted(base.iterdir()):
-        if child.is_dir() and (child / "requirements.md").exists():
+        if child.name.startswith("."):
+            continue  # .obsidian / .git 等隐藏目录不是 spec
+        if child.is_dir() and _is_spec_dir(child):
             sys.stdout.write(child.name + "\n")
     return 0
 
