@@ -4,6 +4,14 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → exec
 
 ## Unreleased
 
+## 5.2.0 (2026-07-03)
+
+### Changed / Fixed
+- retrieval.md Tier-0 RagKit gate 探针从 `test -d .ragkit` 收紧为
+  `test -f .ragkit/chunks.json`，消除 `backend set` 只写 config.json
+  时的假阳性（索引尚未构建即触发 gate）。
+- Tier-0 采纳条目封顶 Tier-2 同等纪律：默认 ≤5 点/phase，复杂需求可标注理由突破。
+
 ### Added
 - retrieval.md 新增 Tier-0 RagKit gate：检测到 ragkit 插件 + 已建索引时，
   requirements/design 的经验检索改走 `ragkit:query` 多路召回（模型自主提炼检索词、

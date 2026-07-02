@@ -10,7 +10,7 @@
 - **status 漂移检测**（`cmd_status`）：报告 `n_docs_on_disk` / `n_docs_indexed` / `n_chunks` / `backend_resolved` / `index_stale`，并列出 `drift.missing_from_index` 与 `drift.deleted_on_disk`，支持 `--json`。
 - **eval harness + 16 条 golden 问题**（`cmd_eval` + `scripts/rag/evalset.json`）：12 条 case bucket（收付/加密/授权场景）+ 4 条 navigation bucket，输出整体 `recall@top` + `MRR` 及按 bucket 分项，MISS 列表辅助调试；`--channels` 支持词汇基线与全通道对比。
 - **4 个 Claude Code 技能**（`skills/embed|query|status|eval/SKILL.md`）：斜杠命令 `/ragkit:embed` / `/ragkit:query` / `/ragkit:status` / `/ragkit:eval`，含退出码 3 固定块转述规则和降级指引。
-- **specode Tier-0 RagKit gate**（见 specode CHANGELOG v5.1.x）：specode `retrieval.md` 新增 Tier-0 gate，检测到 `ragkit:query` skill + 已建索引时，requirements / design 的经验检索自动走多路召回；未安装 / 未建索引零成本跳过。
+- **specode Tier-0 RagKit gate**（见 specode 5.2.0 CHANGELOG）：specode `retrieval.md` 新增 Tier-0 gate，检测到 `ragkit:query` skill + 已建索引时，requirements / design 的经验检索自动走多路召回；未安装 / 未建索引零成本跳过。
 - **后端解析优先级**（`scripts/rag/backend.py`）：`显式 cfg > 本地模型已缓存 > 云端 API 已配置 > none`；5 个内置 preset（openai / qwen / zhipu / voyage / azure）；`uv run` sidecar（`ragkit_local_embed.py`）隔离 torch / sentence-transformers 重型依赖。
 - **chunker**（`scripts/rag/chunker.py`）：按 H2/H3 切片，保留 frontmatter 元数据（category / title / description / source / tags）。
 - **hermetic 测试套件**：41 个 pytest cases，全用 dummy 后端，无网络、无模型依赖。
