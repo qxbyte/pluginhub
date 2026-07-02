@@ -126,7 +126,7 @@ Resolution order (no cwd / `~/specs` fallback):
 2. `~/.config/specode/config.json.specsRoot` (the normal source — read on every activation)
 3. None → **first-time setup**: `get-root` exits 3; the active `commands/*.md` command then calls `AskUserQuestion` for the user's document directory and calls `set-root --root <abs>` to persist it. The user-provided directory is used **verbatim as the specs root** — specode makes no structural assumptions and does no path concatenation.
 
-verbs: `get-root [--root P]` (exit 0/3), `set-root --root <abs>` (exit 0/1), `list-specs [--root P]` (lists subdirs containing `requirements.md`, one slug per line). Config writes use `tempfile + os.replace + fsync` (`_atomic_write_json`).
+verbs: `get-root [--root P]` (exit 0/3), `set-root --root <abs>` (exit 0/1), `list-specs [--root P]` (lists spec slugs one per line: subdirs containing any of the 3 fixed docs, plus empty subdirs — intake-phase specs whose dir exists but requirements.md is not yet written; hidden dirs excluded). Config writes use `tempfile + os.replace + fsync` (`_atomic_write_json`).
 
 There is **no** persistent state file. "Am I in an active spec, and which phase?" is inferred entirely from (a) the current conversation context (which slug this turn is driving) + (b) which fixed docs exist in `<specsRoot>/<slug>/` + (c) `- [ ]` checkbox progress in `design.md`. This is the **文档即状态** principle — see SKILL.md §续接 for the inference table.
 

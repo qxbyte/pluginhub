@@ -46,7 +46,7 @@ The resolver tries the env var first (works wherever the host exports it), verif
 |---|---|---|
 | `get-root [--root P]` | Resolve specsRoot (`--root` > env `SPECODE_ROOT` > config.specsRoot) | 0 ok / 3 unconfigured |
 | `set-root --root <abs>` | Absolute path, persisted to `~/.config/specode/config.json.specsRoot` | 0 / 1 path not absolute |
-| `list-specs [--root P]` | List subdirectory names (slugs, one per line) under root that contain `requirements.md` | 0 / 3 unconfigured |
+| `list-specs [--root P]` | List spec slugs (one per line) under root: subdirs containing any fixed doc (`requirements.md` / `design.md` / `implementation-log.md`) **plus empty subdirs (intake — dir created, requirements not yet written)**; hidden dirs excluded | 0 / 3 unconfigured |
 | `resolve-project-root [--cwd P]` | Compute the project_root default (`git rev-parse --show-toplevel` of cwd, else cwd) for the user to confirm | 0 |
 | `write-project-root --spec <dir\|file> --root <abs>` | **Single writer** of project_root → spec's requirements.md frontmatter (validates absolute / dir exists / `/Volumes` mounted) | 0 / 1 invalid |
 | `read-project-root --spec <dir\|file>` | **Single reader** of project_root from requirements.md frontmatter — all downstream skills use this | 0 / 3 missing field / 4 invalid value |
