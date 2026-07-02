@@ -114,6 +114,41 @@ def cmd_embed(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_status(args: argparse.Namespace) -> int:
+    from rag.pipeline import _index_stale
+
+    kb = Path(args.kb).resolve()
+    chunks = store.load_chunks(kb)
+    disk_ids = sorted(
+        p.stem for s in ("cases", "navigation") if (kb / s).is_dir()
+        for p in (kb / s).glob("*.md")
+    )
+    indexed_ids = sorted({c["knowledge_id"] for c in chunks})
+    kind, _opts = backend.resolve(backend.load_config(kb))
+    s = {
+        "kb": str(kb),
+        "index_exists": bool(chunks),
+        "n_docs_on_disk": len(disk_ids),
+        "n_docs_indexed": len(indexed_ids),
+        "n_chunks": len(chunks),
+        "model_id": store.load_model_id(kb),
+        "backend_resolved": kind,
+        "index_stale": _index_stale(kb) if chunks else False,
+        "drift": {
+            "missing_from_index": [i for i in disk_ids if i not in indexed_ids],
+            "deleted_on_disk": [i for i in indexed_ids if i not in disk_ids],
+        },
+    }
+    if args.json:
+        print(json.dumps(s, ensure_ascii=False, indent=1))
+    else:
+        for k, v in s.items():
+            print(f"{k}: {v}")
+    if kind == "none":
+        print(backend.no_backend_block())
+    return 0
+
+
 def cmd_backend(args: argparse.Namespace) -> int:
     kb = Path(args.kb).resolve()
     if args.action == "set":
@@ -163,6 +198,11 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--kb", default="./knowledge-base")
     e.add_argument("--rebuild", action="store_true")
     e.set_defaults(func=cmd_embed)
+
+    st = sub.add_parser("status", help="index health / drift")
+    st.add_argument("--kb", default="./knowledge-base")
+    st.add_argument("--json", action="store_true")
+    st.set_defaults(func=cmd_status)
 
     b = sub.add_parser("backend", help="cloud backend config")
     b.add_argument("action", choices=["set", "show", "reset"])
