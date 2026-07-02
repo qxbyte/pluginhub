@@ -24,6 +24,16 @@ def test_save_without_vectors(kb):
     assert store.load_chunks(kb)
 
 
+def test_vectors_deleted_when_none(kb):
+    chunks = chunk_kb(kb)
+    vecs = np.ones((len(chunks), 4), dtype="float32")
+    store.save_index(kb, chunks, vecs, "m")
+    assert (store.index_dir(kb) / "vectors.npy").is_file()
+    store.save_index(kb, chunks, None, "m")
+    assert not (store.index_dir(kb) / "vectors.npy").is_file()
+    assert store.load_vectors(kb) is None
+
+
 def test_gitignore_written_once(kb):
     chunks = chunk_kb(kb)
     store.save_index(kb, chunks, None, "")
