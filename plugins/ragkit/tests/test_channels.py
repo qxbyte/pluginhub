@@ -34,3 +34,11 @@ def test_rrf_fuse_rewards_multi_channel_agreement():
     assert fused[0]["knowledge_id"] == "b"
     assert fused[0]["ranked_by"] == ["lexical", "metadata", "vector"]
     assert fused[0]["rrf_score"] > fused[1]["rrf_score"]
+
+
+def test_rrf_fuse_lexical_weight_boosts_exact_evidence():
+    fused = rrf_fuse({"lexical": ["a"], "vector": ["b"]})
+    assert fused[0]["knowledge_id"] == "a"          # 1.2/61 > 1.0/61
+    even = rrf_fuse({"lexical": ["a"], "vector": ["b"]}, weights={})
+    assert even[0]["knowledge_id"] == "a"           # 等权时按 id tie-break
+    assert even[0]["rrf_score"] == even[1]["rrf_score"]

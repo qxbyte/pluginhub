@@ -13,20 +13,28 @@
 - **specode Tier-0 RagKit gate**（见 specode 5.2.0 CHANGELOG）：specode `retrieval.md` 新增 Tier-0 gate，检测到 `ragkit:query` skill + 已建索引时，requirements / design 的经验检索自动走多路召回；未安装 / 未建索引零成本跳过。
 - **后端解析优先级**（`scripts/rag/backend.py`）：`显式 cfg > 本地模型已缓存 > 云端 API 已配置 > none`；5 个内置 preset（openai / qwen / zhipu / voyage / azure）；`uv run` sidecar（`ragkit_local_embed.py`）隔离 torch / sentence-transformers 重型依赖。
 - **chunker**（`scripts/rag/chunker.py`）：按 H2/H3 切片，保留 frontmatter 元数据（category / title / description / source / tags）。
-- **hermetic 测试套件**：41 个 pytest cases，全用 dummy 后端，无网络、无模型依赖。
+- **hermetic 测试套件**：45 个 pytest cases，全用 dummy 后端，无网络、无模型依赖。
 
-### 验收数字（真实语料，仅词汇+元数据路）
+### 验收数字（真实语料）
 
-语料：`/Users/xueqiang/Git/knowledge-base`（30 cases + 18 navigation = 48 文档，146 chunks）。
+语料：`/Users/xueqiang/Git/knowledge-base`（30 cases + 18 navigation = 48 文档，146 chunks）；
+本地后端 `local::Qwen/Qwen3-Embedding-0.6B`；通道权重经优化轮 E2c 选定（lexical 1.2）。
+
+标准 golden 集（16 条真实需求式 query）：
 
 ```
-n=16  recall@5=0.9375  mrr=0.8125
-  [case] n=12 recall=0.9167 mrr=0.8125
-  [navigation] n=4 recall=1.0 mrr=0.8125
-MISS: 按收付登记号查询授权的后端三步链路
-      → got ['121659-premium-query-paymentno-dialog-chain',
-              '123000-cod-authority-new-components',
-              '123000-cod-authority-save-three-table-sync']
+词汇+元数据基线:  n=16  recall@5=0.9375  mrr=0.8125
+全通道(优化后):   n=16  recall@5=0.9375  mrr=0.8250   ← ≥ 基线
+共同 MISS: 按收付登记号查询授权的后端三步链路（语料仅有 paymentNo 字样，词面/语义均难桥接）
 ```
 
-全通道（向量）验收数字待配置向量后端后补录（本机无 uv/模型缓存/API key）。
+语义压力集（6 条同义改写 query：脱敏→打码、见费出单→先收保费后出单等）：
+
+```
+词汇+元数据基线:  n=6  recall@5=0.8333  mrr=0.5889
+全通道(优化后):   n=6  recall@5=0.8333  mrr=0.6111   ← 向量路对改写措辞的增益
+共同 MISS: 水单号查授权信息走哪几步（行业黑话，向量亦无法桥接）
+```
+
+优化轮结论：TOP_CHUNK_HITS 与 RRF k 不敏感；通道权重是唯一有效杠杆，
+lexical 1.2 是两个评测集上全通道均 ≥ 各自基线的唯一配置（详见 Obsidian ragkit-test-report）。
