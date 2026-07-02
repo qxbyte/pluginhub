@@ -28,7 +28,8 @@ uv run plugins/ragkit/scripts/ragkit.py embed --kb <知识库路径>
 ```sh
 uv run plugins/ragkit/scripts/ragkit_local_embed.py install
 
-# 国内网络请先设置镜像
+# 直连超时再尝试镜像（若镜像报 connect 错误，去掉该变量直连——
+# 镜像 308 跳转与新版 huggingface_hub 不兼容，install 会自动直连重试）
 export HF_ENDPOINT=https://hf-mirror.com
 uv run plugins/ragkit/scripts/ragkit_local_embed.py install
 ```
