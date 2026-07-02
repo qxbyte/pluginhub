@@ -4,6 +4,11 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → exec
 
 ## Unreleased
 
+### Added
+- retrieval.md 新增 Tier-0 RagKit gate：检测到 ragkit 插件 + 已建索引时，
+  requirements/design 的经验检索改走 `ragkit:query` 多路召回（模型自主提炼检索词、
+  可多轮多角度）；未安装/未建索引零成本跳过，原两级 gated 流程不变。零依赖（zero-import）。
+
 ## 5.1.2 (2026-06-30) — distill 打磨（gitignore 非 git 跳过 / copy-to / nav 来源单值）
 
 承接 5.1.1，第二轮真实项目试跑后的打磨项。
