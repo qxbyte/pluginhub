@@ -29,12 +29,12 @@
 
 - **编排外壳，不是重型引擎。** specode 把每个阶段委托给成熟的 superpowers 技能（`brainstorming` → `writing-plans` → `subagent-driven-development` / `executing-plans` → `verification-before-completion`），自身只管规格生命周期、文档落盘和 task-swarm 衔接。
 - **原生降级，一等公民。** 没有 superpowers？specode 用 `AskUserQuestion` 向导 + 顺序 TDD 自己跑澄清 / 规划 / 执行 / 验收循环，原生路径与 superpowers 路径地位相同，不是凑数的备选。
-- **3 份固定文档，固定命名，固定位置。** 每条规格产出 `requirements.md` / `design.md` / `implementation-log.md`，统一落在 `<specsRoot>/<slug>/` 下，无论用哪种引擎生成内容。缺陷修复用 `requirements.md` 散文描述，不单独建 `bugfix.md`。
-- **文档即状态。** 无持久状态文件，无锁，无状态行 footer，无日志。"我在哪个阶段？"由已存在的文档以及 `design.md` 中 `- [ ]` 勾选进度推断得出。
-- **单一自适应选择器。** `design.md` 确认后，`AskUserQuestion` 选择器动态呈现最多 4 条执行路径——仅展示当前已安装引擎对应的选项：委托 task-swarm / superpowers subagent-driven / superpowers executing-plans / specode 自执行。
+- **4 份固定文档，固定命名，固定位置。** 每条规格产出 `requirements.md` / `design.md`（传统设计文档：架构 / 模块 / 接口 / 数据流）/ `tasks.md`（可执行计划，引擎中立）/ `implementation-log.md`，统一落在 `<specsRoot>/<slug>/` 下，无论用哪种引擎生成内容。缺陷修复用 `requirements.md` 散文描述，不单独建 `bugfix.md`。
+- **文档即状态。** 无持久状态文件，无锁，无状态行 footer，无日志。"我在哪个阶段？"由已存在的文档以及 `tasks.md` 中 `- [ ]` 勾选进度推断得出（5.x 存量 spec 看 `design.md`）。
+- **单一自适应选择器。** `tasks.md` 确认后，`AskUserQuestion` 选择器动态呈现最多 4 条执行路径——仅展示当前已安装引擎对应的选项：委托 task-swarm / superpowers subagent-driven / superpowers executing-plans / specode 自执行。
 - **首次使用问一次目录。** 第一次使用时，specode 询问你的文档管理目录，将其**原样**作为规格根目录持久化到 `~/.config/specode/config.json.specsRoot`，之后不再询问。
 - **单个轻量 hook。** 仅一个 `SessionStart` 提醒式 hook，告知代理 specode 可用，不阻断，无逐轮机制。
-- **并发执行是独立插件。** 选"委托 task-swarm"后，specode 读取 `design.md` 派生 `pipeline.yml`，零 import 衔接独立的 **task-swarm** 插件。
+- **并发执行是独立插件。** 选"委托 task-swarm"后，specode 读取 `tasks.md` 派生 `pipeline.yml`，零 import 衔接独立的 **task-swarm** 插件。
 - **项目级约束沿链路传递。** specode + task-swarm（AI-EDS v0.9 痛点 #14 方案 D，保留至 v4.0.0 / v0.10.0）扫 `<project_root>` 根 / 直接父目录 / 任何被 `@writes` 触达的子目录里的 `CLAUDE.md` / `AGENT.md` / `AGENTS.md` / `CODEBUDDY.md`，把命中的**绝对路径**（不复制内容）同步注入 `requirements.md` 的「## 项目级约束」段 + 每个 coder / reviewer / validator `task.md` 的「## 项目级约束（必读）」段。`_PROJECT_AGENT_DOCS.md` inbox sentinel 强化硬约束。修掉「独立 subagent 进程看不到主 agent 自动加载的指南文件」这个静默漏点。
 - **autonomous mode / CI 友好（opt-in）。** 设 `SPECODE_INTERACTIVE=false` + 相关 `SPECODE_PROJECT_ROOT` / `SPECODE_EXECUTION_MODE` / `SPECODE_AUTO_DISTILL` / `SPECODE_SPECS_ROOT_DEFAULT` env var（或 `resolve_root.py write-default --key X --value Y` 持久化），原本会在 CI / 长跑场景阻塞的每个 `AskUserQuestion` 都会 silently 跳过用 default。schema default 是 `interactive=true`，**默认行为零变化**——只 opt-in 用户走 autonomous 路径。
 - **定位型知识，而非记忆注入。** AI-EDS 时代的记忆注入管线（specode P3-1 `codemap recall` + P3-2 rule-check + acceptance auto-distill，加 task-swarm `cmd_resolve` auto-ingest 写 `.ai-memory/knowledge/*.yml`）在 baseline 实验（3 case）证明 recall 注入未 net 节省 token 后于 v4.0.0 / v0.10.0 完全移除，两插件都不读写 `.ai-memory/knowledge/`。**v5.1.0 以「定位用·非事实用」的全新路线重新引入检索**：手动跑 `/specode:distill <slug>` 把原子 case / navigation 知识点沉淀到项目自己的 `<project_root>/knowledge-base/`（gitignored，可选复制到你指定的 Obsidian 目录）；requirements / design 阶段对其小索引 `MEMORY.md` 跑两级 gated 检索、只注入定位指针——真实代码始终是唯一事实来源，执行 / task-swarm 阶段零注入。如需 v3.4.0 / v0.9.2 行为：`git checkout backup/specode-v3.4.0-task-swarm-v0.9.2`。
@@ -121,12 +121,13 @@ specode 共有四条命令。
 先 `cd` 到你的项目目录——specode 以 cwd 推导项目根默认值（`git rev-parse --show-toplevel`，无 git 则 cwd），并在每条 spec 开始时让你确认一次。**首次运行**时还会询问一次文档管理目录并记住它。之后代理依次走完流水线：
 
 1. **需求阶段** — 澄清 + 写 `requirements.md`（通过 `superpowers:brainstorming`，或原生 `AskUserQuestion` 向导）。
-2. **设计阶段** — 生成可执行计划 `design.md`（通过 `superpowers:writing-plans`，或原生任务分解）。
-3. **执行方式选择器** — 从自适应 4 个选项中选择执行路径（详见上方亮点）。
-4. **执行阶段** — 以 TDD 方式跑完计划，追加写入 `implementation-log.md`。
-5. **验收阶段** — 对照 `design.md` 测试点和 `requirements.md` 的 `AC-N` 验收条件检查，然后由你确认接受。
+2. **设计阶段** — 生成传统设计文档 `design.md`（架构 / 模块划分 / 接口设计 / 数据流 / 错误处理 / 测试策略；brainstorming 的设计产出落在这里，或原生撰写）。
+3. **计划阶段（tasks）** — 生成可执行计划 `tasks.md`（通过 `superpowers:writing-plans`，或原生任务分解）。引擎中立：所有执行路径消费同一份文件。
+4. **执行方式选择器** — 从自适应 4 个选项中选择执行路径（详见上方亮点）。
+5. **执行阶段** — 以 TDD 方式跑完计划，追加写入 `implementation-log.md`。
+6. **验收阶段** — 对照 `requirements.md` 的 `AC-N`、`design.md` 测试策略和 `tasks.md` 勾选进度检查，然后由你确认接受。
 
-所有输出以 3 份固定文档落在 `<specsRoot>/<slug>/` 下。
+所有输出以 4 份固定文档落在 `<specsRoot>/<slug>/` 下。
 
 ### 2. 续接规格
 
@@ -134,7 +135,7 @@ specode 共有四条命令。
 /specode:continue <slug>
 ```
 
-`<slug>` 为必填。specode 定位到 `<specsRoot>/<slug>/`，根据已存在的文档（以及 `design.md` 中的 `- [ ]` 进度）推断当前阶段，从那里继续。不知道 slug？用 `/specode:list` 查找。
+`<slug>` 为必填。specode 定位到 `<specsRoot>/<slug>/`，根据已存在的文档（以及 `tasks.md` 中的 `- [ ]` 进度；5.x 存量 spec 看 `design.md`）推断当前阶段，**汇报进度简报后停下等待**——你说"继续"才续跑，也可以先补充需求变更。绝不自动续跑。不知道 slug？用 `/specode:list` 查找。
 
 ### 3. 列出规格
 
@@ -178,7 +179,7 @@ plugins/specode/
   skills/distill/
     SKILL.md                      /specode:distill 行为（case/navigation 知识点）
     references/                   拆分启发式 + 文档模板
-  assets/templates/               requirements.md / design.md /
+  assets/templates/               requirements.md / design.md / tasks.md /
                                   implementation-log.md 种子模板
   tests/                          hermetic pytest 测试套件（resolve_root.py + knowledge.py）
 ```
