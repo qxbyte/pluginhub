@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 6.0.0 (2026-07-03) — specode
+
+**BREAKING**：固定产物 3 → 4，修正 5.x 的两级错位（brainstorming 的设计产出被当成 requirements、writing-plans 的计划被当成 design）。
+
+- `design.md` 重定义为**传统设计文档**（背景与目标 / 架构概览 / 模块划分与职责 / 接口设计 / 数据流 / 错误处理 / 测试策略——散文无 checkbox）；新增 `tasks.md` 承载可执行计划（writing-plans 格式 + `**Interfaces:**` 契约块），**引擎中立**——task-swarm（pipeline.yml 改从它推导）/ superpowers / specode 自执行统一消费。
+- 流水线变为 requirements → design → **tasks** → 执行方式 selector → 执行 → 验收；brainstorming 一次跨 requirements+design 双产物落盘（后置 relocate 检查两份），writing-plans → tasks.md。
+- `/specode:continue` 改「**加载即停**」：只读文档 + 汇报进度简报（阶段 / 文档状态 / checkbox x/N）后停下等用户指令，绝不自动续跑。
+- `resolve_root.py`：`_FIXED_DOCS` 加 tasks.md；`design-unchecked` 更名 `plan-unchecked`（tasks.md 优先，design.md 含 checkbox 按 5.x legacy 兜底，旧名保留 alias）。
+- 兼容：5.x 存量 spec 由 continue 推断表 legacy 行 + `plan-unchecked` 兜底识别，不中断。task-swarm / obsidian-wiki / ragkit 零改动。
+
+> 注：4.0.0 / 5.x 各版详情见 `plugins/specode/CHANGELOG.md`（root changelog 自 3.4.0 起未逐版跟进，此节起恢复记录大版本）。
+
 ## 3.4.0 (2026-06-28) — specode
 
 ### Added — Autonomous-mode defaults（v0.9 M1+M9 — autonomous mode / CI 全打通）
