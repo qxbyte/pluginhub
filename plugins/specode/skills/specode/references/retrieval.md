@@ -64,7 +64,7 @@ KB 是「**定位用，非事实用**」：
 ```
 
 - 在 **requirements phase**：该段帮助分析「这个需求要动哪些真实代码」，可作为澄清 / 范围界定的输入；不写进 `requirements.md` 的事实结论。
-- 在 **design phase**：该段帮助把 `## Task N` 的 `**Files:**` 指向真实文件；design 的判断仍基于真实代码。
+- 在 **design phase**：该段帮助把模块边界 / 接口设计 ground 到真实代码；design 的判断仍基于真实代码（tasks 阶段不再单独检索，直接继承 design.md 已定位的文件路径）。
 
 ## schema ↔ 推理 对照表（变更纪律 🔒）
 
