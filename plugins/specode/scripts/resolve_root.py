@@ -5,7 +5,7 @@ verbs:
   get-root  [--root P]   解析 specsRoot：--root > env SPECODE_ROOT > config.specsRoot
   set-root  --root P     绝对路径，持久化到 ~/.config/specode/config.json.specsRoot
   list-specs [--root P]  列出 root 下的 spec 目录名（每行一个 slug）：含任一固定产物
-                         （requirements/design/implementation-log.md）的子目录，或
+                         （requirements/design/tasks/implementation-log.md）的子目录，或
                          空子目录（intake：目录已建、requirements 未写）；隐藏目录除外
 
   resolve-project-root [--cwd P]   计算 project_root 默认值（git toplevel || cwd），供
@@ -114,7 +114,7 @@ def cmd_set_root(args) -> int:
     return 0
 
 
-_FIXED_DOCS = ("requirements.md", "design.md", "implementation-log.md")
+_FIXED_DOCS = ("requirements.md", "design.md", "tasks.md", "implementation-log.md")
 
 
 def _is_spec_dir(child: Path) -> bool:
@@ -183,6 +183,14 @@ def _design_path(spec: str) -> Path:
     p = Path(spec)
     if p.is_dir():
         return p / "design.md"
+    return p
+
+
+def _tasks_path(spec: str) -> Path:
+    """Resolve the tasks.md for a spec given a dir or a file path."""
+    p = Path(spec)
+    if p.is_dir():
+        return p / "tasks.md"
     return p
 
 
@@ -317,24 +325,33 @@ def cmd_read_project_root(args) -> int:
     return 0
 
 
-def cmd_design_unchecked(args) -> int:
-    """F1: count unchecked ``- [ ]`` Task steps in a spec's design.md.
+def cmd_plan_unchecked(args) -> int:
+    """count unchecked ``- [ ]`` steps in a spec's executable plan.
 
-    distill uses this to warn before sedimenting: a spec with unchecked
-    Task steps is not fully executed, so its distilled knowledge points may
-    reference planned-but-unbuilt code (e.g. a util file the design proposes
-    but execution never created).
+    6.0.0: the plan lives in tasks.md; 5.x legacy specs carry it in
+    design.md (detected by checkbox lines). distill uses this to warn
+    before sedimenting an unfinished spec (knowledge points must not
+    reference planned-but-unbuilt code).
 
-    exit 0 — design.md exists and every checkbox is checked (executed)
-    exit 2 — design.md exists with N>0 unchecked ``- [ ]`` (prints N)
-    exit 3 — no design.md (not designed/executed)
+    exit 0 — plan exists and every checkbox is checked (executed)
+    exit 2 — plan exists with N>0 unchecked ``- [ ]`` (prints N)
+    exit 3 — no plan (no tasks.md; design.md absent or has no checkboxes)
     """
-    d = _design_path(args.spec)
-    if not d.is_file():
-        sys.stderr.write(f"specode: 找不到 design.md：{d}\n")
-        return 3
+    target = _tasks_path(args.spec)
+    if not target.is_file():
+        d = _design_path(args.spec)
+        if d.is_file() and any(
+            line.lstrip().startswith(("- [ ]", "- [x]"))
+            for line in d.read_text(encoding="utf-8").splitlines()
+        ):
+            target = d  # 5.x legacy spec：design.md 即计划
+        else:
+            sys.stderr.write(
+                f"specode: 找不到可执行计划（无 tasks.md，"
+                f"design.md 缺失或不含 checkbox）：{args.spec}\n")
+            return 3
     n = 0
-    for line in d.read_text(encoding="utf-8").splitlines():
+    for line in target.read_text(encoding="utf-8").splitlines():
         if line.lstrip().startswith("- [ ]"):
             n += 1
     sys.stdout.write(f"{n}\n")
@@ -598,11 +615,12 @@ def main(argv=None) -> int:
     rdp.add_argument("--spec", required=True)
     rdp.set_defaults(func=cmd_read_project_root)
 
-    du = sub.add_parser("design-unchecked",
-                        help="count unchecked '- [ ]' Task steps in design.md "
-                             "(0 ok / 2 has-unchecked / 3 no-design)")
+    du = sub.add_parser("plan-unchecked", aliases=["design-unchecked"],
+                        help="count unchecked '- [ ]' steps in the spec's plan "
+                             "(tasks.md; 5.x legacy: design.md) "
+                             "(0 ok / 2 has-unchecked / 3 no-plan)")
     du.add_argument("--spec", required=True)
-    du.set_defaults(func=cmd_design_unchecked)
+    du.set_defaults(func=cmd_plan_unchecked)
 
     # v0.9 M1/M9 (3.4.0): autonomous-mode defaults
     rd = sub.add_parser("read-defaults",
