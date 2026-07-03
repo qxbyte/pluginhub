@@ -1,32 +1,31 @@
-# <feature> 实现计划
+# <feature> 设计文档
 
-> specode design = 可执行计划。模型 / superpowers:executing-plans / task-swarm 均可消费。
-> 每个 Task 用 `验证: AC-x` 回指 requirements 的验收标准；`- [ ]` 步骤走 TDD。
+> specode design = 传统设计文档：回答「建什么、为什么这样设计」。散文 / 图表，不含 checkbox 与 TDD 步骤——可执行计划在 tasks.md。
 
-**Goal:** <一句话本计划交付什么>
+## 背景与目标
 
-**Architecture:** <2-3 句方法>
+<一段：解决什么问题、交付后达到什么状态；链接 requirements 的 AC-N>
 
-**Tech Stack:** <关键技术 / 库>
+## 架构概览
 
----
+<方案取舍：考虑过哪些方案、为何选这个；整体结构（文字或 ASCII 图）>
 
-## Task 1: <component>
+## 模块划分与职责
 
-**Files:**
-- Create / Modify: `exact/path`
-- Test: `tests/exact/path`
+<每模块一小节或一行表：做什么 / 怎么用 / 依赖什么>
 
-**验证:** AC-1
+## 接口设计
 
-- [ ] Step 1: 写失败测试
-- [ ] Step 2: 跑看失败
-- [ ] Step 3: 最小实现
-- [ ] Step 4: 跑绿
-- [ ] Step 5: commit
+<关键 API / 数据结构 / 跨模块契约（精确签名或 schema）>
 
-## Task 2: <component>  (needs: Task 1)
+## 数据流
 
-**Files:** ...
-**验证:** AC-2
-- [ ] ...
+<核心场景的端到端流转>
+
+## 错误处理
+
+<失败模式与应对策略>
+
+## 测试策略
+
+<测什么、怎么测——验收阶段依据之一>
