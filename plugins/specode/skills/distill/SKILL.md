@@ -68,7 +68,7 @@ spec `requirements.md` frontmatter 的 `project_root`），**不从 cwd 反推**
 
 > **建议在执行 + 验收完成后运行 distill。** 沉淀「已落地 + 已验证」的知识点价值
 > 最高；在尚未执行完的 spec 上沉淀，知识点可能指向**计划中但未落地的代码**（如
-> design 提到、但执行从未创建的工具文件）。Step 1 有一道执行完成度检查会就此告警。
+> tasks 计划提到、但执行从未创建的工具文件）。Step 1 有一道执行完成度检查会就此告警。
 
 ---
 
@@ -76,7 +76,7 @@ spec `requirements.md` frontmatter 的 `project_root`），**不从 cwd 反推**
 
 | Source | What it provides |
 |---|---|
-| `<specsRoot>/<slug>/` | spec dir（**只读**）：`requirements.md` / `design.md` / `implementation-log.md` 等结构化事实 |
+| `<specsRoot>/<slug>/` | spec dir（**只读**）：`requirements.md` / `design.md` / `tasks.md` / `implementation-log.md` 等结构化事实 |
 | `<specsRoot>/<slug>/requirements.md` YAML frontmatter | `project_root`（经 `read-project-root` 读出，用于定位主产物落盘目录） |
 | **当前 agent 上下文** | 超出 spec 本身的**人类导航经验**：前后端调用链、页面按钮→哪个文件、什么配置映射到后端入口等，由模型从本轮上下文提炼并落地（navigation 型知识点的主来源） |
 
@@ -131,16 +131,18 @@ spec `requirements.md` frontmatter 的 `project_root`），**不从 cwd 反推**
    ```
 5. **执行完成度检查（F1，防悬空指针）**：
    ```bash
-   sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" design-unchecked --spec <specsRoot>/<slug>
+   sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" plan-unchecked --spec <specsRoot>/<slug>
    ```
-   - exit 0 → 该 spec 的 design Task 已全部勾选（已执行），正常继续。
-   - exit 2（仍有未勾选 `- [ ]` Task）或 exit 3（无 design.md）→ 该 spec **尚未执行完**，
+   - exit 0 → 该 spec 的计划 Task 已全部勾选（已执行），正常继续。
+   - exit 2（仍有未勾选 `- [ ]` Task）或 exit 3（无 tasks.md 且 design.md 不含
+     checkbox——尚未出计划）→ 该 spec **尚未执行完**，
      沉淀的知识点可能引用**未落地代码**。先 `AskUserQuestion` 警告并让用户选
      「继续沉淀 / 中止」；用户选中止则结束，不写任何文档。
+   （5.x legacy spec 的计划在 design.md 里，`plan-unchecked` 自动兜底识别，无需分支处理。）
 
 ### Step 2 — 读全 spec + 回顾 agent 上下文（NO recall）
 
-`Read` `<specsRoot>/<slug>/` 下每个 `.md`（requirements / design /
+`Read` `<specsRoot>/<slug>/` 下每个 `.md`（requirements / design / tasks /
 implementation-log 等），并回顾本轮 agent 上下文里反复用到的「找文件 / 调用链 /
 配置映射」导航经验，留作 Step 3。
 
