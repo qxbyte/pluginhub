@@ -17,7 +17,7 @@ CLI via run.sh: `resolve_root.py get-root` / `set-root --root P` / `list-specs` 
 
 ## Directory conventions
 - The directory the user provides is used **verbatim** as the specs root; specode appends no internal sub-structure (the user may supply a fully qualified path such as `.../spec-in/<os>-<user>/specs`).
-- Each spec = `<specsRoot>/<slug>/`, containing the fixed files `requirements.md` / `design.md` / `implementation-log.md`.
+- Each spec = `<specsRoot>/<slug>/`, containing the fixed files `requirements.md` / `design.md` / `tasks.md` / `implementation-log.md`.
 - `pipeline.yml` is generated only when delegating to task-swarm; it is not a fixed artifact.
 - project_root = the project a spec targets. It is the **single join key** between a spec and its project, stored in **exactly one place** — the spec's `requirements.md` YAML frontmatter — and accessed only through `resolve_root.py {resolve,write,read}-project-root`. Default is `git rev-parse --show-toplevel` of cwd (fallback cwd), **confirmed once via `AskUserQuestion`**, then persisted to frontmatter by `write-project-root`. Later phases/skills (task-swarm; distill for relative-path resolution) read it via `read-project-root` — never re-derive from cwd/workdir, never guess.
 
@@ -26,5 +26,9 @@ CLI via run.sh: `resolve_root.py get-root` / `set-root --root P` / `list-specs` 
 |---|---|
 | No requirements.md | intake |
 | requirements.md present, no design.md | design |
-| design.md present, unchecked `- [ ]` tasks remain | 执行中 |
-| All design.md tasks checked | 完成 |
+| design.md present (contains `## Task` + `- [ ]`), no tasks.md | legacy 5.x spec — design.md is the plan, 执行中/完成 by its checkboxes |
+| design.md present (new-style prose), no tasks.md | tasks |
+| tasks.md present, unchecked `- [ ]` remain | 执行中 |
+| All tasks.md checkboxes checked | 完成 |
+
+(The full continuation table, including load-and-stop semantics, lives in SKILL.md §Continuation.)

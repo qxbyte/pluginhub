@@ -160,7 +160,7 @@ def test_get_root_specsroot_beats_legacy_obsidian_root(run_script, fake_home, tm
     assert cp.stdout.strip() == str(tmp_path / "new-specs")
 
 
-# --- design-unchecked (F1: distill should warn if spec not fully executed) ---
+# --- plan-unchecked (tasks.md first; 5.x legacy specs keep the plan in design.md) ---
 
 
 def _make_spec(tmp_path: Path, name: str, design_body):
@@ -172,21 +172,67 @@ def _make_spec(tmp_path: Path, name: str, design_body):
     return spec
 
 
-def test_design_unchecked_all_checked_exits_0(run_script, fake_home, tmp_path):
+def _make_spec2(tmp_path: Path, name: str, design_body=None, tasks_body=None):
+    spec = tmp_path / name
+    spec.mkdir(parents=True, exist_ok=True)
+    (spec / "requirements.md").write_text("# req\n", encoding="utf-8")
+    if design_body is not None:
+        (spec / "design.md").write_text(design_body, encoding="utf-8")
+    if tasks_body is not None:
+        (spec / "tasks.md").write_text(tasks_body, encoding="utf-8")
+    return spec
+
+
+def test_plan_unchecked_all_checked_exits_0(run_script, fake_home, tmp_path):
+    # legacy 5.x spec：design.md 即计划（含 checkbox）
     spec = _make_spec(tmp_path, "done", "# d\n- [x] a\n  - [x] b\n")
-    cp = run_script("resolve_root.py", "design-unchecked", "--spec", str(spec))
+    cp = run_script("resolve_root.py", "plan-unchecked", "--spec", str(spec))
     assert cp.returncode == 0, cp.stderr
     assert cp.stdout.strip() == "0"
 
 
-def test_design_unchecked_counts_unchecked_exits_2(run_script, fake_home, tmp_path):
+def test_plan_unchecked_counts_unchecked_exits_2(run_script, fake_home, tmp_path):
     spec = _make_spec(tmp_path, "wip", "# d\n- [ ] a\n- [x] b\n  - [ ] c\n")
-    cp = run_script("resolve_root.py", "design-unchecked", "--spec", str(spec))
+    cp = run_script("resolve_root.py", "plan-unchecked", "--spec", str(spec))
     assert cp.returncode == 2, cp.stderr
     assert cp.stdout.strip() == "2"
 
 
-def test_design_unchecked_no_design_exits_3(run_script, fake_home, tmp_path):
+def test_plan_unchecked_no_plan_exits_3(run_script, fake_home, tmp_path):
     spec = _make_spec(tmp_path, "nodesign", None)
-    cp = run_script("resolve_root.py", "design-unchecked", "--spec", str(spec))
+    cp = run_script("resolve_root.py", "plan-unchecked", "--spec", str(spec))
     assert cp.returncode == 3, cp.stderr
+
+
+def test_plan_unchecked_prefers_tasks_md(run_script, fake_home, tmp_path):
+    # tasks.md 存在时以它为准，design.md（新形态，无 checkbox）不参与计数
+    spec = _make_spec2(tmp_path, "new-style", design_body="# 设计文档\n散文。\n",
+                       tasks_body="# plan\n- [ ] a\n- [x] b\n")
+    cp = run_script("resolve_root.py", "plan-unchecked", "--spec", str(spec))
+    assert cp.returncode == 2, cp.stderr
+    assert cp.stdout.strip() == "1"
+
+
+def test_plan_unchecked_new_design_without_tasks_exits_3(run_script, fake_home, tmp_path):
+    # 新形态 design（无 checkbox）+ 无 tasks.md → 尚未出计划 → exit 3
+    spec = _make_spec2(tmp_path, "designed-only", design_body="# 设计文档\n散文。\n")
+    cp = run_script("resolve_root.py", "plan-unchecked", "--spec", str(spec))
+    assert cp.returncode == 3, cp.stderr
+
+
+def test_plan_unchecked_legacy_alias_still_works(run_script, fake_home, tmp_path):
+    # design-unchecked 保留为 alias（廉价保险）
+    spec = _make_spec2(tmp_path, "legacy", design_body="# d\n- [ ] a\n")
+    cp = run_script("resolve_root.py", "design-unchecked", "--spec", str(spec))
+    assert cp.returncode == 2, cp.stderr
+
+
+def test_list_specs_includes_dir_with_only_tasks_md(run_script, fake_home, tmp_path):
+    # tasks.md 也是固定产物：只有 tasks.md 的目录是 spec，不应隐身
+    root = tmp_path / "specs-root"
+    (root / "planned").mkdir(parents=True)
+    (root / "planned" / "tasks.md").write_text("# t", encoding="utf-8")
+    run_script("resolve_root.py", "set-root", "--root", str(root))
+    cp = run_script("resolve_root.py", "list-specs")
+    assert cp.returncode == 0, cp.stderr
+    assert set(cp.stdout.split()) == {"planned"}

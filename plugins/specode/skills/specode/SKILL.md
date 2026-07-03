@@ -1,7 +1,7 @@
 ---
 name: specode
 user-invocable: false
-description: Lightweight spec-driven workflow orchestration shell. Across the requirements → design → 「执行方式」 → execute → acceptance phases it autonomously calls mature superpowers skills to do the heavy lifting (clarification, design, TDD execution, acceptance), falling back to specode-native when superpowers is absent, and files the three fixed artifacts (requirements.md / design.md / implementation-log.md) into the user's document directory. Activates only when the user invokes `/specode:spec <request>`, `/specode:continue <slug>`, `/specode:list`, or explicitly asks to enter spec mode; otherwise behave as a normal conversation.
+description: Lightweight spec-driven workflow orchestration shell. Across the requirements → design → tasks → 「执行方式」 → execute → acceptance phases it autonomously calls mature superpowers skills to do the heavy lifting (clarification, design, planning, TDD execution, acceptance), falling back to specode-native when superpowers is absent, and files the four fixed artifacts (requirements.md / design.md / tasks.md / implementation-log.md) into the user's document directory. Activates only when the user invokes `/specode:spec <request>`, `/specode:continue <slug>`, `/specode:list`, or explicitly asks to enter spec mode; otherwise behave as a normal conversation.
 ---
 
 # specode — orchestration shell
@@ -19,12 +19,13 @@ Otherwise **do not activate**; handle as normal conversation. There is **no sess
 
 ## Core invariant 🔒
 
-Regardless of the execution engine (superpowers, task-swarm, or specode-native), a spec's artifacts are **always** the 3 documents below, with **fixed filenames**, **filed in a fixed location** at `<specsRoot>/<slug>/`. The engine only decides *who generates the content*; it never changes the artifacts' shape, naming, or location.
+Regardless of the execution engine (superpowers, task-swarm, or specode-native), a spec's artifacts are **always** the 4 documents below, with **fixed filenames**, **filed in a fixed location** at `<specsRoot>/<slug>/`. The engine only decides *who generates the content*; it never changes the artifacts' shape, naming, or location.
 
 | Document | Fixed filename | Content |
 |---|---|---|
 | Requirements | `requirements.md` | Prose spec: background / why · scope (in/out) · acceptance `- [ ] AC-N` · open questions. Pure natural language, no formalized clause syntax. |
-| Design | `design.md` | superpowers writing-plans executable-plan format: `Goal` / `Architecture` / `Tech Stack` + `## Task N` (each Task carries `**Files:**` file scope, `验证: AC-N` back-reference to requirements, and `- [ ]` TDD steps). |
+| Design | `design.md` | **传统设计文档** (per the `assets/templates/design.md` sections): 背景与目标 / 架构概览（方案取舍）/ 模块划分与职责 / 接口设计 / 数据流 / 错误处理 / 测试策略. Prose + diagrams only — no checkboxes, no TDD steps. |
+| Plan | `tasks.md` | superpowers writing-plans executable-plan format: `Goal` / `Architecture` / `Tech Stack` + `## Task N` (each Task carries `**Files:**` file scope, `**Interfaces:**` Consumes/Produces contracts, `验证: AC-N` back-reference to requirements, `(needs: Task N)` dependencies, and `- [ ]` TDD steps). Engine-neutral — all four execution engines consume this one file. |
 | Execution log | `implementation-log.md` | Appended during execution: design deviations / key decisions / final acceptance summary. |
 
 Bug fixes do not get a separate `bugfix.md` — write Current / Expected directly in `requirements.md` as prose. `pipeline.yml` is generated only temporarily when delegating to task-swarm; it is not a fixed artifact.
@@ -46,7 +47,7 @@ The resolver tries the env var first (works wherever the host exports it), verif
 |---|---|---|
 | `get-root [--root P]` | Resolve specsRoot (`--root` > env `SPECODE_ROOT` > config.specsRoot) | 0 ok / 3 unconfigured |
 | `set-root --root <abs>` | Absolute path, persisted to `~/.config/specode/config.json.specsRoot` | 0 / 1 path not absolute |
-| `list-specs [--root P]` | List spec slugs (one per line) under root: subdirs containing any fixed doc (`requirements.md` / `design.md` / `implementation-log.md`) **plus empty subdirs (intake — dir created, requirements not yet written)**; hidden dirs excluded | 0 / 3 unconfigured |
+| `list-specs [--root P]` | List spec slugs (one per line) under root: subdirs containing any fixed doc (`requirements.md` / `design.md` / `tasks.md` / `implementation-log.md`) **plus empty subdirs (intake — dir created, requirements not yet written)**; hidden dirs excluded | 0 / 3 unconfigured |
 | `resolve-project-root [--cwd P]` | Compute the project_root default (`git rev-parse --show-toplevel` of cwd, else cwd) for the user to confirm | 0 |
 | `write-project-root --spec <dir\|file> --root <abs>` | **Single writer** of project_root → spec's requirements.md frontmatter (validates absolute / dir exists / `/Volumes` mounted) | 0 / 1 invalid |
 | `read-project-root --spec <dir\|file>` | **Single reader** of project_root from requirements.md frontmatter — all downstream skills use this | 0 / 3 missing field / 4 invalid value |
@@ -60,7 +61,7 @@ The resolver tries the env var first (works wherever the host exports it), verif
 |---|---|---|
 | 首次 specsRoot 设置 | `specs_root_default` | `SPECODE_SPECS_ROOT_DEFAULT` |
 | project_root 确认（sub-step 2.1） | `project_root_default` | `SPECODE_PROJECT_ROOT` |
-| 执行方式 selector（design 后） | `execution_mode_default` | `SPECODE_EXECUTION_MODE`（值：`ask` / `task-swarm` / `superpowers-subagent` / `superpowers-executing` / `specode-self`） |
+| 执行方式 selector（tasks 后） | `execution_mode_default` | `SPECODE_EXECUTION_MODE`（值：`ask` / `task-swarm` / `superpowers-subagent` / `superpowers-executing` / `specode-self`） |
 | distill 末尾 prompt | `auto_distill` | `SPECODE_AUTO_DISTILL` |
 | Master switch | `interactive` | `SPECODE_INTERACTIVE` |
 
@@ -107,41 +108,45 @@ Each phase is annotated "if superpowers is installed, call it / otherwise go nat
 
       > **v4.0.0 BREAKING + 新检索（philosophy 不同，勿混为一谈）**: 旧的 P3-1 codemap recall（确定性脚本把历史**内容**当事实自动注入、不省 token）已于 4.0.0 **完全移除**——不再自动从 `.ai-memory/knowledge/` 召回任何东西。**现引入一套全新的、定位优先的经验检索**（下面的 sub-step 3，规格见 `references/retrieval.md`）：注入的是**指针非事实**、由**模型判断**而非脚本召回、默认只读小索引、读 `<project_root>/knowledge-base/`（**非**旧 `.ai-memory/knowledge/`）。要手动把经验沉淀进 `knowledge-base/`，用 `/specode:distill <slug>`（见 §Acceptance 末尾的沉淀提示 + `skills/distill/SKILL.md`）。
    3. **经验检索（若 `<project_root>/knowledge-base/MEMORY.md` 存在）**: 用 sub-step 1 已确认的 `project_root`（此时 requirements.md frontmatter 尚未写，直接用持有的绝对路径，不要 `read-project-root`），按 `references/retrieval.md` 跑**两级 gated** —— Tier-1 读 `knowledge-base/MEMORY.md` 小索引、比对当前需求的页面/字段/域；命中才 Tier-2 读 ≤5 个点全文、用其前后端文件 + 调用链**定位真实代码**。命中结果贴成「**参考定位（非事实来源）**」段，仅作需求分析 / 范围界定的输入：**定位用、非事实**——指针只指向真实代码，**真实代码才是唯一事实**；**不写进 `requirements.md` 的事实结论**。`knowledge-base/MEMORY.md` 不存在（fresh 项目 / 未 distill 过）→ **静默跳过**，不报错、不写空段。引擎细节（两级触发条件 / 注入格式 / schema 契约）见 `references/retrieval.md`，此处不重述。
-   4. **draft requirements**:
-      - superpowers installed → call `superpowers:brainstorming` (it internally does clarification + requirements exploration + the user-approval gate).
+   4. **draft requirements (+ design, dual-artifact)**:
+      - superpowers installed → call `superpowers:brainstorming` **once, spanning the requirements AND design phases** (it internally does clarification + requirements exploration + design presentation + the user-approval gate). Pre-instruct it with **two** target paths: 澄清结论 → `<specsRoot>/<slug>/requirements.md`, 设计展示 → `<specsRoot>/<slug>/design.md` (per the `assets/templates/design.md` sections).
       - not installed → **specode-native**: the host agent clarifies with an `AskUserQuestion` wizard (2-4 blocking sub-questions), then writes per the `assets/templates/requirements.md` template.
-      - Relocate the artifact to `<specsRoot>/<slug>/requirements.md` (see §superpowers orchestration + relocation).
+      - Relocate the artifact(s) to `<specsRoot>/<slug>/requirements.md`（superpowers 路径还要检查 `design.md`，见 §superpowers orchestration + relocation）.
       - Write the YAML frontmatter: set `spec_id: <slug>` / `created_at: YYYY-MM-DD`, then persist `project_root` **via `resolve_root.py write-project-root --spec <specsRoot>/<slug> --root <abs from sub-step 1>`** (single validated writer; never hand-write this field).
-3. **design (executable plan)**:
-   - superpowers installed → call `superpowers:writing-plans` (it internally does self-review + user review).
-   - not installed → **specode-native**: break down into `## Task N` + `**Files:**` + `验证: AC-N` + `- [ ]` TDD steps per the `assets/templates/design.md` template.
-   - Relocate the artifact to `<specsRoot>/<slug>/design.md`.
-   - **经验检索（同 requirements，定位用）**: design 同样按 `references/retrieval.md` 跑**两级 gated** —— 此 phase frontmatter 已写，用 §specsRoot resolver `resolve_root.py read-project-root --spec <specsRoot>/<slug>` 取 `project_root`；命中点的前后端文件 + 调用链用于把每个 `## Task N` 的 `**Files:**` **指向真实文件**（design 的判断仍基于真实代码，检索只缩短定位延迟）。`<project_root>/knowledge-base/MEMORY.md` 不存在 → 静默跳过。
+3. **design (传统设计文档)**:
+   - superpowers installed → `design.md` was already produced by the step-2 brainstorming call (dual-artifact); verify it landed at `<specsRoot>/<slug>/design.md` and covers the template sections, backfilling gaps if needed.
+   - not installed → **specode-native**: the host agent authors `design.md` per the `assets/templates/design.md` template（背景与目标 / 架构概览 / 模块划分与职责 / 接口设计 / 数据流 / 错误处理 / 测试策略——散文，无 checkbox）.
+   - **经验检索（同 requirements，定位用）**: design 同样按 `references/retrieval.md` 跑**两级 gated** —— 此 phase frontmatter 已写，用 §specsRoot resolver `resolve_root.py read-project-root --spec <specsRoot>/<slug>` 取 `project_root`；命中点的前后端文件 + 调用链用于把**模块边界 / 接口设计 ground 到真实代码**（design 的判断仍基于真实代码，检索只缩短定位延迟）。`<project_root>/knowledge-base/MEMORY.md` 不存在 → 静默跳过。
 
-   > **v4.0.0 BREAKING**: 旧的 P3-2 rule-acknowledgement post-check 段（grep `[[rule-*]]` 是否被 design.md 引用并 AskUser 处理偏离）**仍保持移除**——design 阶段不做任何与 `.ai-memory/knowledge/rules/` 关联的 rule 检查。上面新增的 design 检索是**定位用**（把 `**Files:**` 指向真实文件），**不引入任何「规则确认 / 偏离 gate」**——它只产出指针，不产出 must / 规则。
-4. **「执行方式」selector**: after design completes, call `AskUserQuestion` to present it (adaptive 4 options, see §执行方式 selector), verbatim per the `references/selectors.md` example.
-5. **Execution** (branches by selector choice, all TDD):
+   > **v4.0.0 BREAKING**: 旧的 P3-2 rule-acknowledgement post-check 段（grep `[[rule-*]]` 是否被 design.md 引用并 AskUser 处理偏离）**仍保持移除**——design 阶段不做任何与 `.ai-memory/knowledge/rules/` 关联的 rule 检查。上面的 design 检索是**定位用**（把设计 ground 到真实代码），**不引入任何「规则确认 / 偏离 gate」**——它只产出指针，不产出 must / 规则。
+4. **tasks (executable plan)**:
+   - superpowers installed → call `superpowers:writing-plans`. Pre-instruct the target path `<specsRoot>/<slug>/tasks.md` **and instruct it to skip its own execution-handoff question** (specode's 执行方式 selector supersedes it).
+   - not installed → **specode-native**: break down into `## Task N` + `**Files:**` + `**Interfaces:**` + `验证: AC-N` + `- [ ]` TDD steps per the `assets/templates/tasks.md` template.
+   - Relocate the artifact to `<specsRoot>/<slug>/tasks.md`.
+   - tasks 阶段**不做单独检索**——直接继承 design.md 已定位好的文件路径（`**Files:**` 从 design 的模块/接口落点导出）。
+5. **「执行方式」selector**: after tasks.md is confirmed, call `AskUserQuestion` to present it (adaptive 4 options, see §执行方式 selector), verbatim per the `references/selectors.md` example.
+6. **Execution** (branches by selector choice, all TDD):
    - Delegate to task-swarm (installed) → see §task-swarm handoff.
    - superpowers subagent-driven (installed) → call `superpowers:subagent-driven-development`.
    - superpowers executing-plans (installed) → call `superpowers:executing-plans`.
-   - specode self-execute (fallback) → the host agent runs TDD in `design.md` Task order (write failing test → run red → implement → run green), checking off each `- [ ]`.
+   - specode self-execute (fallback) → the host agent runs TDD in `tasks.md` Task order (write failing test → run red → implement → run green), checking off each `- [ ]`.
    - Append to `implementation-log.md` during execution.
-6. **Acceptance (coding complete)**:
+7. **Acceptance (coding complete)**:
    - superpowers installed → call `superpowers:verification-before-completion` (optionally also `superpowers:requesting-code-review`).
-   - not installed → **specode-native**: the host agent verifies item by item against `design.md` test points / the `AC-N` in `requirements.md`.
+   - not installed → **specode-native**: the host agent verifies item by item against the `AC-N` in `requirements.md` / `design.md` 测试策略 / `tasks.md` checkbox 全勾.
    - Say "请验收" in prose and write an acceptance summary in `implementation-log.md`. **There is no formal acceptance-gate selector.**
    - **沉淀提示（distill, gated by `auto_distill`）**: acceptance 写完后，按 §Autonomous-mode defaults rule 决定是否提示沉淀 —— 用 §specsRoot resolver `resolve_root.py read-defaults --key auto_distill --json` 取 effective value + source；当 `interactive == false` 且有 effective default（`source ∈ {env, file}`）时按 default **静默处理**（不打断），否则 `AskUserQuestion`「是否运行 `/specode:distill <slug>` 把本次经验沉淀进项目 knowledge-base？」。distill 仍是**用户触发的独立命令**（本体行为见 `skills/distill/SKILL.md`，Plan A 已改为项目 `knowledge-base/` primary）；这里只把入口提示重新挂回 acceptance 末尾，**不在主流程里自动跑 distill**。
 
    > **v4.0.0 → 重新挂回**: 4.0.0 曾把 acceptance 后的自动 distill sub-step 整体移除；现按 `auto_distill` default **把入口提示重新挂回**（见上一条 bullet，遵循既有 autonomous-mode 规则——interactive 时询问、非 interactive 有 effective default 时静默，**非无条件自动执行**）。沉淀目标是项目 `knowledge-base/`（供下次 requirements/design 检索定位），md-only 行为见 `skills/distill/SKILL.md`。
 
-phase ↔ skill quick map: `requirements` → brainstorming; `design` → writing-plans; execution → subagent-driven-development / executing-plans (the task-swarm path does not use superpowers); acceptance → verification-before-completion / requesting-code-review.
+phase ↔ skill quick map: `requirements + design` → brainstorming (one call, dual artifacts); `tasks` → writing-plans; execution → subagent-driven-development / executing-plans (the task-swarm path does not use superpowers); acceptance → verification-before-completion / requesting-code-review.
 
 ## superpowers orchestration + relocation (belt and suspenders)
 
 superpowers' brainstorming / writing-plans have their own default output paths + filenames (e.g. `docs/superpowers/specs/YYYY-MM-DD-*.md`), so when delegating, specode must actively relocate to guarantee the core invariant holds:
 
-1. **Pre-instruction**: before calling the skill, explicitly tell it the target **absolute path + fixed filename** (superpowers' spec location supports user-preference overrides) — brainstorming's spec output → `<specsRoot>/<slug>/requirements.md`, writing-plans' plan output → `<specsRoot>/<slug>/design.md` (the design format *is* the writing-plans format, so it slots in seamlessly).
-2. **Post-relocation (backstop)**: after the skill returns, verify `<specsRoot>/<slug>/<fixed-name>` is in place; if not, `mv` / rename the file the skill actually produced to the fixed location. The invariant holds whether or not the skill honored the pre-instruction.
+1. **Pre-instruction**: before calling the skill, explicitly tell it the target **absolute path(s) + fixed filename(s)** (superpowers' spec/plan locations support user-preference overrides) — brainstorming → **two** targets: 澄清结论 `<specsRoot>/<slug>/requirements.md` + 设计展示 `<specsRoot>/<slug>/design.md`; writing-plans' plan output → `<specsRoot>/<slug>/tasks.md` (the tasks format *is* the writing-plans format, so it slots in seamlessly; also instruct writing-plans to skip its own execution-handoff question — specode's selector supersedes it).
+2. **Post-relocation (backstop)**: after the skill returns, verify **every** expected `<specsRoot>/<slug>/<fixed-name>` is in place (brainstorming: check both files); if not, `mv` / rename the file(s) the skill actually produced to the fixed location. The invariant holds whether or not the skill honored the pre-instruction.
 
 Which superpowers skill to call when, and how to do pre/post, is detailed in `references/superpowers-wiring.md`.
 
@@ -151,16 +156,16 @@ specode treats both superpowers and task-swarm as **soft dependencies** (purely 
 
 | phase | matching plugin | absent → specode-native fallback |
 |---|---|---|
-| clarify + requirements | `superpowers:brainstorming` | host agent clarifies via `AskUserQuestion` wizard (2-4 questions) + writes per the `requirements.md` template |
-| executable plan | `superpowers:writing-plans` | host agent breaks down Tasks per the `design.md` template (Goal/Arch/Stack + `## Task N` + `验证: AC-N` + `- [ ]` TDD steps) |
-| execution | task-swarm (concurrent) / `superpowers:executing-plans` | host agent runs TDD in `design.md` Task order (red → green), appending `implementation-log.md` |
-| acceptance | `superpowers:verification-before-completion` | host agent verifies item by item against `design.md` test points / `AC-N` + writes acceptance summary |
+| clarify + requirements + design | `superpowers:brainstorming` (one call, dual artifacts) | host agent clarifies via `AskUserQuestion` wizard (2-4 questions) + writes per the `requirements.md` template + authors `design.md` per the design template (传统设计文档) |
+| executable plan (tasks) | `superpowers:writing-plans` | host agent breaks down Tasks per the `tasks.md` template (Goal/Arch/Stack + `## Task N` + `**Interfaces:**` + `验证: AC-N` + `- [ ]` TDD steps) |
+| execution | task-swarm (concurrent) / `superpowers:executing-plans` | host agent runs TDD in `tasks.md` Task order (red → green), appending `implementation-log.md` |
+| acceptance | `superpowers:verification-before-completion` | host agent verifies item by item against `AC-N` / `design.md` 测试策略 / `tasks.md` checkboxes + writes acceptance summary |
 
 **How to decide**: the host agent first tries calling the matching superpowers skill via `Skill`; if unavailable, take the native branch. Do not stall or tell the user to install something just because superpowers is absent — pick up natively right away.
 
-## 执行方式 selector (the single fixed per-spec selector, after design completes)
+## 执行方式 selector (the single fixed per-spec selector, after tasks.md completes)
 
-After design is confirmed, call `AskUserQuestion` to present **adaptive 4 options** — **show an option only if its engine is installed**:
+After tasks.md is confirmed, call `AskUserQuestion` to present **adaptive 4 options** — **show an option only if its engine is installed**:
 
 1. **委托 task-swarm（多 agent 并发）** — requires task-swarm.
 2. **superpowers subagent-driven（每 Task 派全新 subagent + 两阶段评审，推荐）** — requires superpowers.
@@ -173,14 +178,18 @@ When presenting, pass question / header / options **verbatim** per the `referenc
 
 ## Continuation (documents-as-state)
 
-`/specode:continue <slug>` (slug required; missing or nonexistent → error + suggest `/specode:list` first): locate `<specsRoot>/<slug>/`, read the directory contents, and infer the phase to resume per this table:
+`/specode:continue <slug>` (slug required; missing or nonexistent → error + suggest `/specode:list` first): locate `<specsRoot>/<slug>/`, read the directory contents, and infer the phase per this table.
 
-| Directory state | Inferred phase | Resume action |
+**加载即停（load-and-stop）🔒**: `/specode:continue <slug>` never auto-resumes. It does exactly three things: (1) locate `<specsRoot>/<slug>/` and read every fixed doc present; (2) report a **progress brief** — slug, inferred phase, per-doc existence, tasks.md checkbox progress (x/N; legacy specs: design.md checkboxes), and what the next action *would* be; (3) **stop and wait for the user's instruction**. Only when the user says 继续 (or equivalent) does execution resume from the inferred phase; if the user instead supplies requirement changes, digest them into the affected docs first, then ask whether to resume. The "Resume action" column below describes what happens *after* the user gives the go-ahead — it is not automatic behavior.
+
+| Directory state | Inferred phase | Resume action (after user go-ahead) |
 |---|---|---|
 | no `requirements.md` | intake | rerun requirements (brainstorming / native clarification) |
-| has `requirements.md`, no `design.md` | design | run design (writing-plans / native Task breakdown) |
-| has `design.md` with unchecked `- [ ]` Tasks | executing | resume execution (task-swarm checks run state / superpowers resumes executing-plans / native resumes sequentially) |
-| all Tasks in `design.md` checked | complete | run acceptance / report already complete |
+| has `requirements.md`, no `design.md` | design | run design (brainstorming dual-artifact / native authoring) |
+| has `design.md`, no `tasks.md`, and `design.md` contains `## Task` + `- [ ]` | **legacy spec (5.x)** | treat `design.md` as the plan per pre-6.0.0 semantics — resume execution / acceptance directly |
+| has `design.md` (new-style, prose), no `tasks.md` | tasks | run tasks breakdown (writing-plans / native per tasks template) |
+| `tasks.md` with unchecked `- [ ]` | executing | resume execution (task-swarm checks run state / superpowers resumes executing-plans / native resumes sequentially) |
+| all `tasks.md` checkboxes checked | complete | run acceptance / report already complete |
 
 `/specode:list` lists every spec under `<specsRoot>` with each one's inferred phase (for looking up slugs / overview; **does not resume**); if there are no specs → suggest `/specode:spec <request>` first.
 
@@ -188,7 +197,7 @@ When presenting, pass question / header / options **verbatim** per the `referenc
 
 task-swarm is a **standalone plugin**; specode has **zero imports** of it and does not know its install path — all calls go through task-swarm's own `/task-swarm:swarm` command (which self-resolves its `$CLAUDE_PLUGIN_ROOT`). After the user picks "delegate":
 
-1. Read this spec's `design.md` Task list + each Task's `**Files:**` → mechanically derive `<specsRoot>/<slug>/pipeline.yml` (task groups / `@writes` files / `needs` topology).
+1. Read this spec's `tasks.md` Task list + each Task's `**Files:**` + `(needs:)` → mechanically derive `<specsRoot>/<slug>/pipeline.yml` (merge Tasks into task groups by writes-conflict + needs topology / `@writes` files / `needs` topology).
 2. **Show the yml summary to the user** (number of task groups / same-file conflicts / topology); init only after the user confirms.
 3. Invoke task-swarm's own `/task-swarm:swarm` command to drive its plan → fork → advance → writeback → resolve orchestration until done.
 4. Append to `implementation-log.md` throughout; run acceptance after done.
@@ -207,7 +216,7 @@ When writing / updating spec documents, **never** reprint the full text in chat.
 
 ## Iron rules
 
-1. **Fixed-artifact invariant**: always produce only the 3 documents `requirements.md` / `design.md` / `implementation-log.md`, with fixed filenames, filed in `<specsRoot>/<slug>/`, independent of the execution engine; after delegating to superpowers you must run the post-relocation check.
+1. **Fixed-artifact invariant**: always produce only the 4 documents `requirements.md` / `design.md` / `tasks.md` / `implementation-log.md`, with fixed filenames, filed in `<specsRoot>/<slug>/`, independent of the execution engine; after delegating to superpowers you must run the post-relocation check (brainstorming: both requirements.md and design.md).
 2. **specsRoot: read config first, then ask**: call `get-root` on every start; only when missing, `AskUserQuestion` once and `set-root` to write it back, then use it silently thereafter; use the user's directory verbatim as the root, appending nothing.
 3. **CLIs must go through run.sh + absolute path**: all specode CLIs go through the `run.sh` wrapper + an absolute plugin-root path resolved by the §specsRoot resolver (env var `$CLAUDE_PLUGIN_ROOT` / `$CODEBUDDY_PLUGIN_ROOT`, falling back to a cache glob — the env var is **not** reliably set in skill-driven Bash calls); never a bare `python3 <script>`, never a hard-coded version path.
 4. **执行方式 selector verbatim per example**: the `AskUserQuestion` question / header / options are taken verbatim from `references/selectors.md`, adaptively showing only options for installed engines; never invent / collapse.

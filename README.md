@@ -43,15 +43,17 @@ see its own `README.md` / `AGENTS.md` under
   the clarify / plan / execute / verify loop itself with `AskUserQuestion`
   wizards and sequential TDD. The native path is a first-class peer, not
   an afterthought.
-- **3 fixed documents, fixed names, fixed location.** Every spec
-  produces `requirements.md` / `design.md` / `implementation-log.md`
-  under `<specsRoot>/<slug>/` — whatever engine generated the content.
-  Bug fixes use prose in `requirements.md` (no `bugfix.md`).
+- **4 fixed documents, fixed names, fixed location.** Every spec
+  produces `requirements.md` / `design.md` (传统设计文档: architecture /
+  modules / interfaces / data flow) / `tasks.md` (the executable plan,
+  engine-neutral) / `implementation-log.md` under `<specsRoot>/<slug>/` —
+  whatever engine generated the content. Bug fixes use prose in
+  `requirements.md` (no `bugfix.md`).
 - **Documents are the state.** No persistent session files, no locks,
   no status footer, no logging. "Which phase am I in?" is inferred from
   which fixed docs exist plus the `- [ ]` checkbox progress in
-  `design.md`.
-- **One adaptive selector.** After `design.md` is confirmed, an
+  `tasks.md` (5.x legacy specs: `design.md`).
+- **One adaptive selector.** After `tasks.md` is confirmed, an
   `AskUserQuestion` selector offers up to 4 execution paths — only the
   ones whose engine is installed: 委托 task-swarm / superpowers
   subagent-driven / superpowers executing-plans / specode 自执行.
@@ -62,7 +64,7 @@ see its own `README.md` / `AGENTS.md` under
 - **One lightweight hook.** A single advisory `SessionStart` hook reminds
   the agent specode is available. No blocking, no per-turn machinery.
 - **Parallel execution is a separate plugin.** Pick "委托 task-swarm" and
-  specode reads `design.md`, derives a `pipeline.yml`, and hands off to
+  specode reads `tasks.md`, derives a `pipeline.yml`, and hands off to
   the standalone **task-swarm** plugin (zero import).
 - **Project-level constraints follow the chain.** specode + task-swarm
   (AI-EDS v0.9 痛点 #14 方案 D, preserved into v4.0.0 / v0.10.0) scan
@@ -192,16 +194,22 @@ and remembers it. The agent then walks the pipeline:
 
 1. **requirements** — clarify + write `requirements.md` (via
    `superpowers:brainstorming`, or a native `AskUserQuestion` wizard).
-2. **design** — produce an executable plan `design.md` (via
-   `superpowers:writing-plans`, or native Task breakdown).
-3. **执行方式 selector** — pick how to execute (adaptive 4 options; see
+2. **design** — produce a traditional design doc `design.md`
+   (architecture / modules / interfaces / data flow / error handling /
+   test strategy; brainstorming's design output lands here, or native
+   authoring).
+3. **tasks** — produce the executable plan `tasks.md` (via
+   `superpowers:writing-plans`, or native Task breakdown). Engine-neutral:
+   every execution path consumes this one file.
+4. **执行方式 selector** — pick how to execute (adaptive 4 options; see
    Highlights).
-4. **execute** — run the plan with TDD, appending to
+5. **execute** — run the plan with TDD, appending to
    `implementation-log.md`.
-5. **verify** — check against the design's test points and the
-   `requirements.md` `AC-N` items, then ask you to accept.
+6. **verify** — check against the `requirements.md` `AC-N` items, the
+   design's 测试策略, and the `tasks.md` checkboxes, then ask you to
+   accept.
 
-All output lands under `<specsRoot>/<slug>/` as the 3 fixed documents.
+All output lands under `<specsRoot>/<slug>/` as the 4 fixed documents.
 
 ### 2. Resume a spec
 
@@ -209,10 +217,11 @@ All output lands under `<specsRoot>/<slug>/` as the 3 fixed documents.
 /specode:continue <slug>
 ```
 
-`<slug>` is required. specode locates `<specsRoot>/<slug>/` and infers
+`<slug>` is required. specode locates `<specsRoot>/<slug>/`, infers
 the phase from the documents present (and the `- [ ]` progress in
-`design.md`), then continues from there. Use `/specode:list` to
-find a slug.
+`tasks.md`; 5.x legacy specs: `design.md`), **reports a progress brief,
+then stops and waits** — say "继续" to resume, or supply requirement
+changes first. It never auto-resumes. Use `/specode:list` to find a slug.
 
 ### 3. List specs
 
@@ -263,7 +272,7 @@ plugins/specode/
   skills/distill/
     SKILL.md                      /specode:distill behavior (case/navigation points)
     references/                   breakdown heuristics + doc templates
-  assets/templates/               requirements.md / design.md /
+  assets/templates/               requirements.md / design.md / tasks.md /
                                   implementation-log.md seed templates
   tests/                          hermetic pytest suite (resolve_root.py + knowledge.py)
 ```
