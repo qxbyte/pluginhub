@@ -1,5 +1,5 @@
 ---
-description: Create a new spec — clarify requirements → design → execution-mode selector → execute → acceptance, producing the 3 fixed artifacts under <specsRoot>/<slug>/.
+description: Create a new spec — clarify requirements → design → tasks → execution-mode selector → execute → acceptance, producing the 4 fixed artifacts under <specsRoot>/<slug>/.
 argument-hint: "<requirement>"
 ---
 
@@ -12,7 +12,7 @@ sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" <verb> ...
 ```
 (`find` not a glob: zsh aborts on an unmatched glob; `find` stays silent.)
 
-After activation, follow the orchestration logic in specode SKILL.md (each phase calls superpowers if available, native fallback otherwise; three fixed artifacts land under `<specsRoot>/<slug>/`).
+After activation, follow the orchestration logic in specode SKILL.md (each phase calls superpowers if available, native fallback otherwise; four fixed artifacts land under `<specsRoot>/<slug>/`).
 
 1. `resolve_root.py get-root` (exit 3 / not configured → first-time setup per SKILL.md §specsRoot: `AskUserQuestion` for the document directory, then `set-root --root <abs>`) → `<specsRoot>`.
 2. The host agent derives a kebab-case `<slug>` from the requirement; `mkdir -p <specsRoot>/<slug>/`.
@@ -20,4 +20,4 @@ After activation, follow the orchestration logic in specode SKILL.md (each phase
    - default: `resolve_root.py resolve-project-root` (returns `git rev-parse --show-toplevel` of cwd, falling back to cwd) → present it via `AskUserQuestion` **once** for the user to confirm/override.
    - persist: after requirements.md exists, `resolve_root.py write-project-root --spec <specsRoot>/<slug> --root <abs>` writes it into the requirements.md YAML frontmatter (validates absolute path / dir exists / `/Volumes` mounted). This frontmatter field is the **only** place project_root lives.
    - read (any later phase / skill): `resolve_root.py read-project-root --spec <specsRoot>/<slug>` — the single read entry. Never read cwd/workdir instead.
-4. Follow SKILL.md §pipeline: requirements (brainstorming/native) → design (writing-plans/native) → "execution mode" selector → execution → acceptance. Three fixed artifacts land under `<specsRoot>/<slug>/`.
+4. Follow SKILL.md §pipeline: requirements (brainstorming/native) → design (brainstorming dual-artifact/native, 传统设计文档) → tasks (writing-plans/native) → "execution mode" selector → execution → acceptance. Four fixed artifacts land under `<specsRoot>/<slug>/`.
