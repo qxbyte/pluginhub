@@ -1,8 +1,13 @@
 # Changelog — specode
 
-specode 是 spec-driven 轻量工作流插件：requirements → design → execute → acceptance 四阶段编排 + 三份固定产物（requirements.md / design.md / implementation-log.md）。本文件记录其自身版本。
+specode 是 spec-driven 轻量工作流插件：requirements → design → tasks → execute → acceptance 五阶段编排 + 四份固定产物（requirements.md / design.md / tasks.md / implementation-log.md）。本文件记录其自身版本。
 
 ## Unreleased
+
+- **BREAKING（拟 6.0.0）**: 固定产物 3 → 4 —— `design.md` 重定义为**传统设计文档**（背景与目标/架构概览/模块划分/接口设计/数据流/错误处理/测试策略，散文无 checkbox）；新增 `tasks.md` 承载可执行计划（writing-plans 格式 + `**Interfaces:**` 契约块，引擎中立，task-swarm / superpowers / 自执行统一消费）。流水线变为 requirements → design → tasks → 执行方式 selector → 执行 → 验收；brainstorming 一次跨 requirements+design 双产物落盘（后置 relocate 检查两份）。
+- **BREAKING**: continue 改「加载即停」——`/specode:continue <slug>` 只读文档 + 汇报进度简报（阶段/文档状态/checkbox x/N）后停下等用户指令，不再自动续跑；用户说「继续」才从推断阶段续跑，提出需求变更则先消化进文档再问。
+- `resolve_root.py`：`_FIXED_DOCS` 加 `tasks.md`（list-specs 判定）；`design-unchecked` 更名 `plan-unchecked`（tasks.md 优先，design.md 含 checkbox 时按 5.x legacy 兜底；旧名保留为 alias）。distill 完成度检查与读文档集同步。
+- 兼容：5.x 存量 spec（design.md 即计划）由 continue 推断表 legacy 行 + `plan-unchecked` 兜底识别，不中断。
 
 ## 5.2.0 (2026-07-03)
 
