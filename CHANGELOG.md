@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## Discover 分类标签 (2026-07-05) — specode 6.1.4 / task-swarm 0.10.3 / obsidian-wiki 2.0.3 / ragkit 0.1.1
+
+- 四个插件在 `.claude-plugin/marketplace.json` 加 `category` 字段，让 `/plugin` Discover 面板在插件名后显示分类标签（对齐官方市场）：specode / task-swarm = `development`，obsidian-wiki = `productivity`，ragkit = `database`。该字段只在 marketplace.json，UI 只读它。零行为变化。
+
 ## description 收敛 (2026-07-05) — specode 6.1.3 / task-swarm 0.10.2 / obsidian-wiki 2.0.2
 
 - 三个插件的 `description` 字段（marketplace UI 显示的那段）清掉累积的版本 blurb，收敛成「一句话讲当前插件干嘛」；版本历史只留在各自 CHANGELOG。README 徽章 + 表格行同步。ragkit 本就干净、未动。零行为变化。**go-forward**：`description` 只在插件用途变化时才改，永不再堆版本 blurb。

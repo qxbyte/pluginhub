@@ -4,6 +4,10 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.1.4 (2026-07-05)
+
+- **marketplace 加 `category` 字段**：在 `.claude-plugin/marketplace.json` 的 specode 条目加 `"category": "development"`，让 `/plugin` Discover 面板在插件名后显示 `[development]` 标签（对齐官方市场；该字段只在 marketplace.json、UI 只读它）。零行为变化。
+
 ## 6.1.3 (2026-07-05)
 
 - **`description` 字段收敛为「当前插件说明」，不再堆版本史**：marketplace UI 显示的是 `.claude-plugin/marketplace.json` + `plugin.json` 的 `description` 字段，此前每次 release 把 `**vX.Y.Z**: …` 往前追加、从不删旧的，累积到 2601 字符（9+ 版全在里面）。现清成一句话讲插件当前干嘛（intake / task-swarm 衔接 / 可选检索），版本历史只留在 CHANGELOG。README 表格行 + 徽章同步。**go-forward 规则**：release 只 bump 版本 + 写 CHANGELOG，`description` 仅在插件用途本身变化时才动，永不再堆版本 blurb。

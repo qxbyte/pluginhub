@@ -9,8 +9,9 @@
     {
       "name": "specode",
       "source": "./plugins/specode",
-      "version": "6.1.3",
+      "version": "6.1.4",
       "description": "Lightweight spec-driven workflow orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to superpowers skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles a dedicated intake skill for the requirements phase, a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the CHANGELOG.",
+      "category": "development",
       "homepage": "https://github.com/qxbyte/pluginhub",
       "repository": "https://github.com/qxbyte/pluginhub",
       "license": "MIT",
@@ -23,8 +24,9 @@
     {
       "name": "task-swarm",
       "source": "./plugins/task-swarm",
-      "version": "0.10.2",
+      "version": "0.10.3",
       "description": "Standalone multi-agent orchestration driven by a pipeline.yml — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (state.json is the single source of truth). specode delegates its execution phase here; also runnable directly via /task-swarm:swarm. Version history is in the CHANGELOG.",
+      "category": "development",
       "homepage": "https://github.com/qxbyte/pluginhub",
       "repository": "https://github.com/qxbyte/pluginhub",
       "license": "MIT",
@@ -38,8 +40,9 @@
     {
       "name": "obsidian-wiki",
       "source": "./plugins/obsidian-wiki",
-      "version": "2.0.2",
+      "version": "2.0.3",
       "description": "Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (wiki-struct: Home tree / per-dir READMEs / partition pages), content curation (wiki-curate: ingest / curate / lint), and a unified orchestrator (wiki-orchestrate). Generic code + per-vault config in the home-dir registry ~/.config/obsidian-wiki/ (fallback: <vault>/.wiki/config.json), zero hardcoded structure. Version history is in the CHANGELOG.",
+      "category": "productivity",
       "homepage": "https://github.com/qxbyte/pluginhub",
       "repository": "https://github.com/qxbyte/pluginhub",
       "license": "MIT",
@@ -54,8 +57,9 @@
     {
       "name": "ragkit",
       "source": "./plugins/ragkit",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Standalone knowledge-base RAG plugin (vector/lexical/metadata multi-channel recall).",
+      "category": "database",
       "homepage": "https://github.com/qxbyte/pluginhub",
       "repository": "https://github.com/qxbyte/pluginhub",
       "license": "MIT",
