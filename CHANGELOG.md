@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 6.1.1 (2026-07-05) — specode
+
+- **契约锁步 CI 门禁**（`tests/test_contract_lockstep.py`）：MEMORY 列 + frontmatter 键在 `knowledge.py` / `retrieval.md` / `doc-template.md` 三处一致，负控验证可抓 reorder/drop（+5 测，共 90）。
+- **一页纸知识流心智模型**（`references/knowledge-flow.md`）：distill/knowledge-base/MEMORY/ragkit/intake-检索 的谁产·谁读·何时全图。
+
 ## 6.1.0 (2026-07-05) — specode
 
 - **新增独立 `intake` skill**（`skills/intake/`，同 `distill` 平级）接管 requirements phase：项目分析（agent-docs 扫描 + 经验检索 + 读真实代码）+ 基于分析的澄清 + 写 `requirements.md`（保留 `spec_id` / `created_at` / `project_root` frontmatter 契约，`project_root` 仍经 `write-project-root` 单写入口）。
