@@ -1,6 +1,6 @@
 # specode 经验检索注入（Tier-0 Gate + 两级 gated，模型驱动 prose）
 
-> 本文件是 requirements / design 两个 phase 的检索规格。检索智能全在这里的 prose，
+> 本文件是检索规格。**主调用方 = `specode:intake` skill 的项目分析步（§Step 2b）——检索的主节点**；design phase 只做**条件性 top-up**（默认继承 intake 已定位的指针，仅在开辟新领域时补查）。检索智能全在这里的 prose，
 > **运行时无新增脚本**：读 `MEMORY.md` 用 `Read` 工具即可（它是 `<project_root>/knowledge-base/` 下的本地文件）。
 
 ## 顶层不变量 🔒（与本能力存在的理由）
@@ -13,7 +13,9 @@ KB 是「**定位用，非事实用**」：
 
 ## 触发面
 
-- 只在 **requirements** 与 **design** 两个 phase 触发。
+- **主节点 = intake（requirements phase 的项目分析步）**：由 `specode:intake` skill §Step 2b 调用，产「参考定位（非事实来源）」指针。
+- **design phase = 条件性 top-up**：**默认继承 intake 的指针、不重复全量检索**；仅当 design 开辟了 intake 未覆盖的新领域时才按本规格补查一次。
+- **tasks 阶段不检索**：直接继承 design.md 已定位的文件路径。
 - **执行 / task-swarm 阶段零注入**：不向 task-swarm 传任何 KB / 检索产物，task-swarm 保持任意 spec 的纯执行器。
 
 ## 前置（决定要不要检索）
@@ -25,7 +27,7 @@ KB 是「**定位用，非事实用**」：
 
 ## Tier-0 Gate：RagKit（可选加速路，先于 Tier-1）
 
-本节仅在「前置」通过（MEMORY.md 存在）后才被求值，且与「触发面」约束相同：**仅 requirements / design 两 phase 生效，执行 / task-swarm 阶段不触发**。满足以下**全部**条件才走本节；任一不满足 → 跳过本节按下方两级 gated 流程执行，且**不要读取 RagKit 的任何文档/skill**（零额外 token）：
+本节仅在「前置」通过（MEMORY.md 存在）后才被求值，且与「触发面」约束相同：**仅 intake（requirements 项目分析，主节点）与 design（条件性 top-up）生效，执行 / task-swarm 阶段不触发**。满足以下**全部**条件才走本节；任一不满足 → 跳过本节按下方两级 gated 流程执行，且**不要读取 RagKit 的任何文档/skill**（零额外 token）：
 
 1. 会话可用 skills 列表中存在 `ragkit:query`；
 2. `test -f <project_root>/knowledge-base/.ragkit/chunks.json` 成立（索引已构建）。
@@ -63,8 +65,8 @@ KB 是「**定位用，非事实用**」：
 > 以上仅为定位指针，**可能指向计划中 / 已重构 / 已移动的代码**。实际改动以当前真实代码为准，需逐一打开核对。
 ```
 
-- 在 **requirements phase**：该段帮助分析「这个需求要动哪些真实代码」，可作为澄清 / 范围界定的输入；不写进 `requirements.md` 的事实结论。
-- 在 **design phase**：该段帮助把模块边界 / 接口设计 ground 到真实代码；design 的判断仍基于真实代码（tasks 阶段不再单独检索，直接继承 design.md 已定位的文件路径）。
+- 在 **intake（requirements phase 项目分析）**：该段帮助分析「这个需求要动哪些真实代码」，作为澄清 / 范围界定的输入；**不写进 `requirements.md` 的事实结论**（作临时上下文交给 design）。
+- 在 **design phase（条件性 top-up）**：默认直接用 intake 交来的指针把模块边界 / 接口设计 ground 到真实代码；只有开辟新领域才补查。design 的判断仍基于真实代码（tasks 阶段不再单独检索，直接继承 design.md 已定位的文件路径）。
 
 ## schema ↔ 推理 对照表（变更纪律 🔒）
 
