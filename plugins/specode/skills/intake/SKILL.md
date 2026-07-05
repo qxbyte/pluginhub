@@ -99,5 +99,6 @@ sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" <verb> <args...>
 ## §6 References
 
 - `skills/specode/references/retrieval.md` — 经验检索规格（Step 2b 的引擎；intake 是其**主节点**）。
+- `skills/specode/references/knowledge-flow.md` — 一页纸知识流心智模型（KB 谁产·谁读·何时的全局图）。
 - `assets/templates/requirements.md` — 需求模板（Step 4 结构 + frontmatter 契约）。
 - `skills/specode/references/autonomous-mode.md` — §3 判定的完整规则来源（gate→key→env + 伪代码）。

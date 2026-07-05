@@ -273,6 +273,8 @@ plugins/specode/
       obsidian.md                 specsRoot path resolution + conventions
       superpowers-wiring.md       phase ↔ superpowers skill mapping
       retrieval.md                experience retrieval spec (intake primary node)
+      autonomous-mode.md          non-interactive / CI defaults rule
+      knowledge-flow.md           one-page knowledge-loop mental model
   skills/intake/
     SKILL.md                      requirements phase engine (analysis + clarify + write)
   skills/distill/

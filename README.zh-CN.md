@@ -176,6 +176,8 @@ plugins/specode/
       obsidian.md                 specsRoot 路径解析 + 惯例
       superpowers-wiring.md       阶段 ↔ superpowers 技能映射
       retrieval.md                经验检索规格（intake 为主节点）
+      autonomous-mode.md          非交互 / CI 默认值规则
+      knowledge-flow.md           一页纸知识流心智模型
   skills/intake/
     SKILL.md                      需求阶段引擎（项目分析 + 澄清 + 写需求）
   skills/distill/

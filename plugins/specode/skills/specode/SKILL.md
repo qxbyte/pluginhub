@@ -169,3 +169,4 @@ When writing / updating spec documents, **never** reprint the full text in chat.
 - `references/autonomous-mode.md` — the autonomous / CI defaults rule: gate→key→env mapping + the skip-the-prompt decision pseudo-code.
 - `references/superpowers-wiring.md` — the per-phase ↔ superpowers skill mapping, pre-instructions, and post-relocation instructions.
 - `references/retrieval.md` — 经验检索注入规格（intake 项目分析为主节点 / design 条件性 top-up）。
+- `references/knowledge-flow.md` — 一页纸知识流心智模型：distill / knowledge-base / MEMORY / ragkit / intake-检索 的谁产·谁索引·谁读·何时。
