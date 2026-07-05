@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""spec_hooks.py — specode lite 的唯一 hook：SessionStart 注入纪律。
+"""spec_hooks.py — specode lite's only hook: SessionStart discipline injection.
 
-读 stdin（容忍非 TTY / 空），emit additionalContext JSON 到 stdout，exit 0。
-任何异常都吞掉并 exit 0（advisory，绝不阻断）。
+Reads stdin (tolerates non-TTY / empty), emits additionalContext JSON to stdout, exit 0.
+Swallows any exception and exits 0 (advisory, never blocks).
 
-v0.9 试跑 M8：增加 _check_plugin_cache_drift() 静默 check —— 解析 __file__
-推当前 cache 装载的版本号，对照本地 pluginhub git 仓库（如果存在）的
-marketplace.json 最新版本，diff 时在 additionalContext 末尾加一段提示
-告诉用户 reload。无网络访问；marketplace.json 不可达时 skip silently。
+v0.9 trial M8: adds a silent _check_plugin_cache_drift() — parses __file__ to infer the
+currently cache-loaded version, compares against the local pluginhub git repo's (if present)
+marketplace.json latest version, and on a diff appends a hint to additionalContext telling the
+user to reload. No network access; if marketplace.json is unreachable, skip silently.
+
+Note: the emitted DISCIPLINE reminder and the drift-hint message stay Chinese (user-facing output).
 """
 from __future__ import annotations
 

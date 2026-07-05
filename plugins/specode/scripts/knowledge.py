@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""knowledge.py — specode 项目级知识库 (knowledge-base/) 索引维护 (stdlib-only)。
+"""knowledge.py — index maintenance for specode's project knowledge-base/ (stdlib-only).
 
 verbs:
-  ensure-gitignore --project-root <abs>   确保 <root>/.gitignore 含 `knowledge-base/`
-                                          （无 .git 且无 .gitignore 时跳过，不建 stray）
-  memory-rebuild   --kb <dir>             由 <dir>/**/*.md frontmatter 重建 <dir>/MEMORY.md
-  memory-validate  --kb <dir>             校验 MEMORY 与磁盘文档是否一致（漂移检测）
-  copy-to          --kb <src> --dest <abs>  把 cases/+navigation/ 复制到 dest 并重建其
-                                          MEMORY（一步 dual-landing；dest 绝对路径直写不拼接）
+  ensure-gitignore --project-root <abs>   ensure <root>/.gitignore contains `knowledge-base/`
+                                          (skipped when no .git and no .gitignore — no stray file)
+  memory-rebuild   --kb <dir>             rebuild <dir>/MEMORY.md from <dir>/**/*.md frontmatter
+  memory-validate  --kb <dir>             check MEMORY vs the on-disk docs for consistency (drift detection)
+  copy-to          --kb <src> --dest <abs>  copy cases/+navigation/ to dest and rebuild its
+                                          MEMORY (one-step dual-landing; dest absolute path written directly)
 
-knowledge-base/ 是「定位用，非事实用」的指针库；MEMORY.md 是其轻量索引，
-单一事实源是各文档的 frontmatter——memory-rebuild 永远由 frontmatter 全量重建。
+knowledge-base/ is a "for locating, not for facts" pointer library; MEMORY.md is its lightweight
+index, and the single source of truth is each doc's frontmatter — memory-rebuild always rebuilds
+it in full from frontmatter.
 
-exit codes: 0 ok / 1 用法或参数错 / 2 校验发现漂移（memory-validate）
+exit codes: 0 ok / 1 usage or argument error / 2 drift found (memory-validate)
 """
 from __future__ import annotations
 
@@ -151,7 +152,7 @@ def cmd_memory_rebuild(args) -> int:
 
 def cmd_copy_to(args) -> int:
     """F4: one-step dual-landing — copy cases/ + navigation/ to an absolute
-    dest dir, then rebuild that dir's MEMORY. 直写不拼接：dest 即写入目录。"""
+    dest dir, then rebuild that dir's MEMORY. Written directly, no concatenation: dest IS the write dir."""
     src = Path(args.kb)
     if not src.is_dir():
         sys.stderr.write(f"knowledge: 源 knowledge-base 不存在：{src}\n")
@@ -181,8 +182,8 @@ def cmd_ensure_gitignore(args) -> int:
         return 1
     gi = root / ".gitignore"
     if not gi.exists() and not (root / ".git").exists():
-        # F3: 非 git 项目且无既有 .gitignore → 不创建 stray 文件（无 git 时
-        # .gitignore 也不生效；knowledge-base 本就本地私有，无需 ignore）。
+        # F3: non-git project with no existing .gitignore → don't create a stray file
+        # (.gitignore has no effect without git; knowledge-base is local-private anyway).
         sys.stdout.write(
             f"knowledge: {root} 无 .git 且无 .gitignore，跳过"
             f"（knowledge-base 本地私有，无需 ignore）\n")
