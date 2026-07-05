@@ -192,12 +192,16 @@ back to cwd) and asks you to confirm it once per spec. On the **first
 ever** run it also asks once for your document management directory
 and remembers it. The agent then walks the pipeline:
 
-1. **requirements** — clarify + write `requirements.md` (via
-   `superpowers:brainstorming`, or a native `AskUserQuestion` wizard).
+1. **requirements** — the `specode:intake` skill (specode's own, always)
+   runs project analysis (agent-docs scan + experience retrieval +
+   reading the located real code) → analysis-driven clarification →
+   writes `requirements.md` with the frontmatter contract (`spec_id` /
+   `created_at` / `project_root`). This is also the **primary node for
+   ragkit/experience retrieval**.
 2. **design** — produce a traditional design doc `design.md`
    (architecture / modules / interfaces / data flow / error handling /
-   test strategy; brainstorming's design output lands here, or native
-   authoring).
+   test strategy) via `superpowers:brainstorming` (design only) or native
+   authoring.
 3. **tasks** — produce the executable plan `tasks.md` (via
    `superpowers:writing-plans`, or native Task breakdown). Engine-neutral:
    every execution path consumes this one file.
@@ -268,7 +272,9 @@ plugins/specode/
       selectors.md                执行方式 selector verbatim examples
       obsidian.md                 specsRoot path resolution + conventions
       superpowers-wiring.md       phase ↔ superpowers skill mapping
-      retrieval.md                two-tier gated experience retrieval spec
+      retrieval.md                experience retrieval spec (intake primary node)
+  skills/intake/
+    SKILL.md                      requirements phase engine (analysis + clarify + write)
   skills/distill/
     SKILL.md                      /specode:distill behavior (case/navigation points)
     references/                   breakdown heuristics + doc templates

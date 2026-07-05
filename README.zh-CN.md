@@ -120,8 +120,8 @@ specode 共有四条命令。
 
 先 `cd` 到你的项目目录——specode 以 cwd 推导项目根默认值（`git rev-parse --show-toplevel`，无 git 则 cwd），并在每条 spec 开始时让你确认一次。**首次运行**时还会询问一次文档管理目录并记住它。之后代理依次走完流水线：
 
-1. **需求阶段** — 澄清 + 写 `requirements.md`（通过 `superpowers:brainstorming`，或原生 `AskUserQuestion` 向导）。
-2. **设计阶段** — 生成传统设计文档 `design.md`（架构 / 模块划分 / 接口设计 / 数据流 / 错误处理 / 测试策略；brainstorming 的设计产出落在这里，或原生撰写）。
+1. **需求阶段** — 由 `specode:intake` skill（specode 自己的，永远走它）执行：项目分析（agent-docs 扫描 + 经验检索 + 读定位到的真实代码）→ 基于分析的澄清 → 写 `requirements.md`（含 `spec_id` / `created_at` / `project_root` frontmatter 契约）。这里也是 **ragkit / 经验检索的主节点**。
+2. **设计阶段** — 生成传统设计文档 `design.md`（架构 / 模块划分 / 接口设计 / 数据流 / 错误处理 / 测试策略），通过 `superpowers:brainstorming`（只产 design）或原生撰写。
 3. **计划阶段（tasks）** — 生成可执行计划 `tasks.md`（通过 `superpowers:writing-plans`，或原生任务分解）。引擎中立：所有执行路径消费同一份文件。
 4. **执行方式选择器** — 从自适应 4 个选项中选择执行路径（详见上方亮点）。
 5. **执行阶段** — 以 TDD 方式跑完计划，追加写入 `implementation-log.md`。
@@ -175,7 +175,9 @@ plugins/specode/
       selectors.md                执行方式选择器逐字示例
       obsidian.md                 specsRoot 路径解析 + 惯例
       superpowers-wiring.md       阶段 ↔ superpowers 技能映射
-      retrieval.md                两级 gated 经验检索规格
+      retrieval.md                经验检索规格（intake 为主节点）
+  skills/intake/
+    SKILL.md                      需求阶段引擎（项目分析 + 澄清 + 写需求）
   skills/distill/
     SKILL.md                      /specode:distill 行为（case/navigation 知识点）
     references/                   拆分启发式 + 文档模板
