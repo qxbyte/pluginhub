@@ -1,62 +1,62 @@
-# specode 经验检索注入（Tier-0 Gate + 两级 gated，模型驱动 prose）
+# specode experience-retrieval injection (Tier-0 gate + two-tier gated, model-driven prose)
 
-> 本文件是检索规格。**主调用方 = `specode:intake` skill 的项目分析步（§Step 2b）——检索的主节点**；design phase 只做**条件性 top-up**（默认继承 intake 已定位的指针，仅在开辟新领域时补查）。检索智能全在这里的 prose，
-> **运行时无新增脚本**：读 `MEMORY.md` 用 `Read` 工具即可（它是 `<project_root>/knowledge-base/` 下的本地文件）。
+> This file is the retrieval spec. **Primary caller = the project-analysis step (§Step 2b) of the `specode:intake` skill — the primary retrieval node**; the design phase does only a **conditional top-up** (inherits intake's located pointers by default, re-queries only when it opens new territory). All retrieval intelligence is prose here;
+> **no extra script at runtime**: read `MEMORY.md` with the `Read` tool (it's a local file under `<project_root>/knowledge-base/`).
 
-## 顶层不变量 🔒（与本能力存在的理由）
+## Top-level invariant 🔒 (the reason this capability exists)
 
-KB 是「**定位用，非事实用**」：
-- 新需求下，模型实现逻辑**不依赖** KB；KB 只提供**指针**（文件路径 + 调用链 + 导航经验）。
-- 拿到指针后**仍以真实代码为唯一事实**去读、分析、改。
-- 检索注入的全部价值 = **缩短「定位到要分析的代码」的延迟**，不增加事实来源。
-- 禁止：仅凭 KB 内容推进新需求 / 把历史结论当成当前代码的真相。
+The KB is **for locating, not for facts**:
+- For a new requirement, the model's implementation logic does **not** depend on the KB; the KB only supplies **pointers** (file paths + call chains + navigation experience).
+- Once you have a pointer, **real code remains the only source of truth** — read, analyze, and change against it.
+- The entire value of retrieval injection = **shortening the latency of locating the code to analyze**, not adding a source of truth.
+- Forbidden: advancing a new requirement on KB content alone / treating a historical conclusion as the truth about current code.
 
-## 触发面
+## Trigger surface
 
-- **主节点 = intake（requirements phase 的项目分析步）**：由 `specode:intake` skill §Step 2b 调用，产「参考定位（非事实来源）」指针。
-- **design phase = 条件性 top-up**：**默认继承 intake 的指针、不重复全量检索**；仅当 design 开辟了 intake 未覆盖的新领域时才按本规格补查一次。
-- **tasks 阶段不检索**：直接继承 design.md 已定位的文件路径。
-- **执行 / task-swarm 阶段零注入**：不向 task-swarm 传任何 KB / 检索产物，task-swarm 保持任意 spec 的纯执行器。
+- **Primary node = intake (the project-analysis step of the requirements phase)**: called by `specode:intake` §Step 2b, producing `参考定位（非事实来源）` pointers.
+- **Design phase = conditional top-up**: **inherit intake's pointers by default, do not re-run a full retrieval**; re-query per this spec only when design opens territory intake didn't cover.
+- **Tasks phase: no retrieval** — inherit the file paths already located in design.md.
+- **Execution / task-swarm: zero injection** — pass no KB / retrieval artifact to task-swarm; it stays a pure executor of any spec.
 
-## 前置（决定要不要检索）
+## Precondition (whether to retrieve at all)
 
-1. 经 `resolve_root.py read-project-root --spec <specsRoot>/<slug>` 取 `project_root`。
-2. 看 `<project_root>/knowledge-base/MEMORY.md` 是否存在。
-   - **不存在**（fresh 项目 / 还没 distill 过）→ **静默跳过整个检索**，不报错、不写空段，正常进入需求/设计。
-   - 存在 → 进入下方检索流程（先尝试 Tier-0 Gate，不适用时再走两级 gated）。
+1. Get `project_root` via `resolve_root.py read-project-root --spec <specsRoot>/<slug>`.
+2. Check whether `<project_root>/knowledge-base/MEMORY.md` exists.
+   - **Absent** (fresh project / never distilled) → **silently skip the whole retrieval**; no error, no empty section, proceed normally into requirements/design.
+   - Present → enter the retrieval flow below (try the Tier-0 gate first, fall through to two-tier gated).
 
-## Tier-0 Gate：RagKit（可选加速路，先于 Tier-1）
+## Tier-0 gate: RagKit (optional fast path, ahead of Tier-1)
 
-本节仅在「前置」通过（MEMORY.md 存在）后才被求值，且与「触发面」约束相同：**仅 intake（requirements 项目分析，主节点）与 design（条件性 top-up）生效，执行 / task-swarm 阶段不触发**。满足以下**全部**条件才走本节；任一不满足 → 跳过本节按下方两级 gated 流程执行，且**不要读取 RagKit 的任何文档/skill**（零额外 token）：
+This section is evaluated only after the precondition passes (MEMORY.md exists), and under the same trigger-surface constraint: **only intake (requirements project-analysis, primary) and design (conditional top-up); not triggered in execution / task-swarm**. Take this section only when **all** of the following hold; if any fails → skip it and run the two-tier gated flow below, and **do not read any RagKit doc/skill** (zero extra tokens):
 
-1. 会话可用 skills 列表中存在 `ragkit:query`；
-2. `test -f <project_root>/knowledge-base/.ragkit/chunks.json` 成立（索引已构建）。
+1. `ragkit:query` is present in the session's available-skills list;
+2. `test -f <project_root>/knowledge-base/.ragkit/chunks.json` holds (the index is built).
 
-走法：
-- 检索词**由模型根据当前需求自行提炼**（页面名 / 字段 / 功能域 / 调用链等角度），调用 `ragkit:query` skill 执行检索；**允许多轮、多角度**调用，直到定位充分或确认无相关知识。
-- 返回的是定位卡片（指针）。对每条做语义取舍——tags/词面命中 ≠ 相关（同 Tier-1 纪律）；采纳的条目按 Tier-2 方式 `Read` 原文并跳到真实代码；采纳条目按 Tier-2 同等纪律封顶（默认 ≤5 点/phase，复杂需求可标注理由突破）。
-- 注入仍用下方「注入格式」的「参考定位（非事实来源）」段；命中并注入后**跳过 Tier-1/2**。
-- RagKit 输出的降级/提示信息（╭─ RagKit ─╮ 块）原样转述给用户。
-- 若多轮检索后确认无相关知识 → 退出本节，继续下方 Tier-1/2 流程。
+How to run it:
+- The model **derives the query terms itself** from the current need (page name / field / functional domain / call chain, etc.) and calls the `ragkit:query` skill; **multiple rounds and multiple angles are allowed** until location is sufficient or you confirm there's nothing relevant.
+- It returns location cards (pointers). Judge each semantically — a tags/lexical match ≠ relevance (same discipline as Tier-1); for adopted entries `Read` the source and jump to real code as in Tier-2; cap adopted entries under the same Tier-2 discipline (default ≤5 per phase, may exceed with a stated reason for complex needs).
+- Injection still uses the `参考定位（非事实来源）` section from the "Injection format" below; once you hit and inject, **skip Tier-1/2**.
+- Relay RagKit's degradation/hint output (the ╭─ RagKit ─╮ block) to the user verbatim.
+- If multiple rounds confirm nothing relevant → exit this section and continue with the Tier-1/2 flow below.
 
-本 gate 与 RagKit **零依赖**：specode 不读其内部实现；RagKit 缺席时本节整体不生效（与 task-swarm 的 zero-import 模式同构）。
+This gate is **zero-dependency** on RagKit: specode does not read its internals; when RagKit is absent this section is simply inert (isomorphic to task-swarm's zero-import model).
 
-## 两级 gated 检索
+## Two-tier gated retrieval
 
-### Tier-1（默认便宜）
-1. `Read` `<project_root>/knowledge-base/MEMORY.md`（开销极小）。它每行一个知识点，列：
-   `| 标题 | 类型 | 描述 | 来源 | 路径 | tags |`。
-2. 取当前需求的**页面名 / 字段名 / 功能域**关键词，比对每条的 `tags` + `描述`。**`tags`/`描述` 命中只是「候选」，不等于相关**——必须进一步判断该知识点的「**改动类型 / 语义**」是否真适用于当前需求，不适用就不取。例：当前是「列表**加一列**」需求，命中了某「列表字段**脱敏**」case 的 `列表页` tag，但脱敏改法与加列不同类 → 只取其中的「定位类」点（如列表页定位套路），**不注入**脱敏 case。盲目「tag 命中即注入」会退化成 v3 的噪声注入、污染上下文。
-3. 若无（语义上真正）相关项 → 结束检索，默认成本仅一次小索引读。
+### Tier-1 (cheap by default)
+1. `Read` `<project_root>/knowledge-base/MEMORY.md` (tiny cost). One knowledge point per row, columns:
+   `| 标题 | 类型 | 描述 | 来源 | 路径 | tags |`.
+2. Take the current need's **page name / field name / functional domain** keywords and compare against each row's `tags` + `描述`. **A `tags`/`描述` match is only a *candidate*, not relevance** — you must further judge whether the point's **change type / semantics** truly applies to the current need, and drop it if not. Example: the current need is "add a column to a list", and a "list field *masking*" case matched on its `列表页` tag, but masking is a different change type than adding a column → take only its "location-type" point (e.g. the list-page location routine), and **do not inject** the masking case. Blindly "inject on tag match" degrades into v3's noise injection and pollutes the context.
+3. If nothing is (semantically) relevant → end retrieval; default cost is a single small index read.
 
-### Tier-2（命中才贵）
-4. 对命中项 `Read` 全文，**封顶 ≤5 个点 / phase**；可酌情少读。**软上限**：复杂需求命中更多点时，可在「参考定位」段**标注理由后突破 5**（N 本就是 prose 软约束）。
-5. 用文档里的 `前端文件 / 后端文件 / 调用链` 字段**跳到真实代码**，读真实代码做分析（真实代码是唯一事实）。
-6. **跨需求组合借鉴**：命中多个点时，按各自 `来源` 追溯各自的改法 / 定位路径，拼起来参考（例：新需求3 可同时命中「需求1 的脱敏 case」+「需求2 的列表定位 navigation」，组合参考）。
+### Tier-2 (expensive only on a hit)
+4. `Read` the full text of matched points, **capped at ≤5 per phase**; read fewer when appropriate. **Soft cap**: for a complex need matching more points, you may **exceed 5 with a stated reason** in the `参考定位` section (N is a prose soft constraint anyway).
+5. Use the doc's `前端文件 / 后端文件 / 调用链` fields to **jump to real code**, and analyze against the real code (real code is the only truth).
+6. **Cross-requirement composition**: when several points hit, trace each one's `来源` back to its own change/location path and compose the references (e.g. new requirement 3 may hit both "requirement 1's masking case" + "requirement 2's list-location navigation", used together).
 
-## 注入格式
+## Injection format
 
-把检索结果贴成醒目的独立段，确保下游绝不误当事实：
+Paste the results as a conspicuous standalone section so downstream never mistakes it for fact:
 
 ```markdown
 ## 参考定位（非事实来源，仅用于快速定位真实代码）
@@ -65,22 +65,22 @@ KB 是「**定位用，非事实用**」：
 > 以上仅为定位指针，**可能指向计划中 / 已重构 / 已移动的代码**。实际改动以当前真实代码为准，需逐一打开核对。
 ```
 
-- 在 **intake（requirements phase 项目分析）**：该段帮助分析「这个需求要动哪些真实代码」，作为澄清 / 范围界定的输入；**不写进 `requirements.md` 的事实结论**（作临时上下文交给 design）。
-- 在 **design phase（条件性 top-up）**：默认直接用 intake 交来的指针把模块边界 / 接口设计 ground 到真实代码；只有开辟新领域才补查。design 的判断仍基于真实代码（tasks 阶段不再单独检索，直接继承 design.md 已定位的文件路径）。
+- In **intake (requirements project-analysis)**: this section helps analyze "which real code this requirement touches", as input for clarification / scoping; **not written as a factual conclusion in `requirements.md`** (handed to design as ephemeral context).
+- In **design (conditional top-up)**: by default use intake's handed pointers to ground module boundaries / interface design to real code; re-query only when opening new territory. Design's judgment is still based on real code (the tasks phase no longer retrieves — it inherits the file paths already located in design.md).
 
-## schema ↔ 推理 对照表（变更纪律 🔒）
+## Schema ↔ reasoning table (change discipline 🔒)
 
-> KB schema 与本检索 prose 是同一份契约的两面，**锁步演进**：MEMORY/frontmatter 改一个字段，下表与对应步骤同步改；禁止各自漂移。三处（distill 写出的 frontmatter、`knowledge.py` 的 MEMORY 列、本检索 prose）必须一致。
+> The KB schema and this retrieval prose are two faces of one contract and **evolve in lockstep**: change a MEMORY/frontmatter field → change this table and the matching steps together; no independent drift. The three sites (the frontmatter distill writes, `knowledge.py`'s MEMORY columns, this retrieval prose) must agree. The `tests/test_contract_lockstep.py` gate enforces this.
 
-| MEMORY / KB 字段 | 检索时怎么用 |
+| MEMORY / KB field | how retrieval uses it |
 |---|---|
-| `tags` / 关键词 | **Tier-1 主匹配键**：当前需求的页面/字段/域去比对 |
-| `描述` | Tier-1 相关性二次信号 |
-| `类型`(case/navigation) | 决定读取意图：case→借鉴同类需求改法；navigation→定位文件/入口 |
-| `来源`(slug) | **跨需求组合借鉴**：命中多点时按来源追溯各自改法/路径拼接参考 |
-| `路径` | Tier-2 命中后 `Read` 的目标（相对 `knowledge-base/`） |
-| 文档内 `前后端文件 + 调用链` | 定位真实代码的跳板（读完去读真实代码） |
+| `tags` / keywords | **Tier-1 primary match key**: compare the current need's page/field/domain against it |
+| `描述` | Tier-1 secondary relevance signal |
+| `类型` (case/navigation) | decides read intent: case → borrow a same-type requirement's change; navigation → locate files/entry points |
+| `来源` (slug) | **cross-requirement composition**: on multiple hits, trace each `来源` to compose its change/path |
+| `路径` | the `Read` target after a Tier-2 hit (relative to `knowledge-base/`) |
+| the doc's `前后端文件 + 调用链` | the springboard to real code (after reading, go read the real code) |
 
-## 为什么不重蹈 v3
+## Why this doesn't repeat v3
 
-v3 的确定性 Python recall 自动注入历史**内容**、不省 token，被 4.0.0 拔掉。本路线：① 引擎是模型判断、非脚本打分；② 默认只读小索引；③ 注入指针非事实、体量小且标注「非事实来源」；④ 命中才读、封顶 N=5。成功标准 = **定位更快/更准**（token 持平亦可接受）。
+v3's deterministic Python recall auto-injected historical **content** and didn't save tokens; it was removed in 4.0.0. This route: (1) the engine is model judgment, not a script score; (2) reads only the small index by default; (3) injects pointers not facts, small and labeled `非事实来源`; (4) reads only on a hit, capped at N=5. Success criterion = **faster/more accurate location** (token-neutral is acceptable).
