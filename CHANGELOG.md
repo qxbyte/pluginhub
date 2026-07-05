@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 6.1.2 (2026-07-05) — specode
+
+- **插件语言统一（仅 specode，零行为变化）**：面向 agent 的指令/说明 prose（SKILL / references / commands / 脚本 docstring+注释）全部转地道英文；用户可见的固定输出与选择保持中文（执行方式 selector、模板、注入段 `## 项目级约束` / `## 参考定位`、脚本 stderr 用户消息、CHANGELOG、契约字段标识符）。测试零回归（90 passed）。
+
 ## 6.1.1 (2026-07-05) — specode
 
 - **契约锁步 CI 门禁**（`tests/test_contract_lockstep.py`）：MEMORY 列 + frontmatter 键在 `knowledge.py` / `retrieval.md` / `doc-template.md` 三处一致，负控验证可抓 reorder/drop（+5 测，共 90）。

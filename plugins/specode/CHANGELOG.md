@@ -4,7 +4,11 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
-## 6.1.1 (2026-07-05)
+## 6.1.2 (2026-07-05)
+
+- **插件语言统一（仅 specode，零行为变化）**：把面向 agent 的**指令 / 说明性 prose 全部转成地道英文**（按中文语义转写，非直译）——`skills/*/SKILL.md`（specode / intake / distill）、`skills/specode/references/*.md`（retrieval / obsidian / superpowers-wiring / knowledge-flow）、`commands/*.md`、以及三个脚本的 docstring + 行内注释。
+- **用户可见的固定输出与选择保持中文**（明确不动）：执行方式 selector 的选项文案（`references/selectors.md` 未动）、`assets/templates/*.md`（生成的 spec 文档模板）、注入用户文档的段（`## 项目级约束` / `## 参考定位（非事实来源）`）、脚本 stderr/stdout 用户消息、SessionStart DISCIPLINE 提示、MEMORY.md 输出说明、以及 `_COLS` / frontmatter 键标识符（`标题/类型/描述/来源/路径/tags`）。
+- **CHANGELOG 永远保持中文**（本次及以后）。测试零回归（90 passed），契约锁步门禁验证 MEMORY 列未受影响。
 
 - **契约锁步 CI 门禁**（`tests/test_contract_lockstep.py`）：把 CLAUDE.md 的「变更纪律」变成可执行测试——读 `knowledge.py` **真实**产出的 MEMORY 表头（跑 memory-rebuild，非源码内省），断言它与 `references/retrieval.md`、`skills/distill/references/doc-template.md` 文档化的列一致，并断言 doc-template 的 frontmatter 键 == knowledge.py 读的键。提取器经**负控验证**能抓 reorder/drop，门禁可真失败而非白过。三处任一漂移 → 测试红。（+5 测，共 90。）
 - **一页纸知识流心智模型**（`references/knowledge-flow.md`）：ASCII 产出→索引→消费全图（distill 写 / `knowledge.py` 索引 / intake+design 读、tasks+执行零注入）+ 「定位用非事实用」不变量 + 各部件权威文档指针。挂进 SKILL/intake References + 两 README 架构树（顺带把 `autonomous-mode.md` 补进树）。
