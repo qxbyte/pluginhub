@@ -17,7 +17,7 @@ description: 手动把一个已完成（或进行中）的 spec 沉淀为项目 
 
 - **主写域 = `<project_root>/knowledge-base/`**（`cases/` + `navigation/` + `MEMORY.md`）；Obsidian 是**可选副本**，不是默认主产物
 - spec 目录**只读**：绝不修改 `<specsRoot>/<slug>/` 下任何文件
-- **md-only**：无 yml、无 `codemap knowledge write`、无 `.ai-memory`、无任何静默注入
+- **md-only**：只产 markdown，无 yml、无任何静默注入
 - `--target-dir` / 用户输入路径**直写不拼接**；`/Volumes/` 下需先校验挂载
 - `knowledge-base/` 不提交项目仓库（落盘时 `ensure-gitignore` 保证）
 - `project_root` 经 `resolve_root.py read-project-root --spec ...` 读取，**不从 cwd 反推**

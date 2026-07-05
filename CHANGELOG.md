@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 6.1.0 (2026-07-05) — specode
+
+- **新增独立 `intake` skill**（`skills/intake/`，同 `distill` 平级）接管 requirements phase：项目分析（agent-docs 扫描 + 经验检索 + 读真实代码）+ 基于分析的澄清 + 写 `requirements.md`（保留 `spec_id` / `created_at` / `project_root` frontmatter 契约，`project_root` 仍经 `write-project-root` 单写入口）。
+- **修正 6.0.0 brainstorming 双产物错位**：brainstorming 从此只产 `design.md`（单产物），requirements 由 intake 产；requirements phase 不再有 superpowers/native 分叉。
+- **检索节点收敛**：主节点 = intake 项目分析步；design = 条件性 top-up（继承 intake 指针）；tasks / 执行零注入不变。
+- **弊端修复**：writing-plans 结尾的执行方式提问改为「忽略而非抑制」（无参数可关，只能消化）。
+- **SKILL 轻量化**：`skills/specode/SKILL.md` 215 → 171 行，verb 表 / autonomous-mode 细节下沉到 references（零行为变化）。
+
 ## 6.0.0 (2026-07-03) — specode
 
 **BREAKING**：固定产物 3 → 4，修正 5.x 的两级错位（brainstorming 的设计产出被当成 requirements、writing-plans 的计划被当成 design）。

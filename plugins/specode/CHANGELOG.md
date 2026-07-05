@@ -4,7 +4,14 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
-## 6.0.0 (2026-07-03)
+## 6.1.0 (2026-07-05)
+
+- **新增独立 intake skill**（`skills/intake/`，与 `distill` 平级，`user-invocable: false`，由编排 SKILL 经 Skill 工具按名 `specode:intake` 调用）接管 **requirements phase**：项目分析（agent-docs 扫描 + 经验检索 + 读定位到的真实代码）→ 基于分析的澄清（brainstorming 级，非固定问卷）→ 写 `requirements.md`。**保留 frontmatter 契约不动**：`spec_id` / `created_at` / `project_root`（后者仍经 `write-project-root` 单一写入口）。
+- **修正 6.0.0 的 brainstorming 双产物错位**：brainstorming 从此**只产 design.md（单产物）**，requirements 由 intake 产。requirements phase 不再分「superpowers 在/不在」——永远走 intake，消掉一个 fork。relocate 后置检查回到单文件。
+- **检索节点收敛**：主节点移到 intake 的项目分析步；**design 降为条件性 top-up**（默认继承 intake 指针，仅新领域才补查）；tasks / 执行零注入不变。
+- **弊端修复**：writing-plans 结尾硬编码的「Subagent vs Inline」执行方式提问无参数可关——SKILL 措辞从「抑制」改为**「忽略、不据此执行，继续走 specode selector」**（诚实：只能消化不能抑制）。
+- **SKILL 轻量化（零行为变化）**：`skills/specode/SKILL.md` 215 → 171 行——完整 `resolve_root.py` verb 表下沉到 `references/obsidian.md`；autonomous-mode mapping + 决策伪代码抽到新 `references/autonomous-mode.md`；resolver why-prose 精简；v4.0.0 移除说明压成一行；重复三处的 Absence-fallback 矩阵 slim 成指针。
+- **清理 v3/codemap 死术语噪声（零行为变化）**：功能层无残留（codemap / `.ai-memory` 活代码路径在 4.0.0/5.0.1 已干净移除）；但 `distill` skill 反复对着已不存在的工具声明「无 codemap knowledge write / 不调 codemap recall / 不读 .ai-memory」约 5 处——收敛为中性的活约束（md-only / 不消费旧 KB 当事实 / 不喂下游），历史细节留 CHANGELOG，仅保留一条 checkout-backup 逃生指针。
 
 - **BREAKING**: 固定产物 3 → 4 —— `design.md` 重定义为**传统设计文档**（背景与目标/架构概览/模块划分/接口设计/数据流/错误处理/测试策略，散文无 checkbox）；新增 `tasks.md` 承载可执行计划（writing-plans 格式 + `**Interfaces:**` 契约块，引擎中立，task-swarm / superpowers / 自执行统一消费）。流水线变为 requirements → design → tasks → 执行方式 selector → 执行 → 验收；brainstorming 一次跨 requirements+design 双产物落盘（后置 relocate 检查两份）。
 - **BREAKING**: continue 改「加载即停」——`/specode:continue <slug>` 只读文档 + 汇报进度简报（阶段/文档状态/checkbox x/N）后停下等用户指令，不再自动续跑；用户说「继续」才从推断阶段续跑，提出需求变更则先消化进文档再问。
