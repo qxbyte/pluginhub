@@ -4,7 +4,10 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
-## 6.1.0 (2026-07-05)
+## 6.1.1 (2026-07-05)
+
+- **契约锁步 CI 门禁**（`tests/test_contract_lockstep.py`）：把 CLAUDE.md 的「变更纪律」变成可执行测试——读 `knowledge.py` **真实**产出的 MEMORY 表头（跑 memory-rebuild，非源码内省），断言它与 `references/retrieval.md`、`skills/distill/references/doc-template.md` 文档化的列一致，并断言 doc-template 的 frontmatter 键 == knowledge.py 读的键。提取器经**负控验证**能抓 reorder/drop，门禁可真失败而非白过。三处任一漂移 → 测试红。（+5 测，共 90。）
+- **一页纸知识流心智模型**（`references/knowledge-flow.md`）：ASCII 产出→索引→消费全图（distill 写 / `knowledge.py` 索引 / intake+design 读、tasks+执行零注入）+ 「定位用非事实用」不变量 + 各部件权威文档指针。挂进 SKILL/intake References + 两 README 架构树（顺带把 `autonomous-mode.md` 补进树）。
 
 - **新增独立 intake skill**（`skills/intake/`，与 `distill` 平级，`user-invocable: false`，由编排 SKILL 经 Skill 工具按名 `specode:intake` 调用）接管 **requirements phase**：项目分析（agent-docs 扫描 + 经验检索 + 读定位到的真实代码）→ 基于分析的澄清（brainstorming 级，非固定问卷）→ 写 `requirements.md`。**保留 frontmatter 契约不动**：`spec_id` / `created_at` / `project_root`（后者仍经 `write-project-root` 单一写入口）。
 - **修正 6.0.0 的 brainstorming 双产物错位**：brainstorming 从此**只产 design.md（单产物）**，requirements 由 intake 产。requirements phase 不再分「superpowers 在/不在」——永远走 intake，消掉一个 fork。relocate 后置检查回到单文件。
