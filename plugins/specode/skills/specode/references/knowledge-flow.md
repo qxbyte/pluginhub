@@ -2,47 +2,48 @@
 description: One-page mental model of specode's experience/knowledge loop — who produces, who indexes, who reads, and when. Read this to understand how distill / knowledge-base / MEMORY / ragkit / intake-retrieval fit together.
 ---
 
-# 知识流心智模型（谁产 · 谁索引 · 谁读 · 何时）
+# Knowledge-flow mental model (who produces · indexes · reads · when)
 
-一句话：**KB 是「定位用，非事实用」。** 它只提供指针（文件路径 + 调用链 + 导航经验）帮你更快跳到真实代码；**真实代码始终是唯一事实来源**。绝不允许仅凭 KB 内容推进新需求。
+In one line: **the KB is "for locating, not for facts".** It only supplies pointers (file paths + call chains + navigation experience) to help you jump to real code faster; **real code is always the only source of truth**. Never advance a new requirement on KB content alone.
 
 ```
-  产出（写）                        索引                      消费（读）
+  produce (write)                   index                     consume (read)
   ─────────────────────────         ───────────────           ─────────────────────────────
-  /specode:distill <slug>           MEMORY.md                 intake（requirements 项目分析）
-   （手动，验收末尾按                （小 md 索引，列           = 主检索节点
-    auto_distill 提示；               标题/类型/描述/           · Tier-1 读 MEMORY 比对页面/字段/域
-    绝不自动跑）                      来源/路径/tags）          · 命中 → Tier-2 读 ≤5 点 → 跳真实代码
-        │                                ▲                     · 若装 ragkit 且 chunks.json 存在
-        ▼                                │ memory-rebuild        → Tier-0 ragkit:query 多路召回
-  <project_root>/knowledge-base/    （由各文档 frontmatter          │
-   ├── cases/<topic>.md    ────────► 全量重建，不手改）              ▼
-   ├── navigation/<topic>.md         .ragkit/（可选）          design（条件性 top-up）
-   └── MEMORY.md                     chunks.json + vectors     = 默认继承 intake 指针，
-        │                            由 /ragkit:embed 建         仅新领域才补查
-        │（可选副本）                 （仅装 ragkit 时）              │
-        ▼                                                          ▼
-   Obsidian vault                                            把设计/需求 ground 到真实代码
-   （knowledge.py copy-to，                                   （tasks / 执行 / task-swarm = 零注入）
-    人读镜像）
+  /specode:distill <slug>           MEMORY.md                 intake (requirements analysis)
+   (manual; prompted at the         (small md index,          = primary retrieval node
+    end of acceptance per            columns 标题/类型/         · Tier-1: read MEMORY, match page/field/domain
+    auto_distill; never              描述/来源/路径/tags)       · hit → Tier-2: read ≤5 points → jump to real code
+    auto-run)                            ▲                     · if ragkit present and chunks.json exists
+        │                                │ memory-rebuild        → Tier-0 ragkit:query multi-recall
+        ▼                                │ (rebuilt in full          │
+  <project_root>/knowledge-base/     from each doc's               ▼
+   ├── cases/<topic>.md    ────────► frontmatter,             design (conditional top-up)
+   ├── navigation/<topic>.md         never hand-edited)       = inherits intake's pointers by default,
+   └── MEMORY.md                     .ragkit/ (optional)        re-queries only for new territory
+        │                            chunks.json + vectors          │
+        │ (optional copy)            built by /ragkit:embed         ▼
+        ▼                            (only when ragkit          ground design/requirements to real code
+   Obsidian vault                     installed)               (tasks / execution / task-swarm = zero injection)
+   (knowledge.py copy-to,
+    human-readable mirror)
 ```
 
-## 铁律
+## Iron rules
 
-- **产出是手动的**：只有 `/specode:distill <slug>` 写 KB；主流程绝不自动沉淀（验收末尾只*提示*入口，按 `auto_distill` 决定）。
-- **frontmatter 是单一事实源**：`MEMORY.md` 永远由 `knowledge.py memory-rebuild` 从各文档 frontmatter 全量重建，**不手改**（`memory-validate` 查漂移）。
-- **消费只在两处**：intake 的项目分析步（主节点）+ design（条件性 top-up）。**tasks / 执行 / task-swarm 零注入**——到那时文件路径已在 design.md / tasks.md 里。
-- **注入是指针非事实**：贴成「参考定位（非事实来源）」段，只用于定位、不写进 requirements.md 的事实结论。
-- **全程 opt-in**：无 `knowledge-base/MEMORY.md` → 检索静默跳过（默认成本 ≈ 一次小索引读）。无 ragkit → Tier-0 不生效，退到 Tier-1/2。
-- **`knowledge-base/` 不入仓**：本地私有定位资产（`ensure-gitignore` 保证）；Obsidian 副本是可选的人读镜像。
+- **Production is manual**: only `/specode:distill <slug>` writes the KB; the main flow never auto-sediments (acceptance only *offers* the entry point, gated by `auto_distill`).
+- **Frontmatter is the single source of truth**: `MEMORY.md` is always rebuilt in full by `knowledge.py memory-rebuild` from each doc's frontmatter, **never hand-edited** (`memory-validate` checks for drift).
+- **Consumption happens in only two places**: intake's project-analysis step (primary node) + design (conditional top-up). **tasks / execution / task-swarm inject nothing** — by then the file paths are already in design.md / tasks.md.
+- **Injection is pointers, not facts**: pasted as a `参考定位（非事实来源）` section, used only for locating, never written as a factual conclusion in requirements.md.
+- **Fully opt-in**: no `knowledge-base/MEMORY.md` → retrieval is silently skipped (default cost ≈ one small index read). No ragkit → Tier-0 is inert, falls through to Tier-1/2.
+- **`knowledge-base/` is not committed**: a local-private location asset (`ensure-gitignore` guarantees it); the Obsidian copy is an optional human-readable mirror.
 
-## 契约锁步 🔒
+## Contract lockstep 🔒
 
-MEMORY 列 + frontmatter 键在三处必须一致：`skills/distill/references/doc-template.md`（写）、`scripts/knowledge.py` `_COLS`（索引）、`skills/specode/references/retrieval.md`（读）。改一处 → 改三处。`tests/test_contract_lockstep.py` 是这条纪律的 CI 门禁。
+The MEMORY columns + frontmatter keys must agree across three sites: `skills/distill/references/doc-template.md` (writes), `scripts/knowledge.py` `_COLS` (indexes), `skills/specode/references/retrieval.md` (reads). Change one → change all three. `tests/test_contract_lockstep.py` is the CI gate for this discipline.
 
-## 各部件的权威文档
+## Authoritative doc for each part
 
-- 产出：`skills/distill/SKILL.md` + `skills/distill/references/doc-template.md`
-- 索引 CLI：`scripts/knowledge.py`（`memory-rebuild` / `memory-validate` / `copy-to` / `ensure-gitignore`）
-- 消费：`skills/specode/references/retrieval.md`（Tier-0 gate + 两级 gated）
-- 主消费方：`skills/intake/SKILL.md` §Step 2b
+- Produce: `skills/distill/SKILL.md` + `skills/distill/references/doc-template.md`
+- Index CLI: `scripts/knowledge.py` (`memory-rebuild` / `memory-validate` / `copy-to` / `ensure-gitignore`)
+- Consume: `skills/specode/references/retrieval.md` (Tier-0 gate + two-tier gated)
+- Primary consumer: `skills/intake/SKILL.md` §Step 2b

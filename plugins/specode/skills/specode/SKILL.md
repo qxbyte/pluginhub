@@ -24,7 +24,7 @@ Regardless of the execution engine (superpowers, task-swarm, or specode-native),
 | Document | Fixed filename | Content |
 |---|---|---|
 | Requirements | `requirements.md` | Prose spec: background / why · scope (in/out) · acceptance `- [ ] AC-N` · open questions. Pure natural language, no formalized clause syntax. |
-| Design | `design.md` | **传统设计文档** (per the `assets/templates/design.md` sections): 背景与目标 / 架构概览（方案取舍）/ 模块划分与职责 / 接口设计 / 数据流 / 错误处理 / 测试策略. Prose + diagrams only — no checkboxes, no TDD steps. |
+| Design | `design.md` | **Traditional design doc** (per the `assets/templates/design.md` sections): 背景与目标 / 架构概览（方案取舍）/ 模块划分与职责 / 接口设计 / 数据流 / 错误处理 / 测试策略. Prose + diagrams only — no checkboxes, no TDD steps. |
 | Plan | `tasks.md` | superpowers writing-plans executable-plan format: `Goal` / `Architecture` / `Tech Stack` + `## Task N` (each Task carries `**Files:**` file scope, `**Interfaces:**` Consumes/Produces contracts, `验证: AC-N` back-reference to requirements, `(needs: Task N)` dependencies, and `- [ ]` TDD steps). Engine-neutral — all four execution engines consume this one file. |
 | Execution log | `implementation-log.md` | Appended during execution: design deviations / key decisions / final acceptance summary. |
 
@@ -56,20 +56,20 @@ Each phase is annotated "if superpowers is installed, call it / otherwise go nat
 1. **specsRoot**: `get-root` (first-time setup if missing) → obtain `<specsRoot>` → `mkdir -p <specsRoot>/<slug>/` (the host agent derives the kebab-case slug from the request).
 2. **requirements (clarify + requirements)** — **invoke the `specode:intake` skill via the `Skill` tool** and let it own this whole phase. intake is a **standalone specode skill** (`skills/intake/`, peer to `distill`, `user-invocable: false`) — it is the **sole producer of `requirements.md`**; there is **no** "superpowers vs native" fork here anymore (`brainstorming` is used only for design, see step 3). intake internally runs, in order: (1) `project_root` confirmation (`resolve-project-root` default → `AskUserQuestion` once, autonomous-aware) — it holds the confirmed absolute path; (2) **project analysis**: agent-docs scan (`## 项目级约束` path-only section) + **experience retrieval — this is the primary retrieval node** (per `references/retrieval.md`: Tier-0 RagKit / two-tier gated) + actually reading the located real code; (3) analysis-driven clarification (brainstorming-caliber, one question at a time, not a fixed wizard); (4) write `requirements.md` per the template **and persist the frontmatter contract** — `spec_id` / `created_at` + `project_root` **via `resolve_root.py write-project-root`** (single validated writer; never hand-write it); (5) hand the located 「参考定位（非事实来源）」 pointers back as ephemeral context for design. Full behavior lives in `skills/intake/SKILL.md` — do not re-derive it here.
 
-   > **frontmatter 契约 🔒**: `requirements.md` 的 `spec_id` / `created_at` / `project_root` 是下游 distill / task-swarm / retrieval 的单一事实源；`project_root` 只经 `write-project-root` 单一写入口落盘。intake 负责保证这套契约，specode 编排不重复写、不手改。
-3. **design (传统设计文档)**:
-   - superpowers installed → call `superpowers:brainstorming` for **design only** (single artifact → `design.md`). Pre-instruct it: **requirements are already settled in `requirements.md` (read it as input) — go straight to design presentation, produce only `design.md`** per the `assets/templates/design.md` sections (背景与目标 / 架构概览 / 模块划分与职责 / 接口设计 / 数据流 / 错误处理 / 测试策略——散文，无 checkbox); also pass intake's 「参考定位（非事实来源）」 pointers as ephemeral grounding context. Relocate the artifact to `<specsRoot>/<slug>/design.md` (post-relocation check = **one** file).
+   > **frontmatter contract 🔒**: `requirements.md`'s `spec_id` / `created_at` / `project_root` are the single source of truth for downstream distill / task-swarm / retrieval; `project_root` is written only through the single writer `write-project-root`. intake guarantees this contract; the specode orchestration does not re-write or hand-edit it.
+3. **design (traditional design doc)**:
+   - superpowers installed → call `superpowers:brainstorming` for **design only** (single artifact → `design.md`). Pre-instruct it: **requirements are already settled in `requirements.md` (read it as input) — go straight to design presentation, produce only `design.md`** per the `assets/templates/design.md` sections (背景与目标 / 架构概览 / 模块划分与职责 / 接口设计 / 数据流 / 错误处理 / 测试策略 — prose, no checkboxes); also pass intake's 「参考定位（非事实来源）」 pointers as ephemeral grounding context. Relocate the artifact to `<specsRoot>/<slug>/design.md` (post-relocation check = **one** file).
 
-     > brainstorming 的终态硬编码为「invoke writing-plans」——这正好对齐 specode 的 design → tasks 顺序，**顺其自然即可**：让它（或你）产完 design.md 后进入 tasks phase（step 4），不要在 design 里另起炉灶。
-   - not installed → **specode-native**: the host agent authors `design.md` per the `assets/templates/design.md` template（同上七节，散文无 checkbox）.
-   - **经验检索（条件性 top-up，非强制）**: design 默认**继承 intake（step 2）已定位的指针**，不重复全量检索。仅当 design 开辟了 intake 未覆盖的新领域时，才按 `references/retrieval.md` 补查一次（此 phase frontmatter 已写，用 `resolve_root.py read-project-root --spec <specsRoot>/<slug>` 取 `project_root`）；命中点的前后端文件 + 调用链用于把**模块边界 / 接口设计 ground 到真实代码**（design 的判断仍基于真实代码）。`<project_root>/knowledge-base/MEMORY.md` 不存在 → 静默跳过。
+     > brainstorming's terminal state is hardcoded to "invoke writing-plans" — that happens to align with specode's design → tasks order, so **let it flow naturally**: once design.md is produced (by it or by you), proceed into the tasks phase (step 4); don't start over inside design.
+   - not installed → **specode-native**: the host agent authors `design.md` per the `assets/templates/design.md` template (same seven sections, prose, no checkboxes).
+   - **experience retrieval (conditional top-up, not mandatory)**: design **inherits intake's (step 2) already-located pointers** by default and does not re-run a full retrieval. Only when design opens territory intake didn't cover, re-query once per `references/retrieval.md` (frontmatter is written by this phase, so get `project_root` via `resolve_root.py read-project-root --spec <specsRoot>/<slug>`); the hits' front/back-end files + call chains ground **module boundaries / interface design to real code** (design's judgment is still based on real code). `<project_root>/knowledge-base/MEMORY.md` absent → silently skip.
 
-   > design 检索是**定位用**（把设计 ground 到真实代码），只产出指针、**不引入任何「规则确认 / 偏离 gate」**（4.0.0 起不做任何 `.ai-memory/knowledge/rules/` 关联的 rule 检查；勿重新引入）。
+   > design retrieval is **for locating** (grounding the design to real code), producing pointers only and **introducing no "rule acknowledgement / deviation gate"** (since 4.0.0, no `.ai-memory/knowledge/rules/`-related rule check; don't reintroduce it).
 4. **tasks (executable plan)**:
-   - superpowers installed → call `superpowers:writing-plans`. Pre-instruct the target path `<specsRoot>/<slug>/tasks.md`. **writing-plans 结尾会硬编码问一句「Subagent-Driven vs Inline Execution」——它无参数可关；忽略那个提问、不据此进入执行**，继续走 specode 自己的 §执行方式 selector（step 5）。specode 只能"消化"这个提问，不是真的能抑制它。
+   - superpowers installed → call `superpowers:writing-plans`. Pre-instruct the target path `<specsRoot>/<slug>/tasks.md`. **writing-plans ends by hardcoding a "Subagent-Driven vs Inline Execution" question — it has no flag to disable it; ignore that question and don't act on it**, and continue to specode's own §执行方式 selector (step 5). specode can only "digest" that question, not truly suppress it.
    - not installed → **specode-native**: break down into `## Task N` + `**Files:**` + `**Interfaces:**` + `验证: AC-N` + `- [ ]` TDD steps per the `assets/templates/tasks.md` template.
    - Relocate the artifact to `<specsRoot>/<slug>/tasks.md`.
-   - tasks 阶段**不做单独检索**——直接继承 design.md 已定位好的文件路径（`**Files:**` 从 design 的模块/接口落点导出）。
+   - the tasks phase does **no separate retrieval** — it inherits the file paths already located in design.md (each `**Files:**` derives from design's module/interface landing points).
 5. **「执行方式」selector**: after tasks.md is confirmed, call `AskUserQuestion` to present it (adaptive 4 options, see §执行方式 selector), verbatim per the `references/selectors.md` example.
 6. **Execution** (branches by selector choice, all TDD):
    - Delegate to task-swarm (installed) → see §task-swarm handoff.
@@ -79,11 +79,9 @@ Each phase is annotated "if superpowers is installed, call it / otherwise go nat
    - Append to `implementation-log.md` during execution.
 7. **Acceptance (coding complete)**:
    - superpowers installed → call `superpowers:verification-before-completion` (optionally also `superpowers:requesting-code-review`).
-   - not installed → **specode-native**: the host agent verifies item by item against the `AC-N` in `requirements.md` / `design.md` 测试策略 / `tasks.md` checkbox 全勾.
+   - not installed → **specode-native**: the host agent verifies item by item against the `AC-N` in `requirements.md` / `design.md`'s test strategy (测试策略) / all `tasks.md` checkboxes checked.
    - Say "请验收" in prose and write an acceptance summary in `implementation-log.md`. **There is no formal acceptance-gate selector.**
-   - **沉淀提示（distill, gated by `auto_distill`）**: acceptance 写完后，按 §Autonomous-mode defaults rule 决定是否提示沉淀 —— 用 §specsRoot resolver `resolve_root.py read-defaults --key auto_distill --json` 取 effective value + source；当 `interactive == false` 且有 effective default（`source ∈ {env, file}`）时按 default **静默处理**（不打断），否则 `AskUserQuestion`「是否运行 `/specode:distill <slug>` 把本次经验沉淀进项目 knowledge-base？」。distill 仍是**用户触发的独立命令**（本体行为见 `skills/distill/SKILL.md`，Plan A 已改为项目 `knowledge-base/` primary）；这里只把入口提示重新挂回 acceptance 末尾，**不在主流程里自动跑 distill**。
-
-   > **v4.0.0 → 重新挂回**: 4.0.0 曾把 acceptance 后的自动 distill sub-step 整体移除；现按 `auto_distill` default **把入口提示重新挂回**（见上一条 bullet，遵循既有 autonomous-mode 规则——interactive 时询问、非 interactive 有 effective default 时静默，**非无条件自动执行**）。沉淀目标是项目 `knowledge-base/`（供下次 requirements/design 检索定位），md-only 行为见 `skills/distill/SKILL.md`。
+   - **distill prompt (gated by `auto_distill`)**: after acceptance is written, decide whether to prompt for distillation per the §Autonomous-mode defaults rule — get the effective value + source via `resolve_root.py read-defaults --key auto_distill --json`; when `interactive == false` with an effective default (`source ∈ {env, file}`), handle it **silently** per the default (no interruption), otherwise `AskUserQuestion`「是否运行 `/specode:distill <slug>` 把本次经验沉淀进项目 knowledge-base？」. distill is still a **user-triggered standalone command** (its behavior is in `skills/distill/SKILL.md`, now project-`knowledge-base/`-primary); this only re-hooks the entry-point prompt at the end of acceptance, and does **not** auto-run distill in the main flow.
 
 phase ↔ skill quick map: `requirements` → **`specode:intake`** (specode's own standalone skill, always — no superpowers fork); `design` → brainstorming (design only, single artifact) or native; `tasks` → writing-plans; execution → subagent-driven-development / executing-plans (the task-swarm path does not use superpowers); acceptance → verification-before-completion / requesting-code-review.
 
@@ -104,7 +102,7 @@ specode treats both superpowers and task-swarm as **soft dependencies** (purely 
 
 ## 执行方式 selector (the single fixed per-spec selector, after tasks.md completes)
 
-After tasks.md is confirmed, call `AskUserQuestion` to present **adaptive 4 options** — **show an option only if its engine is installed**:
+After tasks.md is confirmed, call `AskUserQuestion` to present **adaptive 4 options** — **show an option only if its engine is installed**. Pass the option label/description text below verbatim (they are user-facing selections and stay in Chinese):
 
 1. **委托 task-swarm（多 agent 并发）** — requires task-swarm.
 2. **superpowers subagent-driven（每 Task 派全新 subagent + 两阶段评审，推荐）** — requires superpowers.
@@ -119,7 +117,7 @@ When presenting, pass question / header / options **verbatim** per the `referenc
 
 `/specode:continue <slug>` (slug required; missing or nonexistent → error + suggest `/specode:list` first): locate `<specsRoot>/<slug>/`, read the directory contents, and infer the phase per this table.
 
-**加载即停（load-and-stop）🔒**: `/specode:continue <slug>` never auto-resumes. It does exactly three things: (1) locate `<specsRoot>/<slug>/` and read every fixed doc present; (2) report a **progress brief** — slug, inferred phase, per-doc existence, tasks.md checkbox progress (x/N; legacy specs: design.md checkboxes), and what the next action *would* be; (3) **stop and wait for the user's instruction**. Only when the user says 继续 (or equivalent) does execution resume from the inferred phase; if the user instead supplies requirement changes, digest them into the affected docs first, then ask whether to resume. The "Resume action" column below describes what happens *after* the user gives the go-ahead — it is not automatic behavior.
+**Load-and-stop 🔒**: `/specode:continue <slug>` never auto-resumes. It does exactly three things: (1) locate `<specsRoot>/<slug>/` and read every fixed doc present; (2) report a **progress brief** — slug, inferred phase, per-doc existence, tasks.md checkbox progress (x/N; legacy specs: design.md checkboxes), and what the next action *would* be; (3) **stop and wait for the user's instruction**. Only when the user says 继续 (or equivalent) does execution resume from the inferred phase; if the user instead supplies requirement changes, digest them into the affected docs first, then ask whether to resume. The "Resume action" column below describes what happens *after* the user gives the go-ahead — it is not automatic behavior.
 
 | Directory state | Inferred phase | Resume action (after user go-ahead) |
 |---|---|---|
@@ -168,5 +166,5 @@ When writing / updating spec documents, **never** reprint the full text in chat.
 - `references/obsidian.md` — specsRoot path resolution, the full `resolve_root.py` verb table, and directory conventions.
 - `references/autonomous-mode.md` — the autonomous / CI defaults rule: gate→key→env mapping + the skip-the-prompt decision pseudo-code.
 - `references/superpowers-wiring.md` — the per-phase ↔ superpowers skill mapping, pre-instructions, and post-relocation instructions.
-- `references/retrieval.md` — 经验检索注入规格（intake 项目分析为主节点 / design 条件性 top-up）。
-- `references/knowledge-flow.md` — 一页纸知识流心智模型：distill / knowledge-base / MEMORY / ragkit / intake-检索 的谁产·谁索引·谁读·何时。
+- `references/retrieval.md` — experience-retrieval injection spec (intake project-analysis is the primary node / design is a conditional top-up).
+- `references/knowledge-flow.md` — one-page knowledge-loop mental model: who produces / indexes / reads distill / knowledge-base / MEMORY / ragkit / intake-retrieval, and when.

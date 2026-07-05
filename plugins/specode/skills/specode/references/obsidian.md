@@ -43,9 +43,9 @@ Autonomous-mode behavior (when to skip each `AskUserQuestion`) is specified in `
 |---|---|
 | No requirements.md | intake |
 | requirements.md present, no design.md | design |
-| design.md present (contains `## Task` + `- [ ]`), no tasks.md | legacy 5.x spec — design.md is the plan, 执行中/完成 by its checkboxes |
+| design.md present (contains `## Task` + `- [ ]`), no tasks.md | legacy 5.x spec — design.md is the plan; executing/complete by its checkboxes |
 | design.md present (new-style prose), no tasks.md | tasks |
-| tasks.md present, unchecked `- [ ]` remain | 执行中 |
-| All tasks.md checkboxes checked | 完成 |
+| tasks.md present, unchecked `- [ ]` remain | executing |
+| All tasks.md checkboxes checked | complete |
 
 (The full continuation table, including load-and-stop semantics, lives in SKILL.md §Continuation.)
