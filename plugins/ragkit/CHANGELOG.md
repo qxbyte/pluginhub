@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-07-05) — Discover 分类标签
+
+- marketplace.json 加 `"category": "database"`，Discover 面板显示 `[database]` 标签。零行为变化。
+
 ## 0.1.0 (2026-07-03) — 初版发布
 
 ### Added
