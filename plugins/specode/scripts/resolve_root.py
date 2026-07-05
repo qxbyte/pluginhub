@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
-"""resolve_root.py — specode lite 的 specsRoot 解析与持久化（stdlib-only）。
+"""resolve_root.py — specsRoot resolution + persistence for specode lite (stdlib-only).
 
 verbs:
-  get-root  [--root P]   解析 specsRoot：--root > env SPECODE_ROOT > config.specsRoot
-  set-root  --root P     绝对路径，持久化到 ~/.config/specode/config.json.specsRoot
-  list-specs [--root P]  列出 root 下的 spec 目录名（每行一个 slug）：含任一固定产物
-                         （requirements/design/tasks/implementation-log.md）的子目录，或
-                         空子目录（intake：目录已建、requirements 未写）；隐藏目录除外
+  get-root  [--root P]   resolve specsRoot: --root > env SPECODE_ROOT > config.specsRoot
+  set-root  --root P     absolute path, persisted to ~/.config/specode/config.json.specsRoot
+  list-specs [--root P]  list spec dir names under root (one slug per line): subdirs
+                         containing any fixed doc (requirements/design/tasks/implementation-log.md),
+                         or empty subdirs (intake: dir created, requirements not yet written);
+                         hidden dirs excluded
+  resolve-project-root [--cwd P]   compute the project_root default (git toplevel || cwd),
+                                   for the host agent to confirm via AskUserQuestion
+  write-project-root --spec P --root A   write project_root into a spec's requirements.md
+                                   frontmatter (single writer; validates absolute / dir exists / mount)
+  read-project-root  --spec P      read project_root from a spec's requirements.md frontmatter
+                                   (the single reader for all downstream; missing field exit 3 / invalid exit 4)
 
-  resolve-project-root [--cwd P]   计算 project_root 默认值（git toplevel || cwd），供
-                                   host agent AskUserQuestion 确认用
-  write-project-root --spec P --root A   把 project_root 写进 spec 的 requirements.md
-                                   frontmatter（单一写入口；校验绝对路径/目录存在/挂载）
-  read-project-root  --spec P      从 spec 的 requirements.md frontmatter 读 project_root
-                                   （所有下游唯一读入口；缺字段 exit 3 / 值非法 exit 4）
+project_root is the sole join key between a spec (under specsRoot) and its target project, stored
+in exactly ONE place — that spec's requirements.md YAML frontmatter. write/read are its only
+write/read entry points, preventing the split-brain of each step deriving it from cwd/workdir.
 
-project_root 是 spec（在 specsRoot 下）与其知识落地项目之间的唯一 join key，**只存一处**
-——该 spec 的 requirements.md YAML frontmatter。write/read 是其唯一写入口与读入口，杜绝各
-环节各自用 cwd/workdir 推导导致的分裂。
-
-exit codes: 0 ok / 1 用法或参数错 / 3 未配置（specsRoot 未配置 / project_root 字段缺失）
-            / 4 project_root 值非法（非绝对 / 目录不存在 / 外置盘未挂载）
+exit codes: 0 ok / 1 usage or argument error / 3 unconfigured (specsRoot unset / project_root field missing)
+            / 4 project_root value invalid (non-absolute / dir missing / external drive not mounted)
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _atomic_write_json(path: Path, data: dict) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            fd = -1  # fdopen 接管 fd
+            fd = -1  # fdopen takes over the fd
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())
@@ -81,7 +81,8 @@ def _resolve(root_flag):
     if env:
         return env
     cfg = _read_config()
-    # specsRoot 是当前键；obsidianRoot 是 1.0.0 前的旧键，读端兜底让老用户升级即用、不必重设。
+    # specsRoot is the current key; obsidianRoot is the pre-1.0.0 legacy key — the read side
+    # falls back to it so upgrading users keep working without re-setting.
     val = cfg.get("specsRoot") or cfg.get("obsidianRoot")
     return val or None
 
@@ -103,7 +104,7 @@ def cmd_set_root(args) -> int:
         return 1
     cfg = _read_config()
     cfg["specsRoot"] = p
-    # v0.9 痛点 #8: drop the legacy `obsidianRoot` key so downstream plugins
+    # v0.9 pain point #8: drop the legacy `obsidianRoot` key so downstream plugins
     # that still read it (obsidian-wiki etc.) don't see a stale path after
     # the user moves their vault. The read-side already falls back from
     # specsRoot to obsidianRoot, so leaving both in the JSON silently created
@@ -118,14 +119,14 @@ _FIXED_DOCS = ("requirements.md", "design.md", "tasks.md", "implementation-log.m
 
 
 def _is_spec_dir(child: Path) -> bool:
-    """含任一固定产物 → spec；空目录 → intake spec（目录已建、requirements 未写）。
-    只装无关内容的目录（如 attachments/）不算 spec。"""
+    """Has any fixed doc → spec; empty dir → intake spec (dir created, requirements not yet written).
+    A dir holding only unrelated content (e.g. attachments/) is not a spec."""
     if any((child / doc).exists() for doc in _FIXED_DOCS):
         return True
     try:
         next(child.iterdir())
     except StopIteration:
-        return True  # 空目录 = intake
+        return True  # empty dir = intake
     except OSError:
         return False
     return False
@@ -138,10 +139,10 @@ def cmd_list_specs(args) -> int:
         return 3
     base = Path(root)
     if not base.is_dir():
-        return 0  # 配置了但目录还不存在 → 空列表
+        return 0  # configured but the dir doesn't exist yet → empty list
     for child in sorted(base.iterdir()):
         if child.name.startswith("."):
-            continue  # .obsidian / .git 等隐藏目录不是 spec
+            continue  # hidden dirs like .obsidian / .git are not specs
         if child.is_dir() and _is_spec_dir(child):
             sys.stdout.write(child.name + "\n")
     return 0
@@ -155,7 +156,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            fd = -1  # fdopen 接管 fd
+            fd = -1  # fdopen takes over the fd
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
@@ -286,7 +287,8 @@ def cmd_write_project_root(args) -> int:
         return 1
     req = _requirements_path(args.spec)
     if not req.is_file():
-        # 允许在尚无 requirements.md 时由上层先创建；这里要求文件已存在以免写错位置
+        # allow an upper layer to create requirements.md first; require the file to exist
+        # here so we don't write to the wrong place
         sys.stderr.write(f"specode: 找不到 requirements.md：{req}\n")
         return 1
     text = req.read_text(encoding="utf-8")
@@ -344,7 +346,7 @@ def cmd_plan_unchecked(args) -> int:
             line.lstrip().startswith(("- [ ]", "- [x]"))
             for line in d.read_text(encoding="utf-8").splitlines()
         ):
-            target = d  # 5.x legacy spec：design.md 即计划
+            target = d  # 5.x legacy spec: design.md is the plan
         else:
             sys.stderr.write(
                 f"specode: 找不到可执行计划（无 tasks.md，"
@@ -539,7 +541,7 @@ def cmd_reset_default(args) -> int:
 
 
 def cmd_doctor(args) -> int:
-    """v0.9 痛点 #9: surface config drift early.
+    """v0.9 pain point #9: surface config drift early.
 
     Exit codes mirror the read-project-root convention so scripts can
     branch deterministically:
