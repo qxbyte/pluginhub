@@ -33,7 +33,7 @@ sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" <verb> <args...>
 
 ## §3 autonomous-mode 感知（每个 AskUserQuestion 站点适用）
 
-本 skill 有两处会 `AskUserQuestion`（§Step1 project_root 确认、§Step3 澄清）。每处**先**按 specode 的 autonomous-mode 规则判定是否跳过：用 `resolve_root.py read-defaults --key interactive --json` 取 `interactive`，用 `read-defaults --key <relevant> --json` 取该 gate 的 effective value + source；当 `interactive == false` 且该 key `source ∈ {env, file}`（有效值非 schema default）时，**跳过提问直接用 default**（autonomous / CI 路径）；否则原样 `AskUserQuestion`。Mapping：project_root 确认 → `project_root_default`；澄清 → 无独立 key，仅受 `interactive` 主开关约束（非交互则基于已有信息尽力起草、把不确定项写进「开放问题」而非阻塞）。
+本 skill 有两处会 `AskUserQuestion`（§Step1 project_root 确认、§Step3 澄清）。每处**先**按 autonomous-mode 规则判定是否跳过——完整规则（gate→key→env mapping + 决策伪代码）见 `skills/specode/references/autonomous-mode.md`。要点：`interactive == false` 且该 gate 的 key `source ∈ {env, file}` 时跳过提问用 default，否则原样 `AskUserQuestion`。本 skill 的两处 gate：project_root 确认 → key `project_root_default`；澄清 → 无独立 key，仅受 `interactive` 主开关约束（非交互则基于已有信息尽力起草、把不确定项写进「开放问题」而非阻塞）。
 
 ## §4 流程（5 步，质量在 Step 2–3）
 
@@ -100,4 +100,4 @@ sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" <verb> <args...>
 
 - `skills/specode/references/retrieval.md` — 经验检索规格（Step 2b 的引擎；intake 是其**主节点**）。
 - `assets/templates/requirements.md` — 需求模板（Step 4 结构 + frontmatter 契约）。
-- `skills/specode/SKILL.md` §Autonomous-mode defaults rule — §3 判定的完整规则来源。
+- `skills/specode/references/autonomous-mode.md` — §3 判定的完整规则来源（gate→key→env + 伪代码）。
