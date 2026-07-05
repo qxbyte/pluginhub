@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## description 收敛 (2026-07-05) — specode 6.1.3 / task-swarm 0.10.2 / obsidian-wiki 2.0.2
+
+- 三个插件的 `description` 字段（marketplace UI 显示的那段）清掉累积的版本 blurb，收敛成「一句话讲当前插件干嘛」；版本历史只留在各自 CHANGELOG。README 徽章 + 表格行同步。ragkit 本就干净、未动。零行为变化。**go-forward**：`description` 只在插件用途变化时才改，永不再堆版本 blurb。
+
 ## 6.1.2 (2026-07-05) — specode
 
 - **插件语言统一（仅 specode，零行为变化）**：面向 agent 的指令/说明 prose（SKILL / references / commands / 脚本 docstring+注释）全部转地道英文；用户可见的固定输出与选择保持中文（执行方式 selector、模板、注入段 `## 项目级约束` / `## 参考定位`、脚本 stderr 用户消息、CHANGELOG、契约字段标识符）。测试零回归（90 passed）。
