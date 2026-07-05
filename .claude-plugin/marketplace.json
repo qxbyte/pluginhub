@@ -1,6 +1,7 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "pluginhub",
-  "description": "qxbyte's Claude Code / CodeBuddy plugin marketplace. Currently hosts specode (spec-driven workflow), task-swarm (multi-agent orchestration) and obsidian-wiki (Obsidian LLM-Wiki maintenance); more plugins to come.",
+  "description": "qxbyte's Claude Code / CodeBuddy plugin marketplace — hosts specode (spec-driven workflow), task-swarm (multi-agent orchestration), obsidian-wiki (Obsidian LLM-Wiki maintenance), and ragkit (knowledge-base RAG). More plugins to come.",
   "owner": {
     "name": "qxbyte",
     "url": "https://github.com/qxbyte"
