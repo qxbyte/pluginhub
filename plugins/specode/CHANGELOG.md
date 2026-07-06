@@ -4,6 +4,10 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.1.5 (2026-07-06) — skill description 统一模板
+
+- **skill `description` 统一为渐进式加载模板（零行为变化）**：三个 skill（specode / intake / distill）的 frontmatter `description` 是 agent 渐进式加载时**唯一常驻**的元数据，模型据此决定何时唤起该 skill。统一改写为「用途场景开头（Use when …）→ 做什么/产物 → Trigger 触发词/命令 → 边界/谁触发」的轻量模板，并删去描述里的版本史噪音（如 intake 的「replaces the old brainstorming…」）。正文与行为逻辑一字未动。
+
 ## 6.1.4 (2026-07-05)
 
 - **marketplace 加 `category` 字段**：在 `.claude-plugin/marketplace.json` 的 specode 条目加 `"category": "development"`，让 `/plugin` Discover 面板在插件名后显示 `[development]` 标签（对齐官方市场；该字段只在 marketplace.json、UI 只读它）。零行为变化。

@@ -1,7 +1,7 @@
 ---
 name: query
 user-invocable: false
-description: Use when the user (or a workflow like specode) needs to retrieve from a project knowledge-base — multi-channel RAG recall returning pointer cards, supports multi-round multi-angle querying
+description: Use when retrieving from a project `knowledge-base/` — multi-channel RAG recall (vector + lexical + metadata, RRF-fused) returning locate-pointer cards; multi-round/multi-angle querying allowed. Trigger: /ragkit:query, or called by name by workflows like specode. Building/refreshing the index instead → ragkit:embed.
 ---
 
 # RagKit Query

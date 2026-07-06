@@ -1,6 +1,6 @@
 ---
 name: wiki-struct
-description: 维护 Obsidian LLM Wiki 的"结构层"——确定性重写 Home 总览树、各一级目录 README、00-Index 分区页的"受管块"，并产出结构体检报告。触发语：/wiki-struct、/wiki-struct check、/wiki-struct apply、/wiki-struct init、"刷新 Home 树"、"更新 README 目录"、"整理结构层"。绝不修改内容笔记原文，只重写 marker 包裹的受管块。
+description: 用于维护 Obsidian LLM Wiki 的「结构层」——确定性重写 Home 总览树、各一级目录 README、00-Index 分区页的「受管块」，并产出结构体检报告。触发语：/wiki-struct（check / apply / init）、「刷新 Home 树」、「更新 README 目录」、「整理结构层」。只重写 marker 包裹的受管块，绝不改内容笔记原文；内容策展 → wiki-curate。
 ---
 
 # Wiki Struct

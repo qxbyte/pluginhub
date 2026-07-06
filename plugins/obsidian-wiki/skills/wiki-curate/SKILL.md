@@ -1,6 +1,6 @@
 ---
 name: wiki-curate
-description: 方法论伞 + ingest/curate/lint（内容向）——基于 Karpathy LLM Wiki 三层架构，对 vault 执行 Scan → Ingest → Curate → Lint 四阶段内容策展。结构层（Home 树/分区页/地图）见 wiki-struct；SpecIn 知识沉淀已迁移到 specode 的 /specode:distill（v2.0.0 剥离）。绝不修改只读目录原文（07-Ideas/、10-Work/、SpecIn/），不写 wiki-struct 受管块，不写遗留的 10-Work/知识库/ 产物。触发语：/wiki-curate、scan、ingest、curate、lint、「整理我的笔记库」、「整理 vault」、「整理 LLM Wiki」。
+description: 用于对 vault 做内容策展——基于 Karpathy LLM Wiki 三层架构执行 Scan → Ingest → Curate → Lint 四阶段。触发语：/wiki-curate、scan、ingest、curate、lint、「整理我的笔记库」、「整理 vault」、「整理 LLM Wiki」。绝不改只读目录原文（07-Ideas/、10-Work/、SpecIn/），不写 wiki-struct 受管块；结构层（Home 树/分区页/地图）→ wiki-struct。
 ---
 
 
