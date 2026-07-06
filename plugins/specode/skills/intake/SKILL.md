@@ -1,7 +1,7 @@
 ---
 name: intake
 user-invocable: false
-description: specode's requirements-intake engine — project analysis + code location + clarification + writing requirements.md. Invoked by name (specode:intake) via the Skill tool by the specode orchestration SKILL at the start of a spec (requirements phase); it replaces the old "brainstorming moonlighting as a requirements writer / thin native questionnaire". Produces <specsRoot>/<slug>/requirements.md (with the project_root frontmatter contract) plus the location pointers handed to the design phase. Not a user-triggered command.
+description: Use when running specode's requirements phase — project analysis + code location + clarification, then writing requirements.md. Produces <specsRoot>/<slug>/requirements.md (with the project_root frontmatter contract) plus the location pointers handed to the design phase. Invoked by name (specode:intake) via the Skill tool by the specode orchestration SKILL; not a user-triggered command.
 ---
 
 # intake — specode's requirements-intake engine

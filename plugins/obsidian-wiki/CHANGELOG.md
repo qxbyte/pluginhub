@@ -4,6 +4,10 @@ obsidian-wiki 是维护 Obsidian LLM-Wiki 的多 agent 插件（从独立 skills
 
 ## Unreleased
 
+## 2.0.4 (2026-07-06) — skill description 统一模板
+
+- 三个 skill（wiki-struct / wiki-curate / wiki-orchestrate）的 frontmatter `description`（渐进式加载唯一常驻的元数据）统一为「用途开头 → 做什么 → 触发语 → 边界/交叉引用」轻量模板：补上彼此的交叉引用边界（结构层→wiki-struct、内容策展→wiki-curate），删去版本史噪音（如 wiki-curate 的「v2.0.0 剥离」）。零行为变化。
+
 ## 2.0.3 (2026-07-05) — Discover 分类标签
 
 - marketplace.json 加 `"category": "productivity"`，Discover 面板显示 `[productivity]` 标签。零行为变化。

@@ -1,6 +1,6 @@
 {
   "name": "specode",
-  "version": "6.1.4",
+  "version": "6.1.5",
   "description": "Lightweight spec-driven workflow orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to superpowers skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles a dedicated intake skill for the requirements phase, a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the CHANGELOG.",
   "author": {
     "name": "xueqiang",

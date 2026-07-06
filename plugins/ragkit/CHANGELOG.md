@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.2 (2026-07-06) — skill description 统一模板
+
+- 四个 skill（embed / query / status / eval）的 frontmatter `description`（渐进式加载唯一常驻的元数据）统一为「Use when 场景 → 做什么 → Trigger 触发词/命令 → 边界」轻量模板：补上 `/ragkit:*` 触发命令与彼此的交叉引用边界（query↔embed↔status）。零行为变化。
+
 ## 0.1.1 (2026-07-05) — Discover 分类标签
 
 - marketplace.json 加 `"category": "database"`，Discover 面板显示 `[database]` 标签。零行为变化。

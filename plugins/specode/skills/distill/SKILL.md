@@ -2,13 +2,11 @@
 name: distill
 user-invocable: false
 description: >
-  Manually distill a single specode-managed spec into atomic, locate-oriented
-  markdown knowledge points. Default output: md-only, written to the project's
-  own `<project_root>/knowledge-base/` (cases/ + navigation/ + MEMORY.md);
-  optionally copied to an Obsidian vault. Trigger ONLY via
-  `/specode:distill <slug>` — never auto-run by the main specode flow.
-  Md-only, no auto-injection. Pure "atomic locate-pointer sedimenter for the
-  current project".
+  Use when distilling a finished specode spec into atomic, locate-oriented
+  markdown knowledge points — writes cases/ + navigation/ + MEMORY.md into the
+  project's own `<project_root>/knowledge-base/` (md-only, no auto-injection),
+  optionally copied to an Obsidian vault. Trigger: ONLY `/specode:distill <slug>`
+  — never auto-run by the main specode flow.
 ---
 
 # distill — project knowledge-base sedimenter (atomic dual-track)

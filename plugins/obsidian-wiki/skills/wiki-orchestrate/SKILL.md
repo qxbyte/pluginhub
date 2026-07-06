@@ -1,13 +1,12 @@
 ---
 name: wiki-orchestrate
 description: >
-  整理 Obsidian LLM Wiki 的统一编排入口——定位 vault → 两方只读体检 →
-  汇总行动计划 → 用户确认 → 按「结构→策展」编排调用 wiki-struct、
-  wiki-curate 完成整理。下一步该跑哪个 skill / 命令 / 参数由
-  模型依据体检结果判断（建议性，非规则）。触发语：/wiki-orchestrate、
-  /wiki-orchestrate scan、/wiki-orchestrate set-vault、「整理笔记库」、
-  「跑一次编排」、「统一整理 vault」。入口自身不直接改内容笔记，所有写操作
-  委托给子 skill 并继承其红线。
+  用于整理 Obsidian LLM Wiki 的统一编排入口——定位 vault → 两方只读体检 →
+  汇总行动计划 → 用户确认 → 按「结构→策展」编排 wiki-struct / wiki-curate
+  完成整理（下一步跑哪个 skill / 命令 / 参数由模型依据体检结果判断，建议性非规则）。
+  触发语：/wiki-orchestrate（scan / set-vault）、「整理笔记库」、
+  「跑一次编排」、「统一整理 vault」。入口自身不改内容笔记，写操作全委托子
+  skill 并继承其红线。
 ---
 
 # wiki-orchestrate
