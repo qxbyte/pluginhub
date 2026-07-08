@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.4 (2026-07-08) — 去 commands，skill 直接出斜杠（修记录 2 脱轨元凶）
+
+- **删掉 `commands/` 目录**（4 个薄壳命令），并从 4 个 skill 去掉 `user-invocable: false`。Claude Code 里 command 已并入 skill——默认(不写 `user-invocable`)的 skill 自动就有 `/ragkit:*` 斜杠入口 + 模型自动调,两样都占。`/ragkit:query` 等入口不变,只是现在**直接由 skill 提供**。
+- **根治"模型绕开插件手搓检索"**:旧 command body 那句 `Follow the plugin skill at skills/query/SKILL.md`（相对文件路径）会**诱导弱模型去项目目录搜该文件**(执行记录-2 实证:`Search **/skills/query/SKILL.md` in project → 0 命中 → 放弃插件、装 numpy 自己算)。去掉这层 command 间接,模型只能按名 `Skill(ragkit:query)`,不再被指去搜文件。
+- specode 按名调用 `ragkit:query` 不受影响(skill 名不变)。`__env_probe__` 探针仍在(待 CodeBuddy 实跑)。
+
 ## 0.1.3 (2026-07-08) — 修 skill YAML + 临时探针 spike
 
 - **修 frontmatter YAML 解析失败(P0)**：0.1.2 的四个 skill `description` 含 `Trigger: `（冒号+空格），未加引号导致 YAML 解析失败——`claude plugin validate` 报错、且**运行时 frontmatter 被整体静默丢弃**（name/description 全丢，影响 skill 发现）。修法：四个 description 全部加双引号。（同款 bug 也在 specode / task-swarm 的 skill 里，单独处理。）

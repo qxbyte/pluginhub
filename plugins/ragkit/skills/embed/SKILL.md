@@ -1,6 +1,5 @@
 ---
 name: embed
-user-invocable: false
 description: "Use when building or refreshing the RagKit index for a project `knowledge-base/` (e.g. after distill added/updated knowledge points). Trigger: /ragkit:embed. Querying instead → ragkit:query; index health → ragkit:status."
 ---
 
