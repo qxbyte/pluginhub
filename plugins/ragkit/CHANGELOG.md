@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.2 (2026-07-08) — 临时探针 spike（跨-harness resolver 调研）
+
+- `skills/query/SKILL.md` 加临时环境探针:检索词为 `__env_probe__` 时,不查询、改跑一段自包含 bash,打印各 harness 在 **skill 上下文**里提供的 `CLAUDE_SKILL_DIR` / `CLAUDE_PLUGIN_ROOT` / `CODEBUDDY_*` 变量、路径形态、及 `${skill-dir}/../../scripts/run.sh` 等候选是否命中。用于定死"harness 无关的 skill 脚本定位"最终写法(去掉 `${VAR:-default}` + `find` 兜底,消除 Windows msys 路径 bug)。正常检索不受影响。**下一版删除探针、落地正式 resolver。**
+
 ## 0.1.1 (2026-07-05) — Discover 分类标签
 
 - marketplace.json 加 `"category": "database"`，Discover 面板显示 `[database]` 标签。零行为变化。
