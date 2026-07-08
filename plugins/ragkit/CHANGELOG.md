@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.6 (2026-07-08) — 修 CodeBuddy frontmatter 解析失败（四 skill 坍缩成 skill.md）
+
+- **修 CodeBuddy 上四个 skill 坍缩成一条 `skill.md` 命令（根因：frontmatter 解析失败）**。差异化定位：与 superpowers（CodeBuddy 上正常）逐项对比，布局 / plugin.json / 无 commands 全同，唯一差异是 `description` 的写法——ragkit 用**双引号包裹且内部含 `Trigger: `（冒号+空格）**。0.1.3 加双引号只骗过了 Claude Code 的 YAML 解析器，**没骗过 CodeBuddy 的**：CodeBuddy 解析整块 frontmatter 失败 → 回退到文件名 `SKILL.md` → 四个 skill 同名坍缩成一条 `skill.md`。修法：四个 `description` 改成 superpowers 那种**已被 CodeBuddy 实证可用**的朴素形态——去双引号、去反引号、把 `Trigger: ` 改成 `Trigger `（彻底消灭冒号+空格）；`claude plugin validate` 通过、45 测试全绿。
+- **删除 query skill 的 `__env_probe__` 临时探针**（0.1.3 spike 遗留）。harness 变量形态诊断已完成，探针段清理，query skill 回归纯检索职责。
+
 ## 0.1.5 (2026-07-08) — 加 session-start bootstrap hook（无 command 也能在 CodeBuddy 出命令）
 
 - **新增 `hooks/`（session-start bootstrap）**——这是 superpowers 无 command 却能触发/显示 skill 的关键,ragkit 之前缺这块。0.1.4 去掉 commands 后:**Claude Code 原生发现插件 skill、仍出 `/ragkit:*`;但 CodeBuddy 上没有 bootstrap 的插件 skill 是"死的"**(不出命令、模型也不主动调)——对上 superpowers porting 指南那句"bootstrap 就是整个集成,没有它 skill 文件是死的"。

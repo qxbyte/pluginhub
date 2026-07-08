@@ -1,6 +1,6 @@
 ---
 name: eval
-description: "Use when measuring or tuning RagKit retrieval accuracy — runs the golden evalset, reports recall@k / MRR per bucket. Trigger: /ragkit:eval. Run before/after any retrieval-param change to keep a baseline."
+description: Use when measuring or tuning RagKit retrieval accuracy — runs the golden evalset, reports recall@k and MRR per bucket. Trigger /ragkit:eval. Run before or after any retrieval-param change to keep a baseline.
 ---
 
 # RagKit Eval

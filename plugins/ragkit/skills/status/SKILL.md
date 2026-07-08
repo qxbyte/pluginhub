@@ -1,6 +1,6 @@
 ---
 name: status
-description: "Use when checking RagKit index health — doc/chunk counts, backend resolution, staleness and drift between `knowledge-base/` and index. Trigger: /ragkit:status. Rebuilding after drift → ragkit:embed."
+description: Use when checking RagKit index health — doc and chunk counts, backend resolution, staleness and drift between knowledge-base/ and index. Trigger /ragkit:status. Rebuilding after drift uses ragkit:embed.
 ---
 
 # RagKit Status
