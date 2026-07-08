@@ -1,12 +1,36 @@
 ---
 name: query
 user-invocable: false
-description: Use when retrieving from a project `knowledge-base/` — multi-channel RAG recall (vector + lexical + metadata, RRF-fused) returning locate-pointer cards; multi-round/multi-angle querying allowed. Trigger: /ragkit:query, or called by name by workflows like specode. Building/refreshing the index instead → ragkit:embed.
+description: "Use when retrieving from a project `knowledge-base/` — multi-channel RAG recall (vector + lexical + metadata, RRF-fused) returning locate-pointer cards; multi-round/multi-angle querying allowed. Trigger: /ragkit:query, or called by name by workflows like specode. Building/refreshing the index instead → ragkit:embed."
 ---
 
 # RagKit Query
 
 对项目 `knowledge-base/` 做多路召回（向量+词汇+元数据，RRF 融合），返回**定位卡片**。
+
+## 环境探针（临时 spike 诊断，仅本版 0.1.3）
+
+**如果检索词恰好是 `__env_probe__`**：不要查询、不要调 `ragkit.py`，改为运行下面这段自包含 bash，把它的输出**原样、完整**回贴给用户，然后结束。（用途：确定当前 harness 在 skill 上下文里到底提供哪个变量、路径是什么形态，据此定死 resolver 的最终写法。请在两台机器各跑一次——Claude Code 与 CodeBuddy——对照输出。）
+
+```sh
+echo "=== RAGKIT HARNESS PROBE ==="
+echo "CLAUDE_SKILL_DIR      =[${CLAUDE_SKILL_DIR}]"
+echo "CODEBUDDY_SKILL_DIR   =[${CODEBUDDY_SKILL_DIR}]"
+echo "CLAUDE_PLUGIN_ROOT    =[${CLAUDE_PLUGIN_ROOT}]"
+echo "CODEBUDDY_PLUGIN_ROOT =[${CODEBUDDY_PLUGIN_ROOT}]"
+echo "combined_dash         =[${CLAUDE_PLUGIN_ROOT:-$CODEBUDDY_PLUGIN_ROOT}]"
+echo "cwd                   =$(pwd)"
+echo "uname                 =$(uname -s 2>/dev/null || echo n/a)"
+A="${CLAUDE_SKILL_DIR}/../../scripts/run.sh"
+B="${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"
+C="${CODEBUDDY_PLUGIN_ROOT}/scripts/run.sh"
+echo "A skilldir/../../scripts/run.sh exists=$([ -f "$A" ] && echo YES || echo NO) [$A]"
+echo "B pluginroot/scripts/run.sh     exists=$([ -f "$B" ] && echo YES || echo NO) [$B]"
+echo "C cbroot/scripts/run.sh         exists=$([ -f "$C" ] && echo YES || echo NO) [$C]"
+echo "=== END PROBE ==="
+```
+
+否则（正常检索词）按下面执行。
 
 ## 执行
 
