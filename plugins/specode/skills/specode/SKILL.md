@@ -1,7 +1,7 @@
 ---
 name: specode
 user-invocable: false
-description: Use when running a spec-driven workflow — orchestration shell that walks requirements → design → tasks → 「执行方式」 → execute → acceptance, autonomously calling superpowers skills for the heavy lifting (clarification / design / planning / TDD execution / acceptance) with a first-class specode-native fallback, and filing 4 fixed artifacts (requirements.md / design.md / tasks.md / implementation-log.md) under the user's document directory. Trigger: /specode:spec <request>, /specode:continue <slug>, /specode:list, or "进入 spec 模式". Outside these, behave as a normal conversation.
+description: "Use when running a spec-driven workflow — orchestration shell that walks requirements → design → tasks → 「执行方式」 → execute → acceptance, autonomously calling superpowers skills for the heavy lifting (clarification / design / planning / TDD execution / acceptance) with a first-class specode-native fallback, and filing 4 fixed artifacts (requirements.md / design.md / tasks.md / implementation-log.md) under the user's document directory. Trigger: /specode:spec <request>, /specode:continue <slug>, /specode:list, or \"进入 spec 模式\". Outside these, behave as a normal conversation."
 ---
 
 # specode — orchestration shell

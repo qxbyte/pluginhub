@@ -1,7 +1,7 @@
 ---
 name: task-swarm
 user-invocable: false
-description: Use when driving the task-swarm multi-agent orchestrator standalone — read a requirement/design doc, generate a pipeline.yml, then run the fork → review → validate loop to finish a multi-task implementation. Trigger: /task-swarm:swarm, "task-swarm", concurrent task execution, pipeline.yml orchestration, multi-coder fork; also invoked when specode's execution phase delegates here.
+description: "Use when driving the task-swarm multi-agent orchestrator standalone — read a requirement/design doc, generate a pipeline.yml, then run the fork → review → validate loop to finish a multi-task implementation. Trigger: /task-swarm:swarm, \"task-swarm\", concurrent task execution, pipeline.yml orchestration, multi-coder fork; also invoked when specode's execution phase delegates here."
 ---
 
 # task-swarm standalone orchestration SKILL

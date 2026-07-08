@@ -4,6 +4,10 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.1.6 (2026-07-08) — 修 skill frontmatter YAML 解析失败（P0）
+
+- 6.1.5 的主编排 skill(`skills/specode/SKILL.md`)`description` 含**半角 `: `（冒号+空格）**（如 `Trigger: /specode:spec`）且未加引号，导致 **YAML frontmatter 解析失败**——`claude plugin validate` 报错,且**运行时 frontmatter 被整体静默丢弃**(name/description 全丢,影响 skill 按名发现/激活)。与全角符号无关。修法:description 加双引号并转义内部引号。零行为变化。
+
 ## 6.1.5 (2026-07-06) — skill description 统一模板
 
 - **skill `description` 统一为渐进式加载模板（零行为变化）**：三个 skill（specode / intake / distill）的 frontmatter `description` 是 agent 渐进式加载时**唯一常驻**的元数据，模型据此决定何时唤起该 skill。统一改写为「用途场景开头（Use when …）→ 做什么/产物 → Trigger 触发词/命令 → 边界/谁触发」的轻量模板，并删去描述里的版本史噪音（如 intake 的「replaces the old brainstorming…」）。正文与行为逻辑一字未动。
