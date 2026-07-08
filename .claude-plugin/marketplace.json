@@ -58,7 +58,7 @@
     {
       "name": "ragkit",
       "source": "./plugins/ragkit",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "description": "Standalone knowledge-base RAG plugin (vector/lexical/metadata multi-channel recall).",
       "category": "database",
       "homepage": "https://github.com/qxbyte/pluginhub",

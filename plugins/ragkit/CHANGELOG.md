@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.3 (2026-07-08) — 修 skill YAML + 临时探针 spike
+
+- **修 frontmatter YAML 解析失败(P0)**：0.1.2 的四个 skill `description` 含 `Trigger: `（冒号+空格），未加引号导致 YAML 解析失败——`claude plugin validate` 报错、且**运行时 frontmatter 被整体静默丢弃**（name/description 全丢，影响 skill 发现）。修法：四个 description 全部加双引号。（同款 bug 也在 specode / task-swarm 的 skill 里，单独处理。）
+- **临时探针 spike**：`skills/query/SKILL.md` 加 `__env_probe__` 哨兵——检索词为 `__env_probe__` 时不查询、改跑自包含 bash,打印各 harness 在 **skill 上下文**里提供的 `CLAUDE_SKILL_DIR` / `CLAUDE_PLUGIN_ROOT` / `CODEBUDDY_*` 变量、路径形态、及候选 resolver 是否命中。用于定死"harness 无关的 skill 脚本定位"最终写法(去掉 `${VAR:-default}` + `find`，消除 Windows msys 路径 bug)。正常检索不受影响,**下一版删探针、落地正式 resolver**。
+
 ## 0.1.2 (2026-07-06) — skill description 统一模板
 
 - 四个 skill（embed / query / status / eval）的 frontmatter `description`（渐进式加载唯一常驻的元数据）统一为「Use when 场景 → 做什么 → Trigger 触发词/命令 → 边界」轻量模板：补上 `/ragkit:*` 触发命令与彼此的交叉引用边界（query↔embed↔status）。零行为变化。
