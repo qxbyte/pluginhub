@@ -1,6 +1,5 @@
 ---
 name: status
-user-invocable: false
 description: "Use when checking RagKit index health — doc/chunk counts, backend resolution, staleness and drift between `knowledge-base/` and index. Trigger: /ragkit:status. Rebuilding after drift → ragkit:embed."
 ---
 
