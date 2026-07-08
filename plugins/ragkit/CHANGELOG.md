@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.5 (2026-07-08) — 加 session-start bootstrap hook（无 command 也能在 CodeBuddy 出命令）
+
+- **新增 `hooks/`（session-start bootstrap）**——这是 superpowers 无 command 却能触发/显示 skill 的关键,ragkit 之前缺这块。0.1.4 去掉 commands 后:**Claude Code 原生发现插件 skill、仍出 `/ragkit:*`;但 CodeBuddy 上没有 bootstrap 的插件 skill 是"死的"**(不出命令、模型也不主动调)——对上 superpowers porting 指南那句"bootstrap 就是整个集成,没有它 skill 文件是死的"。
+- 新增文件:`hooks/hooks.json`(SessionStart)+ `hooks/run-hook.sh`(复用 specode 的纯 Python 探测启动器,不走 uv,已在同环境验证)+ `scripts/ragkit_hooks.py`(注入 bootstrap,镜像 spec_hooks.py 的 emit 格式)。
+- bootstrap 内容:声明四个 skill(query/embed/status/eval)+ **防脱轨硬护栏**——只按名调 skill、绝不在文件系统搜 skill/脚本文件(插件在缓存目录不在项目里)、检索只准调 ragkit 脚本、严禁自己读 `.ragkit` 向量/装 numpy/手搓相似度、脚本失败即停报错。直接堵死执行记录-2 那种"绕开插件手搓检索"。
+
 ## 0.1.4 (2026-07-08) — 去 commands，skill 直接出斜杠（修记录 2 脱轨元凶）
 
 - **删掉 `commands/` 目录**（4 个薄壳命令），并从 4 个 skill 去掉 `user-invocable: false`。Claude Code 里 command 已并入 skill——默认(不写 `user-invocable`)的 skill 自动就有 `/ragkit:*` 斜杠入口 + 模型自动调,两样都占。`/ragkit:query` 等入口不变,只是现在**直接由 skill 提供**。
