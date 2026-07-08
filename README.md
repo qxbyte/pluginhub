@@ -20,10 +20,10 @@ any plugin it hosts. More plugins will land here over time.
 
 | Plugin | Version | What it does |
 | --- | --- | --- |
-| **specode** | 6.1.4 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles a dedicated `intake` skill, a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
-| **task-swarm** | 0.10.3 | Standalone multi-agent **orchestration** driven by a `pipeline.yml` — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (`state.json` is the single source of truth). specode delegates its execution phase here; also runnable directly via `/task-swarm:swarm`. See [`plugins/task-swarm/`](./plugins/task-swarm) + its CHANGELOG. |
-| **obsidian-wiki** | 2.0.3 | Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (`wiki-struct`), content curation (`wiki-curate`), and a unified orchestrator (`wiki-orchestrate`). Generic code + per-vault config in the home-dir registry `~/.config/obsidian-wiki/` (fallback: `<vault>/.wiki/config.json`), zero hardcoded structure. See [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki). |
-| **ragkit** | 0.1.1 | Standalone knowledge-base **RAG** — vector + lexical + metadata three-channel recall, RRF-fused, returns pointer cards. Optional downstream consumer of specode `distill` output; zero heavy deps (stdlib + numpy for lexical mode). See [`plugins/ragkit/`](./plugins/ragkit). |
+| **specode** | 6.2.0 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles a dedicated `intake` skill, a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
+| **task-swarm** | 0.11.0 | Standalone multi-agent **orchestration** driven by a `pipeline.yml` — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (`state.json` is the single source of truth). specode delegates its execution phase here; also runnable directly via `/task-swarm:swarm`. See [`plugins/task-swarm/`](./plugins/task-swarm) + its CHANGELOG. |
+| **obsidian-wiki** | 2.1.0 | Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (`wiki-struct`), content curation (`wiki-curate`), and a unified orchestrator (`wiki-orchestrate`). Generic code + per-vault config in the home-dir registry `~/.config/obsidian-wiki/` (fallback: `<vault>/.wiki/config.json`), zero hardcoded structure. See [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki). |
+| **ragkit** | 0.1.7 | Standalone knowledge-base **RAG** — vector + lexical + metadata three-channel recall, RRF-fused, returns pointer cards. Optional downstream consumer of specode `distill` output; zero heavy deps (stdlib + numpy for lexical mode). See [`plugins/ragkit/`](./plugins/ragkit). |
 
 `## Installation` covers the whole marketplace; the other sections
 (Highlights, Usage, Architecture) document **specode**, the flagship
@@ -285,7 +285,7 @@ plugins/specode/
 
 The companion **task-swarm** plugin (`plugins/task-swarm/`) is a
 standalone multi-agent orchestrator that specode optionally hands off
-to; see its own `skills/task-swarm/SKILL.md` and `CHANGELOG.md`. The
+to; see its own `skills/swarm/SKILL.md` and `CHANGELOG.md`. The
 **obsidian-wiki** plugin (`plugins/obsidian-wiki/`) is self-contained
 and documented by its own `README.md` / `AGENTS.md`.
 
