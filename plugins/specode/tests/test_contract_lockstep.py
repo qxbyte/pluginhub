@@ -3,7 +3,7 @@
 The MEMORY/frontmatter contract is documented in three places that CLAUDE.md
 requires to stay byte-identical:
   1. scripts/knowledge.py — `_COLS` (what memory-rebuild actually emits)
-  2. skills/specode/references/retrieval.md — the columns the retrieval reader expects
+  2. skills/spec/references/retrieval.md — the columns the retrieval reader expects
   3. skills/distill/references/doc-template.md — the columns/frontmatter distill writes
 
 These tests read knowledge.py's ACTUAL emitted header (behavioral, not source
@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-RETRIEVAL_MD = PLUGIN_ROOT / "skills" / "specode" / "references" / "retrieval.md"
+RETRIEVAL_MD = PLUGIN_ROOT / "skills" / "spec" / "references" / "retrieval.md"
 DOC_TEMPLATE_MD = PLUGIN_ROOT / "skills" / "distill" / "references" / "doc-template.md"
 
 EXPECTED_COLS = ["标题", "类型", "描述", "来源", "路径", "tags"]

@@ -24,16 +24,15 @@ description: Use when running specode's requirements phase — project analysis 
 
 ## §2 run.sh resolver prefix (every CLI call)
 
-Every `resolve_root.py` call **must** go through the `run.sh` wrapper with an absolute plugin-root. `$CLAUDE_PLUGIN_ROOT` is not reliably set in skill-driven Bash, so a `find` fallback is mandatory. Shell state does not persist across Bash calls, so prefix **every** call with this self-contained resolver:
+Every `resolve_root.py` call **must** go through the `run.sh` wrapper. The scripts live in the plugin's `scripts/` directory — relative to this skill that is `../../scripts/`; use this skill's base directory to turn the relative path into an absolute one (do **not** resolve env vars, do **not** `find` the cache):
 
 ```bash
-R="${CLAUDE_PLUGIN_ROOT:-$CODEBUDDY_PLUGIN_ROOT}"; [ -f "$R/scripts/run.sh" ] || R="$(find "$HOME/.claude/plugins/cache" "$HOME/.codebuddy/plugins/cache" -path '*/specode/*/scripts/run.sh' 2>/dev/null | sort -V | tail -1)"; R="${R%/scripts/run.sh}"
-sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" <verb> <args...>
+sh ../../scripts/run.sh ../../scripts/resolve_root.py <verb> <args...>
 ```
 
 ## §3 Autonomous-mode awareness (applies at every AskUserQuestion site)
 
-This skill has two `AskUserQuestion` sites (§Step 1 project_root confirmation, §Step 3 clarification). At each, first apply the autonomous-mode rule to decide whether to skip — the full rule (gate→key→env mapping + decision pseudo-code) is in `skills/specode/references/autonomous-mode.md`. In short: when `interactive == false` and the gate's key has `source ∈ {env, file}`, skip the prompt and use the default; otherwise ask via `AskUserQuestion`. This skill's two gates: project_root confirmation → key `project_root_default`; clarification → no dedicated key, governed only by the `interactive` master switch (when non-interactive, draft from the information at hand and record uncertainties under "开放问题" instead of blocking).
+This skill has two `AskUserQuestion` sites (§Step 1 project_root confirmation, §Step 3 clarification). At each, first apply the autonomous-mode rule to decide whether to skip — the full rule (gate→key→env mapping + decision pseudo-code) is in `skills/spec/references/autonomous-mode.md`. In short: when `interactive == false` and the gate's key has `source ∈ {env, file}`, skip the prompt and use the default; otherwise ask via `AskUserQuestion`. This skill's two gates: project_root confirmation → key `project_root_default`; clarification → no dedicated key, governed only by the `interactive` master switch (when non-interactive, draft from the information at hand and record uncertainties under "开放问题" instead of blocking).
 
 ## §4 Flow (5 steps; quality is in Step 2–3)
 
@@ -60,7 +59,7 @@ Don't stop at "ask the user what they want" — **read the real project first to
 
   Why path-only: the main agent already has the full content in context, so copying it in is redundant + staleness risk; task-swarm renders task.md by injecting these paths into subagent prompts by the same rule. If nothing is found (a typical fresh project) → **omit the whole section** (don't write a "none" placeholder).
 
-- **b. Experience-retrieval location** (when `<project_root>/knowledge-base/MEMORY.md` exists) — **this is the primary node for ragkit / experience retrieval**. Run it per `skills/specode/references/retrieval.md`: try the Tier-0 gate first (`ragkit:query` multi-recall when ragkit is available and `knowledge-base/.ragkit/chunks.json` exists), otherwise the two-tier gated flow (Tier-1 reads the small MEMORY index and matches the current need's page/field/domain; on a hit, Tier-2 reads ≤5 full docs). Produce `参考定位（非事实来源）` pointers (file paths + call chains). MEMORY.md absent → **silently skip** (no error, no empty section). **Top-level invariant**: pointers only locate real code; **real code is the only source of truth** — never treat KB content as the truth about current code.
+- **b. Experience-retrieval location** (when `<project_root>/knowledge-base/MEMORY.md` exists) — **this is the primary node for ragkit / experience retrieval**. Run it per `skills/spec/references/retrieval.md`: try the Tier-0 gate first (`ragkit:query` multi-recall when ragkit is available and `knowledge-base/.ragkit/chunks.json` exists), otherwise the two-tier gated flow (Tier-1 reads the small MEMORY index and matches the current need's page/field/domain; on a hit, Tier-2 reads ≤5 full docs). Produce `参考定位（非事实来源）` pointers (file paths + call chains). MEMORY.md absent → **silently skip** (no error, no empty section). **Top-level invariant**: pointers only locate real code; **real code is the only source of truth** — never treat KB content as the truth about current code.
 
 - **c. Read the real code**: for the key files located in (b), **actually open and read them** (not just collect paths) — understand the existing structure / naming / patterns as the factual baseline for requirements analysis and scoping.
 
@@ -82,7 +81,7 @@ Then persist the **frontmatter (§1 hard constraint)**:
 1. Write `spec_id: <slug>` / `created_at: YYYY-MM-DD` (fine to write into the top YAML alongside the body).
 2. **`project_root` is written only through the single writer**:
    ```bash
-   sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" write-project-root --spec <specsRoot>/<slug> --root <confirmed abs path from Step 1>
+   sh ../../scripts/run.sh ../../scripts/resolve_root.py write-project-root --spec <specsRoot>/<slug> --root <confirmed abs path from Step 1>
    ```
    It validates and writes `project_root` into requirements.md frontmatter. **Never hand-write that field.**
 
@@ -98,7 +97,7 @@ Don't reprint the full requirements.md. Report only: the file path (one line) + 
 
 ## §6 References
 
-- `skills/specode/references/retrieval.md` — experience-retrieval spec (the engine behind Step 2b; intake is its **primary node**).
+- `skills/spec/references/retrieval.md` — experience-retrieval spec (the engine behind Step 2b; intake is its **primary node**).
 - `assets/templates/requirements.md` — requirements template (Step 4 structure + frontmatter contract).
-- `skills/specode/references/autonomous-mode.md` — the full rule behind §3 (gate→key→env + pseudo-code).
-- `skills/specode/references/knowledge-flow.md` — one-page knowledge-loop mental model (the global picture of who writes/reads the KB and when).
+- `skills/spec/references/autonomous-mode.md` — the full rule behind §3 (gate→key→env + pseudo-code).
+- `skills/spec/references/knowledge-flow.md` — one-page knowledge-loop mental model (the global picture of who writes/reads the KB and when).

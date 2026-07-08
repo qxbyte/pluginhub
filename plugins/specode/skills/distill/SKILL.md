@@ -1,12 +1,6 @@
 ---
 name: distill
-user-invocable: false
-description: >
-  Use when distilling a finished specode spec into atomic, locate-oriented
-  markdown knowledge points — writes cases/ + navigation/ + MEMORY.md into the
-  project's own `<project_root>/knowledge-base/` (md-only, no auto-injection),
-  optionally copied to an Obsidian vault. Trigger: ONLY `/specode:distill <slug>`
-  — never auto-run by the main specode flow.
+description: Use when distilling a finished specode spec into atomic, locate-oriented markdown knowledge points — writes cases/ + navigation/ + MEMORY.md into the project's own <project_root>/knowledge-base/ (md-only, no auto-injection), optionally copied to an Obsidian vault. Trigger ONLY /specode:distill <slug>, never auto-run by the main specode flow.
 ---
 
 # distill — project knowledge-base sedimenter (atomic dual-track)
@@ -77,28 +71,24 @@ The primary product **always** lands in `<project_root>/knowledge-base/` and can
 
 ## Flow (5 steps)
 
-> Every `resolve_root.py` / `knowledge.py` call **must** go through the `run.sh` wrapper, resolving `$R` with this self-contained prefix (`$CLAUDE_PLUGIN_ROOT` is not reliably set in skill-driven Bash, so a `find` fallback is mandatory):
->
-> ```bash
-> R="${CLAUDE_PLUGIN_ROOT:-$CODEBUDDY_PLUGIN_ROOT}"; [ -f "$R/scripts/run.sh" ] || R="$(find "$HOME/.claude/plugins/cache" "$HOME/.codebuddy/plugins/cache" -path '*/specode/*/scripts/run.sh' 2>/dev/null | sort -V | tail -1)"; R="${R%/scripts/run.sh}"
-> ```
+> Every `resolve_root.py` / `knowledge.py` call **must** go through the `run.sh` wrapper. The scripts live in the plugin's `scripts/` directory — relative to this skill that is `../../scripts/`; use this skill's base directory to make the path absolute (no env-var resolution, no cache `find`). Call them as `../../scripts/run.sh ../../scripts/<name>.py <verb>`.
 
 ### Step 1 — Resolve slug + project_root, make dirs, ensure .gitignore
 
 1. Get `<specsRoot>` via `resolve_root.py get-root` and confirm `<specsRoot>/<slug>/requirements.md` exists (else error out).
 2. Read `project_root`:
    ```bash
-   sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" read-project-root --spec <specsRoot>/<slug>
+   sh ../../scripts/run.sh ../../scripts/resolve_root.py read-project-root --spec <specsRoot>/<slug>
    ```
    exit 0 → stdout is `project_root`; non-zero (missing frontmatter / invalid path) → error and tell the user the spec needs its `project_root` field first.
 3. `mkdir -p <project_root>/knowledge-base/cases <project_root>/knowledge-base/navigation`
 4. Ensure `knowledge-base/` is in the project `.gitignore` (not committed):
    ```bash
-   sh "$R/scripts/run.sh" "$R/scripts/knowledge.py" ensure-gitignore --project-root <project_root>
+   sh ../../scripts/run.sh ../../scripts/knowledge.py ensure-gitignore --project-root <project_root>
    ```
 5. **Completion check (F1, dangling-pointer guard)**:
    ```bash
-   sh "$R/scripts/run.sh" "$R/scripts/resolve_root.py" plan-unchecked --spec <specsRoot>/<slug>
+   sh ../../scripts/run.sh ../../scripts/resolve_root.py plan-unchecked --spec <specsRoot>/<slug>
    ```
    - exit 0 → the spec's plan Tasks are all checked (executed), proceed normally.
    - exit 2 (unchecked `- [ ]` Tasks remain) or exit 3 (no tasks.md and design.md has no checkboxes — no plan yet) → the spec is **not fully executed**, and distilled points may reference **unbuilt code**. First `AskUserQuestion` to warn and let the user pick 「继续沉淀 / 中止」; if they abort, end without writing any doc.
@@ -128,7 +118,7 @@ Write each confirmed knowledge point per `references/doc-template.md` into `<pro
 
 Once all are written, rebuild the index (rebuilt in full from frontmatter, never hand-edit MEMORY.md):
 ```bash
-sh "$R/scripts/run.sh" "$R/scripts/knowledge.py" memory-rebuild --kb <project_root>/knowledge-base
+sh ../../scripts/run.sh ../../scripts/knowledge.py memory-rebuild --kb <project_root>/knowledge-base
 ```
 
 ### Step 5 — Dual-track landing (optional Obsidian copy)
@@ -138,7 +128,7 @@ sh "$R/scripts/run.sh" "$R/scripts/knowledge.py" memory-rebuild --kb <project_ro
 - **No** → end.
 - **Yes** → have the user **enter an absolute path** (state clearly: this is the exact write directory, distill does **no** concatenation). If the path is under `/Volumes/`, first verify the mount (`ls "/Volumes/<name>"` succeeds, else refuse and warn). Then:
   ```bash
-  sh "$R/scripts/run.sh" "$R/scripts/knowledge.py" copy-to --kb <project_root>/knowledge-base --dest <obsidian-target-dir>
+  sh ../../scripts/run.sh ../../scripts/knowledge.py copy-to --kb <project_root>/knowledge-base --dest <obsidian-target-dir>
   ```
   `copy-to` does it **in one step**: copies `cases/` + `navigation/` to the copy directory and rebuilds that directory's own `MEMORY.md` (dest absolute path written directly, no concatenation). The Obsidian side doesn't regenerate content, only copies + rebuilds the index. (The old "manual `cp` twice + remember to `memory-rebuild`" multi-step is replaced by this verb, eliminating the missed rebuild.)
 

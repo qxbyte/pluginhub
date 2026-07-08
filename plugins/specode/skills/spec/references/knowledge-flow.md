@@ -39,11 +39,11 @@ In one line: **the KB is "for locating, not for facts".** It only supplies point
 
 ## Contract lockstep 🔒
 
-The MEMORY columns + frontmatter keys must agree across three sites: `skills/distill/references/doc-template.md` (writes), `scripts/knowledge.py` `_COLS` (indexes), `skills/specode/references/retrieval.md` (reads). Change one → change all three. `tests/test_contract_lockstep.py` is the CI gate for this discipline.
+The MEMORY columns + frontmatter keys must agree across three sites: `skills/distill/references/doc-template.md` (writes), `scripts/knowledge.py` `_COLS` (indexes), `skills/spec/references/retrieval.md` (reads). Change one → change all three. `tests/test_contract_lockstep.py` is the CI gate for this discipline.
 
 ## Authoritative doc for each part
 
 - Produce: `skills/distill/SKILL.md` + `skills/distill/references/doc-template.md`
 - Index CLI: `scripts/knowledge.py` (`memory-rebuild` / `memory-validate` / `copy-to` / `ensure-gitignore`)
-- Consume: `skills/specode/references/retrieval.md` (Tier-0 gate + two-tier gated)
+- Consume: `skills/spec/references/retrieval.md` (Tier-0 gate + two-tier gated)
 - Primary consumer: `skills/intake/SKILL.md` §Step 2b

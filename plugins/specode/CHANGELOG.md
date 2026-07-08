@@ -4,6 +4,17 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.2.0 (2026-07-08) — 拆命令 skill：spec/continue/list 各成独立 skill，命令直达 + resolver 回归相对路径
+
+- **一个大 skill 拆成每命令一个 skill**。旧结构 `skills/specode/SKILL.md`（`user-invocable: false`，不出斜杠）把 spec/continue/list 三个命令入口 + 共享 pipeline 引擎全塞在一起，只能靠 `commands/{spec,continue,list}.md` 三个薄壳区分入口。新结构：
+  - `skills/spec/`（user-invocable → `/specode:spec`）：pipeline 引擎 + 新建入口（引擎并入 spec，continue 续接时引用它）。原 specode skill 经 `git mv` 迁来（保历史），`references/` 一并迁到 `skills/spec/references/`。
+  - `skills/continue/`（user-invocable → `/specode:continue`）：load-and-stop + documents-as-state 推断表。
+  - `skills/list/`（user-invocable → `/specode:list`）：列 spec + 推断阶段。
+  - **删除整个 `commands/` 目录**（spec / continue / list / distill 四个 command 全删）——命令现由 skill 直接提供斜杠、**直达 skill 层**，不再经 command 间接（记录-2 那种"模型去项目里搜 SKILL.md 文件"的诱因随之消除）。`distill` 一并去掉 `user-invocable: false`，`/specode:distill` 改由 distill skill 直接提供（其 §Trigger 段已含 slug / `--target-dir` 用法，删 command 零信息丢失）。`intake` 保持 `user-invocable: false`（仅被 spec 内部按名调用，不出斜杠）。
+- **resolver 回归 superpowers 相对路径范式（去掉环境变量特殊处理）**。所有 skill（spec/continue/list/intake/distill）调 `resolve_root.py` / `knowledge.py` 改为 `sh ../../scripts/run.sh ../../scripts/<name>.py <verb>`（裸相对路径，靠 host 给的 base directory 拼绝对），删掉 `R="${CLAUDE_PLUGIN_ROOT:-...}"; find ...`——该写法在 Windows 下 `:-` 被 host 插值器吞空、CodeBuddy 不注入变量（与 ragkit 0.1.7 同源）。`hooks.json` 去掉 `:-`，用简单 `${CLAUDE_PLUGIN_ROOT}`。
+- **skill frontmatter description 全部朴素化**（无引号、无半角 `Trigger: ` 冒号+空格、distill 去掉 `>` block scalar），避免 CodeBuddy YAML 解析失败导致 skill 坍缩（同 ragkit 0.1.6 的坑）。
+- 契约锁步测试 `test_contract_lockstep.py` 的 retrieval.md 路径随迁更新；90 测试全绿、`claude plugin validate` 通过。命令名（`/specode:spec|continue|list|distill`）、SessionStart hook、config 字段、4 份固定产物文件名均不变 —— 对用户兼容的 **minor**。
+
 ## 6.1.6 (2026-07-08) — 修 skill frontmatter YAML 解析失败（P0）
 
 - 6.1.5 的主编排 skill(`skills/specode/SKILL.md`)`description` 含**半角 `: `（冒号+空格）**（如 `Trigger: /specode:spec`）且未加引号，导致 **YAML frontmatter 解析失败**——`claude plugin validate` 报错,且**运行时 frontmatter 被整体静默丢弃**(name/description 全丢,影响 skill 按名发现/激活)。与全角符号无关。修法:description 加双引号并转义内部引号。零行为变化。

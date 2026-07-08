@@ -257,17 +257,13 @@ of truth. Never auto-run; the acceptance phase only offers it.
 plugins/specode/
   .claude-plugin/plugin.json      plugin manifest
   hooks/hooks.json                1 advisory SessionStart hook
-  commands/spec.md        /specode:spec (new spec)
-  commands/continue.md    /specode:continue <slug>
-  commands/list.md        /specode:list
-  commands/distill.md     /specode:distill <slug> (off-pipeline sedimenter)
   scripts/
     resolve_root.py               specsRoot / project_root / defaults CLI
     knowledge.py                  knowledge-base index CLI (MEMORY rebuild/validate/copy-to)
     spec_hooks.py                 SessionStart discipline injection
     run.sh / run.cmd              python3 → python → py interpreter probe
-  skills/specode/
-    SKILL.md                      the orchestration shell (all behavior)
+  skills/spec/                    /specode:spec — orchestration shell (pipeline engine + new-spec entry)
+    SKILL.md                      requirements → design → tasks → execute → acceptance
     references/
       selectors.md                执行方式 selector verbatim examples
       obsidian.md                 specsRoot path resolution + conventions
@@ -275,10 +271,12 @@ plugins/specode/
       retrieval.md                experience retrieval spec (intake primary node)
       autonomous-mode.md          non-interactive / CI defaults rule
       knowledge-flow.md           one-page knowledge-loop mental model
+  skills/continue/                /specode:continue <slug> — load-and-stop + documents-as-state inference
+  skills/list/                    /specode:list — list specs with inferred phase
   skills/intake/
     SKILL.md                      requirements phase engine (analysis + clarify + write)
-  skills/distill/
-    SKILL.md                      /specode:distill behavior (case/navigation points)
+  skills/distill/                 /specode:distill — user-invocable skill (no command), off-pipeline
+    SKILL.md                      knowledge-base sedimenter (case/navigation points)
     references/                   breakdown heuristics + doc templates
   assets/templates/               requirements.md / design.md / tasks.md /
                                   implementation-log.md seed templates

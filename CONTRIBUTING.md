@@ -20,33 +20,39 @@ dependency, not runtime).
 ## CLI invocation contract
 
 Every script under `plugins/specode/scripts/` is a CLI invoked from
-hook commands (`hooks.json`) or directly by the main agent. **All
-invocations MUST go through the `run.sh` wrapper with the full
-`$CLAUDE_PLUGIN_ROOT` (fallback `$CODEBUDDY_PLUGIN_ROOT`) path**:
+the SessionStart hook (`hooks.json`) or directly by a skill. **All
+invocations MUST go through the `run.sh` wrapper** — but how the
+wrapper's path is resolved differs by caller (superpowers convention):
 
-```sh
-sh "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/run.sh" \
-   "${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT}}/scripts/<name>.py" \
-   <verb> <args...>
-```
+- **Hooks** run in a subprocess where `$CLAUDE_PLUGIN_ROOT` is reliably
+  injected, so `hooks.json` calls it directly (simple env var, no `:-`):
+
+  ```sh
+  sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py" <verb> <args...>
+  ```
+
+- **Skills** cannot rely on the env var (not reliably set in skill-driven
+  Bash) and must NOT `find` it or use a `${VAR:-…}` fallback — on Windows
+  the host swallows `${VAR:-default}` into an empty string and CodeBuddy
+  injects no plugin env var at all. Instead use a **base-directory-relative
+  path** (superpowers-style): the scripts live in the plugin's `scripts/`,
+  which from a `skills/<name>/` skill is `../../scripts/`, and the host
+  supplies the skill's absolute base directory to resolve it:
+
+  ```sh
+  sh ../../scripts/run.sh ../../scripts/<name>.py <verb> <args...>
+  ```
 
 Why:
 
 - `run.sh` probes `python3 → python → py` so it works on any host
   with Python 3.8+ on PATH.
-- Both `CLAUDE_PLUGIN_ROOT` and `CODEBUDDY_PLUGIN_ROOT` are
-  platform-injected env vars; the `:-` fallback covers both Claude
-  Code and CodeBuddy without forcing the user to pick one.
 - Bare `python3 resolve_root.py …` calls fail in most cwds because
   the scripts are not on PATH and the agent doesn't know where it
-  is. See `SKILL.md` (Iron Rules) for the hard rule.
+  is. See the skills' `SKILL.md` (Iron Rules) for the hard rule.
 
-`hooks/hooks.json` and the `commands/*.md` invocation sections
-all use this template — match them when adding new entry points. Note:
-the command files additionally wrap it in a `find`-based fallback because
-`$CLAUDE_PLUGIN_ROOT` is not reliably set in skill-driven Bash calls
-(it is only guaranteed for hook subprocesses, which is why `hooks.json`
-can rely on the bare env-var form).
+Match the caller-appropriate form above when adding a new entry point.
 
 ## Test conventions
 

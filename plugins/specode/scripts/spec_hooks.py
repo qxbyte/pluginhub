@@ -22,8 +22,8 @@ from pathlib import Path
 DISCIPLINE = (
     "specode（spec-mode 轻量工作流）可用。仅在用户输入 `/specode:spec <需求>`、"
     "`/specode:continue <slug>`、`/specode:list` 或显式要求用 spec 模式时激活；"
-    "否则按普通对话处理。激活后遵循 "
-    "specode SKILL.md：① requirements 由 specode:intake skill 产（项目分析+澄清+写需求）；"
+    "否则按普通对话处理。激活后遵循对应命令 skill（spec / continue / list）"
+    "：① requirements 由 specode:intake skill 产（项目分析+澄清+写需求）；"
     "design/tasks/执行/验收各 phase 优先调对应 superpowers skill（缺席则 specode-native 降级）；"
     "② 4 份固定产物 requirements.md / design.md / tasks.md / implementation-log.md 永远以固定文件名"
     "落在 <specsRoot>/<slug>/；③ tasks 完成后用 AskUserQuestion 呈现「执行方式」selector"

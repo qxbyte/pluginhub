@@ -160,17 +160,13 @@ specode 共有四条命令。
 plugins/specode/
   .claude-plugin/plugin.json      插件清单
   hooks/hooks.json                1 个提醒式 SessionStart hook
-  commands/spec.md        /specode:spec（新建）
-  commands/continue.md    /specode:continue <slug>
-  commands/list.md        /specode:list
-  commands/distill.md     /specode:distill <slug>（流水线外沉淀器）
   scripts/
     resolve_root.py               specsRoot / project_root / defaults 业务 CLI
     knowledge.py                  knowledge-base 索引 CLI（MEMORY 重建/校验/copy-to）
     spec_hooks.py                 SessionStart 规范注入
     run.sh / run.cmd              python3 → python → py 解释器探测
-  skills/specode/
-    SKILL.md                      编排外壳（全部行为规范）
+  skills/spec/                    /specode:spec —— 编排外壳（pipeline 引擎 + 新建入口）
+    SKILL.md                      requirements → design → tasks → execute → acceptance
     references/
       selectors.md                执行方式选择器逐字示例
       obsidian.md                 specsRoot 路径解析 + 惯例
@@ -178,10 +174,12 @@ plugins/specode/
       retrieval.md                经验检索规格（intake 为主节点）
       autonomous-mode.md          非交互 / CI 默认值规则
       knowledge-flow.md           一页纸知识流心智模型
+  skills/continue/                /specode:continue <slug> —— load-and-stop + 文档即状态推断
+  skills/list/                    /specode:list —— 列出各 spec 及推断阶段
   skills/intake/
     SKILL.md                      需求阶段引擎（项目分析 + 澄清 + 写需求）
-  skills/distill/
-    SKILL.md                      /specode:distill 行为（case/navigation 知识点）
+  skills/distill/                 /specode:distill —— user-invocable skill（无 command），流水线外
+    SKILL.md                      knowledge-base 沉淀器（case/navigation 知识点）
     references/                   拆分启发式 + 文档模板
   assets/templates/               requirements.md / design.md / tasks.md /
                                   implementation-log.md 种子模板
