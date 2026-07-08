@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 修 skill YAML 解析失败 P0 (2026-07-08) — specode 6.1.6 / task-swarm 0.10.5
+
+- PR #82 统一 skill description 时,把描述写成 `...Trigger: /xxx...`（**半角 `: ` 冒号+空格**）且未加引号——YAML frontmatter 解析失败,`claude plugin validate` 报错,**运行时 frontmatter 被整体静默丢弃**（name/description 全丢,影响 skill 按名发现/激活）。**与全角符号无关**（全角标点 YAML 正常解析,obsidian-wiki 全用全角却校验通过）。specode 主 skill + task-swarm 主 skill 中招(ragkit 4 个 skill 已在 0.1.3 修)。修法:受影响 description 加双引号 + 转义内部引号。零行为变化。
+
 ## Discover 分类标签 (2026-07-05) — specode 6.1.4 / task-swarm 0.10.3 / obsidian-wiki 2.0.3 / ragkit 0.1.1
 
 - 四个插件在 `.claude-plugin/marketplace.json` 加 `category` 字段，让 `/plugin` Discover 面板在插件名后显示分类标签（对齐官方市场）：specode / task-swarm = `development`，obsidian-wiki = `productivity`，ragkit = `database`。该字段只在 marketplace.json，UI 只读它。零行为变化。
