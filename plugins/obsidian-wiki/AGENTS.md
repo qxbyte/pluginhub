@@ -24,25 +24,16 @@
 
 ## 跑脚本
 
-脚本是 Python 3 标准库、UTF-8、零外部依赖。**`--vault` 必填**，脚本经 `load_config` 按该路径在家目录注册表取配置（未注册则回退 `<vault>/.wiki/config.json`）。
-先把插件根解析成 `$WIKI`（脚本在 `$WIKI/skills/<name>/scripts/` 下）：
+脚本是 Python 3 标准库、UTF-8、零外部依赖。**`--vault` 必填**，脚本经 `load_config` 按该路径在家目录注册表取配置（未注册则回退 `<vault>/.wiki/config.json`）。两者皆只读，仅向 `<vault>/<system_dir>/`（默认 `00-Index/_system/`）写体检报告。
 
-```bash
-WIKI="${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT:-}}"; [ -d "$WIKI/skills/wiki-struct" ] || WIKI="$(find "$HOME/.claude/plugins/cache" "$HOME/.codebuddy/plugins/cache" "$HOME/.copilot/installed-plugins" -type d -path '*/obsidian-wiki/skills/wiki-struct' 2>/dev/null | sort -V | tail -1 | sed 's:/skills/wiki-struct$::')"
-
-V="/path/to/your/vault"
-python3 "$WIKI/skills/wiki-struct/scripts/struct_gen.py" check --vault "$V"
-python3 "$WIKI/skills/wiki-curate/scripts/lint.py"       lint  --vault "$V"
-```
-
-两者皆只读，仅向 `<vault>/<system_dir>/`（默认 `00-Index/_system/`）写体检报告。
+脚本**通过对应 skill 触发执行**——`/wiki-struct` 进入 wiki-struct skill、`/wiki-curate` 进入 wiki-curate skill、`/wiki-orchestrate` 进入编排 skill。在 skill 上下文里用该 skill 的 **base directory 相对路径** `scripts/<脚本名>.py`（如 `scripts/struct_gen.py check --vault "$V"`、`scripts/lint.py lint --vault "$V"`）跑脚本，不解析环境变量、不 find 缓存。本文件是总纲，不是 skill、没有 base directory，因此**不在此给可直接运行的脚本命令**——运行入口在各 skill 的 SKILL.md。
 
 ## 首次配置（家目录多库注册表）
 
-各库的结构配置存在家目录 `~/.config/obsidian-wiki/`（`vaults.json` 记各库 path+active，`configs/<名>.json` 存结构），**不写进 vault**。注册一个库：
+各库的结构配置存在家目录 `~/.config/obsidian-wiki/`（`vaults.json` 记各库 path+active，`configs/<名>.json` 存结构），**不写进 vault**。注册一个库是一次性设置——注册命令走 wiki-struct / wiki-orchestrate skill（它们在 skill 上下文里以 base directory 相对路径 `../../lib/registry.py` 调用 `registry.py`），或让用户在插件目录内手动跑：
 
 ```bash
-python3 "$WIKI/lib/registry.py" register --name <短名> --path "/path/to/vault" --activate --config-from "$WIKI/config.example.json"
+python3 lib/registry.py register --name <短名> --path "/path/to/vault" --activate --config-from config.example.json
 ```
 
 然后按你的目录名编辑 `~/.config/obsidian-wiki/configs/<短名>.json`（`index_dir` / `structure.dirs[]` / `lint` / `knowledge` 等）。

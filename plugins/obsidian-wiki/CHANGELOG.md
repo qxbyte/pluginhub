@@ -4,6 +4,16 @@ obsidian-wiki 是维护 Obsidian LLM-Wiki 的多 agent 插件（从独立 skills
 
 ## Unreleased
 
+## 2.1.0 (2026-07-08) — resolver 回归相对路径 + description 朴素化
+
+与同源发布的 ragkit 0.1.7 / specode 6.2.0 / task-swarm 0.11.0 一致，把脚本定位从旧 resolver 回归 superpowers 相对路径范式。旧 resolver（`WIKI="${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT:-}}"` + `find … | sed`）在 Windows 下 `${VAR:-...}` 被 host 插值器吞成空、CodeBuddy 不注入这些环境变量，必然解析失败。
+
+- **三个 skill（wiki-struct / wiki-curate / wiki-orchestrate）的脚本定位**：删掉 `${VAR:-...}` + `find` 缓存的 resolver 段，改为用本 skill 的 **base directory 相对路径**跑脚本——同 skill 自带脚本用 `scripts/xxx.py`（如 `python3 scripts/struct_gen.py check`），插件根通用库用 `../../lib/registry.py`。wiki-orchestrate 因跑兄弟 skill 的脚本，用 `../wiki-struct/scripts/struct_gen.py`、`../wiki-curate/scripts/lint.py`。同步清理各 skill `references/` 里的旧写法（`sub-skills.md`、`dir-config.md`）。根治 Windows `:-` 吞空 / CodeBuddy 不注入变量。
+- **AGENTS.md 总纲**：本文件不是 skill、没有 base directory，不能用裸相对路径。「跑脚本」「首次配置」两段删掉 resolver bash，改为**指向对应 skill**（脚本在 skill 上下文里以相对路径运行），只保留语义说明与参数示例。
+- **wiki-orchestrate description**：由 `>` block scalar（折叠标量，多行）改为**朴素单行 plain scalar**（无引号、无半角 `: `），防 CodeBuddy YAML 解析对 block scalar 兼容性问题导致坍缩。中文内容语义不变。
+
+零行为变化（脚本本身、命令、红线均未改），仅脚本定位方式与 YAML 形态调整。
+
 ## 2.0.4 (2026-07-06) — skill description 统一模板
 
 - 三个 skill（wiki-struct / wiki-curate / wiki-orchestrate）的 frontmatter `description`（渐进式加载唯一常驻的元数据）统一为「用途开头 → 做什么 → 触发语 → 边界/交叉引用」轻量模板：补上彼此的交叉引用边界（结构层→wiki-struct、内容策展→wiki-curate），删去版本史噪音（如 wiki-curate 的「v2.0.0 剥离」）。零行为变化。

@@ -1,12 +1,6 @@
 ---
 name: wiki-orchestrate
-description: >
-  用于整理 Obsidian LLM Wiki 的统一编排入口——定位 vault → 两方只读体检 →
-  汇总行动计划 → 用户确认 → 按「结构→策展」编排 wiki-struct / wiki-curate
-  完成整理（下一步跑哪个 skill / 命令 / 参数由模型依据体检结果判断，建议性非规则）。
-  触发语：/wiki-orchestrate（scan / set-vault）、「整理笔记库」、
-  「跑一次编排」、「统一整理 vault」。入口自身不改内容笔记，写操作全委托子
-  skill 并继承其红线。
+description: 用于整理 Obsidian LLM Wiki 的统一编排入口——定位 vault → 两方只读体检 → 汇总行动计划 → 用户确认 → 按「结构→策展」编排 wiki-struct / wiki-curate 完成整理（下一步跑哪个 skill / 命令 / 参数由模型依据体检结果判断，建议性非规则）。触发语：/wiki-orchestrate（scan / set-vault）、「整理笔记库」、「跑一次编排」、「统一整理 vault」。入口自身不改内容笔记，写操作全委托子 skill 并继承其红线。
 ---
 
 # wiki-orchestrate
@@ -53,24 +47,20 @@ LLM 驱动的 SKILL.md 流程"两部分组成。本入口因此这样执行：
 
 > **本套件作为插件安装、代码不在 vault 内**；vault 路径与各库结构配置都登记在**家目录注册表** `~/.config/obsidian-wiki/`（`vaults.json` 存各库 path + active，`configs/<名>.json` 存各库结构）。**既不写插件目录**（cache，更新即丢）、**也不再写进 vault**。注册表读写统一走 `registry.py`。
 
-先解析插件根 `$WIKI`（脚本与 `registry.py` 都在其下，后续步骤复用）：
+> **脚本定位**：本编排入口自身无脚本，它要跑的都是别处的脚本——通用库 `registry.py` 在插件根 `lib/`，子 skill 脚本在各自 `scripts/` 下。用本 skill 的 base directory 把相对路径拼成绝对路径来跑（不解析环境变量、不 find 缓存）：`registry.py` = `../../lib/registry.py`、`config.example.json` = `../../config.example.json`、struct 脚本 = `../wiki-struct/scripts/struct_gen.py`、curate 脚本 = `../wiki-curate/scripts/lint.py`。
 
-```bash
-WIKI="${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT:-}}"; [ -d "$WIKI/skills/wiki-orchestrate" ] || WIKI="$(find "$HOME/.claude/plugins/cache" "$HOME/.codebuddy/plugins/cache" "$HOME/.copilot/installed-plugins" -type d -path '*/obsidian-wiki/skills/wiki-orchestrate' 2>/dev/null | sort -V | tail -1 | sed 's:/skills/wiki-orchestrate$::')"
-```
-
-1. 解析 active 库：`python3 "$WIKI/lib/registry.py" resolve`。
+1. 解析 active 库：`python3 ../../lib/registry.py resolve`。
    - 成功 → 输出 JSON `{name, path, config, config_exists}`；取 `path` 作 `<vault>`。
    - 退出码 **3**（未配置）→ 走第 4 步注册。
 2. **校验**：`path` 存在、命中标志物 `<index_dir>/`（默认 `00-Index/`，即"该库的 index 目录"）、且 `config_exists=true`。
 3. 命中 → **静默复用**，不打扰用户，直接进入后续步骤。
 4. 未配置 / 失效 → AskUserQuestion 询问 vault 路径，注册并播种配置：
    ```bash
-   python3 "$WIKI/lib/registry.py" register --name <短名> --path "<vault>" --activate --config-from "$WIKI/config.example.json"
+   python3 ../../lib/registry.py register --name <短名> --path "<vault>" --activate --config-from ../../config.example.json
    ```
    然后**提示用户按自己库的目录名编辑** `~/.config/obsidian-wiki/configs/<短名>.json`（模板即 config.example.json）。改完再次校验通过才继续。
 5. vault 路径含 `/Volumes/` → 额外确认外置盘已挂载（如 `ls "<path>"` 可访问）；未挂载**报错停止**，不静默写到别处。
-6. `config_exists=false`（已注册但缺配置）→ 报错并提示：把 `$WIKI/config.example.json` 抄到 `~/.config/obsidian-wiki/configs/<名>.json` 并按库改，再跑。
+6. `config_exists=false`（已注册但缺配置）→ 报错并提示：把插件根 `config.example.json`（本 skill 相对路径 `../../config.example.json`）抄到 `~/.config/obsidian-wiki/configs/<名>.json` 并按库改，再跑。
 
 注册表结构（`registry.py` 维护；机器相关，不入库）：
 
@@ -88,12 +78,12 @@ WIKI="${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT:-}}"; [ -d "$WIKI/skills/wik
 
 ## 第 1 步：只读体检（不写任何笔记）
 
-复用第 0 步解析好的 `$WIKI`（子 skill 脚本都在 `$WIKI/skills/<name>/scripts/` 下）。
+子 skill 脚本在各自 `scripts/` 下（本 skill 相对路径见「脚本定位」）。
 依次运行（`<vault>` = 第 0 步 `registry.py resolve` 得到的 `path`），两者皆只读（只写各自 `_system/` 报告）：
 
 ```bash
-python3 "$WIKI/skills/wiki-struct/scripts/struct_gen.py" check --vault "<vault>"
-python3 "$WIKI/skills/wiki-curate/scripts/lint.py" lint --vault "<vault>"
+python3 ../wiki-struct/scripts/struct_gen.py check --vault "<vault>"
+python3 ../wiki-curate/scripts/lint.py lint --vault "<vault>"
 ```
 
 - struct check 写 `00-Index/_system/struct-report.md`：结构漂移 / 缺 marker / 缺文件 / 坏链 计数。
@@ -175,7 +165,7 @@ python3 "$WIKI/skills/wiki-curate/scripts/lint.py" lint --vault "<vault>"
 
 ## 跨平台
 
-- **代码（本插件）/ 配置（家目录）/ 数据（vault）三者解耦**：代码随插件装在 plugin cache（`$WIKI`），各库结构配置在家目录注册表 `~/.config/obsidian-wiki/configs/<名>.json`，vault 根由 `registry.py resolve` 给。零位置、零结构硬编码，库内不再有 `.wiki/`。
+- **代码（本插件）/ 配置（家目录）/ 数据（vault）三者解耦**：代码随插件安装（脚本用本 skill base directory 相对路径定位），各库结构配置在家目录注册表 `~/.config/obsidian-wiki/configs/<名>.json`，vault 根由 `registry.py resolve` 给。零位置、零结构硬编码，库内不再有 `.wiki/`。
 - 子脚本 `struct_gen.py` / `lint.py` 用 Python 标准库、UTF-8、不依赖外部包；调用一律传 `--vault "<vault>"`（必填），脚本经 `load_config` 按 vault 路径在注册表里取该库配置（未注册则回退库内 `<vault>/.wiki/config.json`）。
 - 别人安装 = `/plugin` 装 obsidian-wiki → `registry.py register --name <名> --path <vault> --config-from config.example.json` → 按库改 `configs/<名>.json` → 跑，无需改代码。
 
@@ -184,7 +174,7 @@ python3 "$WIKI/skills/wiki-curate/scripts/lint.py" lint --vault "<vault>"
 ## 与其它 skill 的关系
 
 - **编排入口**，与 `wiki-struct` /
-  `wiki-curate` 同属本插件 `skills/`，**通过调用它们**（`$WIKI/skills/<name>/scripts/…` + 内联读子 SKILL.md）完成整理，自身不重复实现其功能。`$WIKI` = 插件根（第 0 步解析）。
+  `wiki-curate` 同属本插件 `skills/`，**通过调用它们**（用本 skill base directory 相对路径 `../<name>/scripts/…` 跑其脚本 + 内联读子 SKILL.md）完成整理，自身不重复实现其功能。
 - 两个子 skill 的能力、命令、红线、触发信号详见 `references/sub-skills.md`。
 - 下一步该调用谁的判断建议详见 `references/decision-guide.md`（建议性，最终由模型裁量）。
 

@@ -14,7 +14,7 @@
 | 字段 | 内容 |
 |---|---|
 | **职责** | 确定性重写结构文件的受管块：`00-Index/Home.md` 总览树、15 个一级目录 `README.md`、15 个 `00-Index/<目录>.md` 分区页。只改 marker 之间，marker 外人工内容一字不动。 |
-| **脚本入口** | `python3 "$WIKI/skills/wiki-struct/scripts/struct_gen.py" check --vault "<vault>"`（体检，只读）<br>`… struct_gen.py apply [--scope home\|readmes\|partitions\|all] --vault "<vault>"`（重写受管块） |
+| **脚本入口** | `python3 ../wiki-struct/scripts/struct_gen.py check --vault "<vault>"`（体检，只读）<br>`… struct_gen.py apply [--scope home\|readmes\|partitions\|all] --vault "<vault>"`（重写受管块）。路径为本 skill base directory 相对路径。 |
 | **LLM 流程** | `init`（为缺 marker 的结构文件逐文件 AskUserQuestion 插入受管区）是 SKILL.md 编排的交互流程，不是脚本子命令。`apply` 前若有缺 marker 文件需先 init。 |
 | **读 / 写** | 读：全 vault 结构。写：仅结构文件的受管块（`<!-- wiki-struct:tree start/end -->` 之间）。 |
 | **报告文件** | `00-Index/_system/struct-report.md`（drift / 缺 marker / 缺文件 / 坏链 计数） |
@@ -31,7 +31,7 @@
 | 字段 | 内容 |
 |---|---|
 | **职责** | 内容向策展：ingest / curate / lint（方法论伞）。结构层（Home 树/分区页/README/地图）见 wiki-struct；SpecIn 知识沉淀已迁移到 specode 的 `/specode:distill`（v2.0.0 剥离）。**专注内容笔记质量，不碰受管块、不写遗留知识库产物。** |
-| **脚本入口** | `python3 "$WIKI/skills/wiki-curate/scripts/lint.py" lint --vault "<vault>"`（确定性内容体检：缺「用途」段 / 重复 basename / 孤儿无反链 / frontmatter 缺字段）。`scan` 与 `lint` 流程都内部调用它。 |
+| **脚本入口** | `python3 ../wiki-curate/scripts/lint.py lint --vault "<vault>"`（确定性内容体检：缺「用途」段 / 重复 basename / 孤儿无反链 / frontmatter 缺字段）。路径为本 skill base directory 相对路径。`scan` 与 `lint` 流程都内部调用它。 |
 | **LLM 流程** | `ingest <path>`（吸纳单篇：摘要/挂索引/补双链/记日志，完成后提示跑 `wiki-struct apply`）；`curate`（补缺失「用途」段、英文说明性标签改中文、在相关内容笔记正文补 `[[..]]` 修复孤儿双链；**不碰受管块**）；`lint`（跑 lint.py + LLM 判断过时/矛盾）。 |
 | **读 / 写** | 读：全 vault。写：Wiki 区内容笔记（`01-Concepts/`~`08-Sources/`、`09-Journal/` 等正文）。**不写 wiki-struct 受管块，不写遗留的 `10-Work/知识库/` 产物（历史 spec-distill 产物，保留只读）。** |
 | **报告文件** | `00-Index/_system/curate-report.md`（scan）、`00-Index/_system/lint-report.md`（lint）。 |

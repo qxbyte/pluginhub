@@ -7,11 +7,7 @@ description: 用于维护 Obsidian LLM Wiki 的「结构层」——确定性重
 
 > **配置说明**：vault 的结构配置存在**家目录注册表** `~/.config/obsidian-wiki/configs/<库名>.json`（按 active 库解析；未注册则回退库内 `<vault>/.wiki/config.json`）。schema 见本插件根 `config.example.json`。脚本仍通过 `--vault "<vault 根路径>"` 指定 vault，结构由注册表/回退提供。
 >
-> **脚本定位（插件）**：脚本随插件安装，运行前先解析插件根 `$WIKI`（一次设好，后续命令复用）：
-> ```bash
-> WIKI="${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT:-}}"; [ -d "$WIKI/skills/wiki-struct" ] || WIKI="$(find "$HOME/.claude/plugins/cache" "$HOME/.codebuddy/plugins/cache" "$HOME/.copilot/installed-plugins" -type d -path '*/obsidian-wiki/skills/wiki-struct' 2>/dev/null | sort -V | tail -1 | sed 's:/skills/wiki-struct$::')"
-> ```
-> 下文命令里写的 `scripts/struct_gen.py` 一律指 `"$WIKI/skills/wiki-struct/scripts/struct_gen.py"`。
+> **脚本定位**：脚本装在本 skill 的 `scripts/` 目录下。用本 skill 的 base directory 把相对路径 `scripts/<脚本名>.py` 拼成绝对路径来跑（不解析环境变量、不 find 缓存）。
 
 把"结构层"从手工维护变成可重跑、确定性、内容安全的再生成。设计与约定见本插件根 `DESIGN.md`（位于 `skills/wiki-orchestrate/` 旁的套件文档）。
 
@@ -42,7 +38,7 @@ description: 用于维护 Obsidian LLM Wiki 的「结构层」——确定性重
 
 ### check
 
-1. 运行 `python3 "$WIKI/skills/wiki-struct/scripts/struct_gen.py" check --vault "<vault>"`.
+1. 运行 `python3 scripts/struct_gen.py check --vault "<vault>"`.
 2. Read `00-Index/_system/struct-report.md`。
 3. 汇报：需更新数 / 缺 marker 数 / 缺文件数 / 坏链数 + 最该处理的 3 项。等用户指令。
 
@@ -63,7 +59,7 @@ description: 用于维护 Obsidian LLM Wiki 的「结构层」——确定性重
 
 1. **先 check**：若仍有"缺 marker"文件，提示先 init，终止。
 2. **备份**：`tar -czf ~/Library/Caches/wiki-struct-backup-<ts>.tgz` 受影响的结构文件。
-3. 运行 `python3 "$WIKI/skills/wiki-struct/scripts/struct_gen.py" apply [--scope ...] --vault "<vault>"`。
+3. 运行 `python3 scripts/struct_gen.py apply [--scope ...] --vault "<vault>"`。
 4. **坏链复核**：再跑一次 check，确认 broken 数未新增。
 5. **写日志**：append 一行到 `00-Index/_system/wiki-log.md`：
    `- YYYY-MM-DD HH:MM wiki-struct apply (scope: <scope>, changed: <n>)`
