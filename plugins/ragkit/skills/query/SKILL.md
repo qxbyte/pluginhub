@@ -9,9 +9,10 @@ description: Use when retrieving from a project knowledge-base/ — multi-channe
 
 ## 执行
 
+脚本在本插件的 `scripts/` 目录（本 skill 目录的上两级）；用本 skill 的 base directory 把下面的相对路径拼成绝对路径执行。
+
 ```sh
-R="${CLAUDE_PLUGIN_ROOT:-$CODEBUDDY_PLUGIN_ROOT}"; [ -f "$R/scripts/run.sh" ] || R="$(find "$HOME/.claude/plugins/cache" "$HOME/.codebuddy/plugins/cache" -path '*/ragkit/*/scripts/run.sh' 2>/dev/null | sort -V | tail -1)"; R="${R%/scripts/run.sh}"
-sh "$R/scripts/run.sh" "$R/scripts/ragkit.py" \
+sh ../../scripts/run.sh ../../scripts/ragkit.py \
    query '<检索词>' --kb <项目根>/knowledge-base
 ```
 

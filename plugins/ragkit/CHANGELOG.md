@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.7 (2026-07-08) — skill/hook 定位脚本回归 superpowers 范式（删 resolver 特殊处理）
+
+- **skill 定位脚本回归 superpowers 范式（删掉所有 resolver 特殊处理）**。实证 superpowers 如何在 skill 里定位并执行脚本：纯**相对路径**（`scripts/x.sh`，脚本放 skill 目录）+ 模型用 host 提供的 `Base directory for this skill: <abs>` 拼绝对路径 + 脚本内部 `dirname $0` / `__file__` 自定位——**全程零环境变量、零 find、零 `${CLAUDE_PLUGIN_ROOT}`**。ragkit 之前那行 `R="${CLAUDE_PLUGIN_ROOT:-$CODEBUDDY_PLUGIN_ROOT}"; find ... ` 正是 superpowers 明确不做的特殊处理，也是 Windows 全部故障的根：探针实测 `${VAR:-default}` 被 host 插值器整体吞成空（Claude Code combined_dash=[]）、CodeBuddy 连简单 `${CLAUDE_PLUGIN_ROOT}` 都不注入且把多行 bash 压成一行。修法：四个 skill 执行段删掉 resolver + find，改为裸相对路径 `sh ../../scripts/run.sh ../../scripts/ragkit.py ...`（脚本共用、在插件根 `scripts/`，故相对 skill 目录为 `../../`；除深度外与 superpowers 手法一致）。
+- **hook 去掉 `${VAR:-default}`**。对齐 superpowers 的 hook（Claude Code 用简单 `${CLAUDE_PLUGIN_ROOT}`、Codex 用 `${PLUGIN_ROOT}`、Cursor 用纯相对路径，从不用 `:-`）。`hooks.json` 的 command 改为简单 `${CLAUDE_PLUGIN_ROOT}`，消除同一个 `:-` 吞空隐患。
+
 ## 0.1.6 (2026-07-08) — 修 CodeBuddy frontmatter 解析失败（四 skill 坍缩成 skill.md）
 
 - **修 CodeBuddy 上四个 skill 坍缩成一条 `skill.md` 命令（根因：frontmatter 解析失败）**。差异化定位：与 superpowers（CodeBuddy 上正常）逐项对比，布局 / plugin.json / 无 commands 全同，唯一差异是 `description` 的写法——ragkit 用**双引号包裹且内部含 `Trigger: `（冒号+空格）**。0.1.3 加双引号只骗过了 Claude Code 的 YAML 解析器，**没骗过 CodeBuddy 的**：CodeBuddy 解析整块 frontmatter 失败 → 回退到文件名 `SKILL.md` → 四个 skill 同名坍缩成一条 `skill.md`。修法：四个 `description` 改成 superpowers 那种**已被 CodeBuddy 实证可用**的朴素形态——去双引号、去反引号、把 `Trigger: ` 改成 `Trigger `（彻底消灭冒号+空格）；`claude plugin validate` 通过、45 测试全绿。
