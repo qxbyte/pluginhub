@@ -110,7 +110,7 @@ When presenting, pass question / header / options **verbatim** per the `referenc
 
 ## task-swarm handoff (zero hard dependency)
 
-task-swarm is a **standalone plugin**; specode has **zero imports** of it and does not know its install path — all calls go through task-swarm's own `/task-swarm:swarm` command (which self-resolves its `$CLAUDE_PLUGIN_ROOT`). After the user picks "delegate":
+task-swarm is a **standalone plugin**; specode has **zero imports** of it and does not know its install path — all calls go through task-swarm's own `/task-swarm:swarm` skill (which self-locates its scripts via its own base directory). After the user picks "delegate":
 
 1. Read this spec's `tasks.md` Task list + each Task's `**Files:**` + `(needs:)` → mechanically derive `<specsRoot>/<slug>/pipeline.yml` (merge Tasks into task groups by writes-conflict + needs topology / `@writes` files / `needs` topology).
 2. **Show the yml summary to the user** (number of task groups / same-file conflicts / topology); init only after the user confirms.

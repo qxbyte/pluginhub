@@ -4,7 +4,7 @@ description: Use when working with task-swarm / reviewer / validator / v-fix / p
 
 # task-swarm Protocol Reference (references/task-swarm.md)
 
-This document is the full protocol behind the task-swarm `/task-swarm:swarm` command.
+This document is the full protocol behind the task-swarm `/task-swarm:swarm` skill.
 During a task-swarm run the lead agent must follow this protocol strictly.
 
 ---

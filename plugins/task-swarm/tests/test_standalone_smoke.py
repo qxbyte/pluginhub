@@ -110,24 +110,26 @@ def test_planner_subagent_deleted(tmp_path):
 
 
 def test_skill_md_exists_and_specode_free(tmp_path):
-    skill = PLUGIN_DIR / "skills" / "task-swarm" / "SKILL.md"
+    skill = PLUGIN_DIR / "skills" / "swarm" / "SKILL.md"
     assert skill.exists(), "task-swarm 必须有自己的 SKILL.md"
     text = skill.read_text(encoding="utf-8")
-    assert "name: task-swarm" in text
+    assert "name: swarm" in text
     assert "description:" in text
     for bad in ("spec_session", "read-session", "spec-mode", "acceptance phase", "/specode:"):
         assert bad not in text, f"SKILL.md 泄漏 specode 词: {bad!r}"
 
 
-def test_command_is_standalone_first(tmp_path):
-    cmd = (PLUGIN_DIR / "commands" / "swarm.md").read_text(encoding="utf-8")
+def test_skill_is_standalone_first(tmp_path):
+    # 命令已 skill 化（skills/swarm/），入口就是 swarm skill 本身，无独立 command
+    assert not (PLUGIN_DIR / "commands").exists(), "commands/ 应已删除（skill 化）"
+    skill = (PLUGIN_DIR / "skills" / "swarm" / "SKILL.md").read_text(encoding="utf-8")
     # 入口多态 + 无 specode 前置门
-    assert "pipeline.yml" in cmd
+    assert "pipeline.yml" in skill
     for bad in ("read-session", "/specode:task-swarm", "回到 spec-mode", "tasks-execution selector 选中"):
-        assert bad not in cmd, f"command 仍含 specode 耦合: {bad!r}"
+        assert bad not in skill, f"skill 仍含 specode 耦合: {bad!r}"
 
 
 def test_references_specode_free(tmp_path):
-    ref = (PLUGIN_DIR / "skills" / "task-swarm" / "references" / "task-swarm.md").read_text(encoding="utf-8")
+    ref = (PLUGIN_DIR / "skills" / "swarm" / "references" / "task-swarm.md").read_text(encoding="utf-8")
     for bad in ("/specode:task-swarm", "回到 spec-mode acceptance phase", "保活 spec 锁"):
         assert bad not in ref, f"references/task-swarm.md 仍含 specode 耦合: {bad!r}"
