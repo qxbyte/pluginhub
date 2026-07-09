@@ -4,6 +4,10 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.4.1 (2026-07-09) — 文档订正：README 命令数四→五（补 `/specode:execute`）
+
+- README EN/zh「使用」段开头的「specode 共有四条命令 / has exactly four commands」纠正为**五条**——6.3.0 新增 `/specode:execute` 后，命令段落已列全 1 spec / 2 continue / 3 execute / 4 list / 5 distill，但这句计数遗漏未同步。纯文档订正，无行为/代码变化。
+
 ## 6.4.0 (2026-07-09) — 配置极简：砍掉整套 autonomous-mode / defaults 子系统，只剩两个真实源
 
 设计哲学收敛（学 superpowers 低耦合、少配置）：**specode 的持久输入只应有两个——specsRoot（obsidian 仓库，config.json，可被 `SPECODE_ROOT` env 覆盖）+ 每个 spec 的 project_root（requirements.md frontmatter，唯一真实源，下游处处经 `read-project-root` 读）**。为此移除整套多余配置面：

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 文档订正 (2026-07-09) — specode 6.4.1
+
+- README EN/zh「specode 共有四条命令」纠正为五条（6.3.0 起含 `/specode:execute`）。纯文档，无行为变化。
+
 ## 配置极简 (2026-07-09) — specode 6.4.0
 
 - 收敛 specode 配置面到"只有两个真实源"：specsRoot（config.json，可 `SPECODE_ROOT` 覆盖）+ 每 spec 的 project_root（requirements.md frontmatter，下游唯一真实源）。**移除整套 autonomous-mode / defaults 子系统**：`resolve_root.py` 删 defaults.json 机制（5 键 + 5 个 `SPECODE_*` env + read/write/reset-default 3 CLI verb，约 180 行）、删 `references/autonomous-mode.md` + 各 skill 的 autonomous 门控（每个 AskUserQuestion 门直接问，默认交互场景零行为变化）、distill 收尾由 `auto_distill` 门控改为"execute 留一行被动提醒"（execute 与 distill 解耦）。删 `test_non_interactive_defaults.py`，全量 77 测通过。学 superpowers 低耦合、少配置的思路。无 API 面变化——minor。

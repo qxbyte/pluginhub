@@ -3,7 +3,7 @@
 # pluginhub
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.md#license)
-[![specode](https://img.shields.io/badge/specode-6.4.0-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![specode](https://img.shields.io/badge/specode-6.4.1-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
 [![task-swarm](https://img.shields.io/badge/task--swarm-0.10.3-blue.svg)](./plugins/task-swarm/.claude-plugin/plugin.json)
 [![obsidian-wiki](https://img.shields.io/badge/obsidian--wiki-2.0.3-blue.svg)](./plugins/obsidian-wiki/.claude-plugin/plugin.json)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/pluginhub#installation)
@@ -20,7 +20,7 @@ any plugin it hosts. More plugins will land here over time.
 
 | Plugin | Version | What it does |
 | --- | --- | --- |
-| **specode** | 6.4.0 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles dedicated `intake` and `execute` skills (the execution tail is manually triggerable anytime via `/specode:execute`), a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
+| **specode** | 6.4.1 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles dedicated `intake` and `execute` skills (the execution tail is manually triggerable anytime via `/specode:execute`), a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
 | **task-swarm** | 0.11.0 | Standalone multi-agent **orchestration** driven by a `pipeline.yml` — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (`state.json` is the single source of truth). specode delegates its execution phase here; also runnable directly via `/task-swarm:swarm`. See [`plugins/task-swarm/`](./plugins/task-swarm) + its CHANGELOG. |
 | **obsidian-wiki** | 2.1.0 | Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (`wiki-struct`), content curation (`wiki-curate`), and a unified orchestrator (`wiki-orchestrate`). Generic code + per-vault config in the home-dir registry `~/.config/obsidian-wiki/` (fallback: `<vault>/.wiki/config.json`), zero hardcoded structure. See [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki). |
 | **ragkit** | 0.1.7 | Standalone knowledge-base **RAG** — vector + lexical + metadata three-channel recall, RRF-fused, returns pointer cards. Optional downstream consumer of specode `distill` output; zero heavy deps (stdlib + numpy for lexical mode). See [`plugins/ragkit/`](./plugins/ragkit). |
@@ -175,7 +175,7 @@ codebuddy plugin marketplace update pluginhub
 
 ## Usage
 
-specode has exactly four commands.
+specode has exactly five commands.
 
 ### 1. Start a spec
 
