@@ -5,7 +5,7 @@ description: Use when creating a new spec-driven workflow — the /specode:spec 
 
 # /specode:spec — create a new spec (orchestration shell)
 
-specode is no longer a state machine. It is an **orchestration shell** that handles only its own distinctive value: the spec lifecycle, fixed on-disk artifacts, "documents-as-state" phase inference, the `执行方式` selector, and the task-swarm handoff bridge. The heavy lifting (clarification, design, TDD execution, acceptance) is done by **autonomously calling superpowers** skills in the matching phase; when superpowers is absent, **specode-native fallback** takes over. There is no persistent session file, no multi-window locking, no spec config file, no status-summary footer line, no forced code-doc sync nagging, and no session log collection.
+specode is no longer a state machine. It is an **orchestration shell** that handles only its own distinctive value: the spec lifecycle, fixed on-disk artifacts, "documents-as-state" phase inference, and handing the execution tail (the `执行方式` selector → execution → acceptance, including the task-swarm handoff bridge) to the sibling `specode:execute` skill. The heavy lifting (clarification, design, TDD execution, acceptance) is done by **autonomously calling superpowers** skills in the matching phase; when superpowers is absent, **specode-native fallback** takes over. There is no persistent session file, no multi-window locking, no spec config file, no status-summary footer line, no forced code-doc sync nagging, and no session log collection.
 
 ## Activation Guard
 
@@ -61,30 +61,19 @@ Each phase is annotated "if superpowers is installed, call it / otherwise go nat
 
    > design retrieval is **for locating** (grounding the design to real code), producing pointers only and **introducing no "rule acknowledgement / deviation gate"** (since 4.0.0, no `.ai-memory/knowledge/rules/`-related rule check; don't reintroduce it).
 4. **tasks (executable plan)**:
-   - superpowers installed → call `superpowers:writing-plans`. Pre-instruct the target path `<specsRoot>/<slug>/tasks.md`. **writing-plans ends by hardcoding a "Subagent-Driven vs Inline Execution" question — it has no flag to disable it; ignore that question and don't act on it**, and continue to specode's own §执行方式 selector (step 5). specode can only "digest" that question, not truly suppress it.
+   - superpowers installed → call `superpowers:writing-plans`. Pre-instruct the target path `<specsRoot>/<slug>/tasks.md`. **writing-plans ends by hardcoding a "Subagent-Driven vs Inline Execution" question — it has no flag to disable it; ignore that question and don't act on it**, and continue to Flow step 5 (invoke `specode:execute`). specode can only "digest" that question, not truly suppress it.
    - not installed → **specode-native**: break down into `## Task N` + `**Files:**` + `**Interfaces:**` + `验证: AC-N` + `- [ ]` TDD steps per the `assets/templates/tasks.md` template.
    - Relocate the artifact to `<specsRoot>/<slug>/tasks.md`.
    - the tasks phase does **no separate retrieval** — it inherits the file paths already located in design.md (each `**Files:**` derives from design's module/interface landing points).
-5. **「执行方式」selector**: after tasks.md is confirmed, call `AskUserQuestion` to present it (adaptive 4 options, see §执行方式 selector), verbatim per the `references/selectors.md` example.
-6. **Execution** (branches by selector choice, all TDD):
-   - Delegate to task-swarm (installed) → see §task-swarm handoff.
-   - superpowers subagent-driven (installed) → call `superpowers:subagent-driven-development`.
-   - superpowers executing-plans (installed) → call `superpowers:executing-plans`.
-   - specode self-execute (fallback) → the host agent runs TDD in `tasks.md` Task order (write failing test → run red → implement → run green), checking off each `- [ ]`.
-   - Append to `implementation-log.md` during execution.
-7. **Acceptance (coding complete)**:
-   - superpowers installed → call `superpowers:verification-before-completion` (optionally also `superpowers:requesting-code-review`).
-   - not installed → **specode-native**: the host agent verifies item by item against the `AC-N` in `requirements.md` / `design.md`'s test strategy (测试策略) / all `tasks.md` checkboxes checked.
-   - Say "请验收" in prose and write an acceptance summary in `implementation-log.md`. **There is no formal acceptance-gate selector.**
-   - **distill prompt (gated by `auto_distill`)**: after acceptance is written, decide whether to prompt for distillation per the §Autonomous-mode defaults rule — get the effective value + source via `resolve_root.py read-defaults --key auto_distill --json`; when `interactive == false` with an effective default (`source ∈ {env, file}`), handle it **silently** per the default (no interruption), otherwise `AskUserQuestion`「是否运行 `/specode:distill <slug>` 把本次经验沉淀进项目 knowledge-base？」. distill is still a **user-triggered standalone command** (its behavior is in `skills/distill/SKILL.md`, now project-`knowledge-base/`-primary); this only re-hooks the entry-point prompt at the end of acceptance, and does **not** auto-run distill in the main flow.
+5. **Execution tail (selector → execution → acceptance)** — **invoke the `specode:execute` skill via the `Skill` tool** and let it own everything from here: the 「执行方式」 selector (verbatim per its own `references/selectors.md`), engine dispatch (task-swarm handoff / superpowers subagent-driven / executing-plans / specode self-execute, all TDD), `implementation-log.md` appending, acceptance, and the distill prompt. execute is a **standalone user-invocable skill** (`skills/execute/`, peer to intake/distill) — the user can also trigger it manually at any time as `/specode:execute <slug>` (e.g. after a session break or a `/specode:continue`). Full behavior lives in `skills/execute/SKILL.md` — do not re-derive it here.
 
-phase ↔ skill quick map: `requirements` → **`specode:intake`** (specode's own standalone skill, always — no superpowers fork); `design` → brainstorming (design only, single artifact) or native; `tasks` → writing-plans; execution → subagent-driven-development / executing-plans (the task-swarm path does not use superpowers); acceptance → verification-before-completion / requesting-code-review.
+phase ↔ skill quick map: `requirements` → **`specode:intake`** (specode's own standalone skill, always — no superpowers fork); `design` → brainstorming (design only, single artifact) or native; `tasks` → writing-plans; execution + acceptance → **`specode:execute`** (specode's own standalone user-invocable skill, which internally dispatches task-swarm / subagent-driven-development / executing-plans / native TDD, then verification-before-completion / native acceptance).
 
 ## superpowers orchestration + relocation (belt and suspenders)
 
 superpowers' brainstorming / writing-plans have their own default output paths + filenames (e.g. `docs/superpowers/specs/YYYY-MM-DD-*.md`), so when delegating, specode must actively relocate to guarantee the core invariant holds. (Note: `requirements.md` is **not** produced by superpowers anymore — it is produced by the `specode:intake` skill, which writes directly to the fixed path, so no relocation is needed for it.)
 
-1. **Pre-instruction**: before calling the skill, explicitly tell it the target **absolute path + fixed filename** (superpowers' spec/plan locations support user-preference overrides) — brainstorming → **one** target: `<specsRoot>/<slug>/design.md` (design only; requirements are already in `requirements.md`); writing-plans' plan output → `<specsRoot>/<slug>/tasks.md` (the tasks format *is* the writing-plans format, so it slots in seamlessly). writing-plans will still end by asking its own execution-handoff question — **ignore it, don't act on it**; specode's 执行方式 selector supersedes it.
+1. **Pre-instruction**: before calling the skill, explicitly tell it the target **absolute path + fixed filename** (superpowers' spec/plan locations support user-preference overrides) — brainstorming → **one** target: `<specsRoot>/<slug>/design.md` (design only; requirements are already in `requirements.md`); writing-plans' plan output → `<specsRoot>/<slug>/tasks.md` (the tasks format *is* the writing-plans format, so it slots in seamlessly). writing-plans will still end by asking its own execution-handoff question — **ignore it, don't act on it**; the 执行方式 selector presented by `specode:execute` supersedes it.
 2. **Post-relocation (backstop)**: after the skill returns, verify the expected `<specsRoot>/<slug>/<fixed-name>` is in place (brainstorming: `design.md`; writing-plans: `tasks.md`); if not, `mv` / rename the file the skill actually produced to the fixed location. The invariant holds whether or not the skill honored the pre-instruction.
 
 Which superpowers skill to call when, and how to do pre/post, is detailed in `references/superpowers-wiring.md`.
@@ -95,29 +84,9 @@ specode treats both superpowers and task-swarm as **soft dependencies** (purely 
 
 **How to decide**: requirements always goes through `specode:intake` (no superpowers here). For design / tasks / execution / acceptance, the host agent first tries calling the matching superpowers skill via `Skill`; if unavailable, take the native branch. Do not stall or tell the user to install something just because superpowers is absent — pick up natively right away.
 
-## 执行方式 selector (the single fixed per-spec selector, after tasks.md completes)
+## Execution tail → `specode:execute`
 
-After tasks.md is confirmed, call `AskUserQuestion` to present **adaptive 4 options** — **show an option only if its engine is installed**. Pass the option label/description text below verbatim (they are user-facing selections and stay in Chinese):
-
-1. **委托 task-swarm（多 agent 并发）** — requires task-swarm.
-2. **superpowers subagent-driven（每 Task 派全新 subagent + 两阶段评审，推荐）** — requires superpowers.
-3. **superpowers executing-plans（当前会话顺序批量 + checkpoint）** — requires superpowers.
-4. **specode 自执行（顺序单 agent）** — native fallback, the only option when nothing is installed.
-
-> Options 2/3 are both superpowers skills (built on Claude Code's native Agent/subagent capabilities), not Claude built-in workflows; their ergonomics differ (the former: clean context + per-Task review; the latter: single-session continuous batch).
-
-When presenting, pass question / header / options **verbatim** per the `references/selectors.md` example — do not invent and do not collapse into a shorter option set. This is a single-user scenario with the PreToolUse hard-check removed, so "verbatim per the example" is enforced by this rule alone.
-
-## task-swarm handoff (zero hard dependency)
-
-task-swarm is a **standalone plugin**; specode has **zero imports** of it and does not know its install path — all calls go through task-swarm's own `/task-swarm:swarm` skill (which self-locates its scripts via its own base directory). After the user picks "delegate":
-
-1. Read this spec's `tasks.md` Task list + each Task's `**Files:**` + `(needs:)` → mechanically derive `<specsRoot>/<slug>/pipeline.yml` (merge Tasks into task groups by writes-conflict + needs topology / `@writes` files / `needs` topology).
-2. **Show the yml summary to the user** (number of task groups / same-file conflicts / topology); init only after the user confirms.
-3. Invoke task-swarm's own `/task-swarm:swarm` command to drive its plan → fork → advance → writeback → resolve orchestration until done.
-4. Append to `implementation-log.md` throughout; run acceptance after done.
-
-**task-swarm not installed** (`/task-swarm:swarm` unavailable) → fall back on the spot to "specode self-execute" or the superpowers execution path, so the user is never stuck.
+The 「执行方式」 selector, the engine dispatch, the task-swarm handoff, acceptance, and the distill prompt all live in the sibling **`specode:execute`** skill (`skills/execute/SKILL.md`) — invoked by this pipeline at Flow step 5, by `/specode:continue` on resume, or manually by the user as `/specode:execute <slug>`. This SKILL intentionally carries none of that content; never re-derive the selector or the handoff here.
 
 ## Output Language
 
@@ -134,13 +103,14 @@ When writing / updating spec documents, **never** reprint the full text in chat.
 1. **Fixed-artifact invariant**: always produce only the 4 documents `requirements.md` / `design.md` / `tasks.md` / `implementation-log.md`, with fixed filenames, filed in `<specsRoot>/<slug>/`, independent of the execution engine. `requirements.md` is written directly by the `specode:intake` skill (no relocation); after delegating design/tasks to superpowers you must run the post-relocation check (brainstorming → `design.md`; writing-plans → `tasks.md`).
 2. **specsRoot: read config first, then ask**: call `get-root` on every start; only when missing, `AskUserQuestion` once and `set-root` to write it back, then use it silently thereafter; use the user's directory verbatim as the root, appending nothing.
 3. **CLIs must go through run.sh via a relative path**: all specode CLIs go through the `run.sh` wrapper called as `../../scripts/run.sh ../../scripts/<name>.py` (paths relative to this skill's base directory, superpowers-style — no env-var resolution, no cache `find`); never a bare `python3 <script>`, never a hard-coded version path.
-4. **执行方式 selector verbatim per example**: the `AskUserQuestion` question / header / options are taken verbatim from `references/selectors.md`, adaptively showing only options for installed engines; never invent / collapse.
+4. **Execution tail goes through `specode:execute`**: after tasks.md is confirmed, always invoke the `specode:execute` skill via the `Skill` tool — never present the 执行方式 selector or dispatch engines from this SKILL's own prose (the verbatim selector example lives in `skills/execute/references/selectors.md`).
 5. **Lightweight red line**: no more locking / takeover protocol / state machine; no more status-summary footer line; no more forced code-doc sync nagging; no more paired writes of a persistent session file and spec config file; no more pending-selector markers / phase-transition CLI / log collection. Active state is inferred from the current conversation context + document existence.
 
 ## References
 
 - `../intake/SKILL.md` — the standalone `specode:intake` skill: full behavior of the requirements phase (project analysis + experience retrieval + clarification + writing `requirements.md` with the frontmatter contract). Invoked via the `Skill` tool at Flow step 2.
-- `references/selectors.md` — verbatim `AskUserQuestion` example for the 「执行方式」 selector (the first-time directory-setup question is here too).
+- `../execute/SKILL.md` — the standalone `specode:execute` skill: full behavior of the execution tail (执行方式 selector + engine dispatch + task-swarm handoff + acceptance + distill prompt). Invoked via the `Skill` tool at Flow step 5; also user-invocable as `/specode:execute <slug>`.
+- `references/selectors.md` — verbatim `AskUserQuestion` example for the first-time directory-setup question (the 执行方式 selector example moved to `../execute/references/selectors.md` in 6.3.0).
 - `references/obsidian.md` — specsRoot path resolution, the full `resolve_root.py` verb table, and directory conventions.
 - `references/autonomous-mode.md` — the autonomous / CI defaults rule: gate→key→env mapping + the skip-the-prompt decision pseudo-code.
 - `references/superpowers-wiring.md` — the per-phase ↔ superpowers skill mapping, pre-instructions, and post-relocation instructions.

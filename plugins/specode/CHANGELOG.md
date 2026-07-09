@@ -4,6 +4,13 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.3.0 (2026-07-09) — 执行尾段 skill 化：新增 /specode:execute（三入口汇合）
+
+- **新增 `skills/execute/`（user-invocable → `/specode:execute <slug>`）**：把执行尾段（执行方式 selector → 执行调度（task-swarm handoff / superpowers / native TDD）→ 验收 → distill 提示）从 `skills/spec/SKILL.md` 内联散文**原样抽离**成独立 skill。语义零变化（selector 逐字范例、handoff 步骤、`auto_distill` 门控全部原文搬迁），selector 范例随迁至 `skills/execute/references/selectors.md`。
+- **根因修复**：`/specode:continue` 续接到执行节点时调不起执行方式 AskUserQuestion——continue 的「按 ../spec/SKILL.md 恢复」只是散文引用，host 不会真实装载。现在 spec 管道（Flow step 5）、continue 续接（executing/complete/legacy 行）、用户手动三个入口统一**经 Skill 工具 invoke `specode:execute`**，行为规范被真实装载进上下文（同 6.0.0 intake 抽离范式）。
+- **前置自检**：手动触发防御——无 tasks.md（非 legacy）→ 报错建议 `/specode:continue` 补前置；tasks.md 全勾 → 直接验收；legacy 5.x（design.md 含 `## Task` + `- [ ]`）→ 以 design.md 为 plan。
+- spec/SKILL.md steps 5–7 收缩为一步 invoke；`spec/references/selectors.md` 仅留 first-time setup；SessionStart hook 文案加入 `/specode:execute`。命令面从 4 个变 5 个 —— **minor**。
+
 ## 6.2.0 (2026-07-08) — 拆命令 skill：spec/continue/list 各成独立 skill，命令直达 + resolver 回归相对路径
 
 - **一个大 skill 拆成每命令一个 skill**。旧结构 `skills/specode/SKILL.md`（`user-invocable: false`，不出斜杠）把 spec/continue/list 三个命令入口 + 共享 pipeline 引擎全塞在一起，只能靠 `commands/{spec,continue,list}.md` 三个薄壳区分入口。新结构：

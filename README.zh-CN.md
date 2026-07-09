@@ -18,7 +18,7 @@
 
 | 插件 | 版本 | 做什么 |
 | --- | --- | --- |
-| **specode** | 6.2.0 | 轻量**规格驱动工作流**编排外壳——带 host agent 走 requirements → design → tasks → 执行 → 验收，每阶段委托给 [superpowers](https://github.com/obra/superpowers) 技能（一等公民 specode 原生降级），每条规格固定产出 4 份文档（requirements / design / tasks / implementation-log）。内置独立 `intake` skill、零 import 的 task-swarm 并发执行衔接、可选的定位型经验检索。版本历史见 [CHANGELOG](./plugins/specode/CHANGELOG.md)。 |
+| **specode** | 6.3.0 | 轻量**规格驱动工作流**编排外壳——带 host agent 走 requirements → design → tasks → 执行 → 验收，每阶段委托给 [superpowers](https://github.com/obra/superpowers) 技能（一等公民 specode 原生降级），每条规格固定产出 4 份文档（requirements / design / tasks / implementation-log）。内置独立 `intake` 与 `execute` skill（执行尾段可随时手动 `/specode:execute` 触发）、零 import 的 task-swarm 并发执行衔接、可选的定位型经验检索。版本历史见 [CHANGELOG](./plugins/specode/CHANGELOG.md)。 |
 | **task-swarm** | 0.11.0 | 由 `pipeline.yml` 驱动的独立**多 agent 编排**——语义任务组 + 跨组并发、fork coder、按组 reviewer + validator 循环（`state.json` 为单一事实源）。specode 把执行阶段委托到这里；也可用 `/task-swarm:swarm` 直接独立运行。详见 [`plugins/task-swarm/`](./plugins/task-swarm) 及其 CHANGELOG。 |
 | **obsidian-wiki** | 2.1.0 | 用三个 skill 维护 Obsidian LLM-Wiki——确定性结构层（`wiki-struct`）、内容策展（`wiki-curate`）、统一编排器（`wiki-orchestrate`）。通用代码 + 按库配置放在家目录注册表 `~/.config/obsidian-wiki/`（回退 `<vault>/.wiki/config.json`），零硬编码结构。详见 [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki)。 |
 | **ragkit** | 0.1.7 | 独立知识库 **RAG**——向量 + 词汇 + 元数据三路召回，RRF 融合，返回定位卡片。specode `distill` 产出的 `knowledge-base/` 可直接消费；零重型依赖（词汇路仅需 stdlib + numpy）。详见 [`plugins/ragkit/`](./plugins/ragkit)。 |
@@ -137,7 +137,15 @@ specode 共有四条命令。
 
 `<slug>` 为必填。specode 定位到 `<specsRoot>/<slug>/`，根据已存在的文档（以及 `tasks.md` 中的 `- [ ]` 进度；5.x 存量 spec 看 `design.md`）推断当前阶段，**汇报进度简报后停下等待**——你说"继续"才续跑，也可以先补充需求变更。绝不自动续跑。不知道 slug？用 `/specode:list` 查找。
 
-### 3. 列出规格
+### 3. 运行执行尾段
+
+```sh
+/specode:execute <slug>
+```
+
+随时运行（或续跑）一条 spec 的执行尾段：呈现「执行方式」selector（task-swarm / superpowers / specode 自执行）→ 按选择调度引擎 → 验收。spec 管道与 `/specode:continue` 在 `tasks.md` 就绪后自动汇入此 skill；会话中断后也可手动触发。要求 `tasks.md`（或 5.x 存量 `design.md` 计划）已存在——它自己绝不生成计划。
+
+### 4. 列出规格
 
 ```sh
 /specode:list
@@ -145,7 +153,7 @@ specode 共有四条命令。
 
 列出 `<specsRoot>` 下所有规格及其推断阶段，仅供概览，不会自动续接。
 
-### 4. 沉淀知识（流水线外）
+### 5. 沉淀知识（流水线外）
 
 ```sh
 /specode:distill <slug> [--target-dir <abs-path>]
@@ -166,15 +174,17 @@ plugins/specode/
     spec_hooks.py                 SessionStart 规范注入
     run.sh / run.cmd              python3 → python → py 解释器探测
   skills/spec/                    /specode:spec —— 编排外壳（pipeline 引擎 + 新建入口）
-    SKILL.md                      requirements → design → tasks → execute → acceptance
+    SKILL.md                      requirements → design → tasks → 交棒 execute
     references/
-      selectors.md                执行方式选择器逐字示例
+      selectors.md                首次目录设置问句
       obsidian.md                 specsRoot 路径解析 + 惯例
       superpowers-wiring.md       阶段 ↔ superpowers 技能映射
       retrieval.md                经验检索规格（intake 为主节点）
       autonomous-mode.md          非交互 / CI 默认值规则
       knowledge-flow.md           一页纸知识流心智模型
   skills/continue/                /specode:continue <slug> —— load-and-stop + 文档即状态推断
+  skills/execute/                 /specode:execute <slug> —— 执行尾段（selector → 调度 → 验收），spec/continue 亦汇入此处
+    references/selectors.md       执行方式选择器逐字示例
   skills/list/                    /specode:list —— 列出各 spec 及推断阶段
   skills/intake/
     SKILL.md                      需求阶段引擎（项目分析 + 澄清 + 写需求）

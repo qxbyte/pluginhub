@@ -27,14 +27,19 @@ sh ../../scripts/run.sh ../../scripts/resolve_root.py get-root
 |---|---|---|
 | no `requirements.md` | intake | rerun requirements (brainstorming / native clarification) |
 | has `requirements.md`, no `design.md` | design | run design (brainstorming design-only / native authoring) |
-| has `design.md`, no `tasks.md`, and `design.md` contains `## Task` + `- [ ]` | **legacy spec (5.x)** | treat `design.md` as the plan per pre-6.0.0 semantics — resume execution / acceptance directly |
+| has `design.md`, no `tasks.md`, and `design.md` contains `## Task` + `- [ ]` | **legacy spec (5.x)** | invoke the `specode:execute` skill via the `Skill` tool (it detects the legacy design.md-as-plan itself) |
 | has `design.md` (new-style, prose), no `tasks.md` | tasks | run tasks breakdown (writing-plans / native per tasks template) |
-| `tasks.md` with unchecked `- [ ]` | executing | resume execution (task-swarm checks run state / superpowers resumes executing-plans / native resumes sequentially) |
-| all `tasks.md` checkboxes checked | complete | run acceptance / report already complete |
+| `tasks.md` with unchecked `- [ ]` | executing | invoke the `specode:execute` skill via the `Skill` tool (it re-presents the 执行方式 selector / resumes the chosen engine) |
+| all `tasks.md` checkboxes checked | complete | invoke the `specode:execute` skill via the `Skill` tool (it skips straight to acceptance) / report already complete |
 
 ## Resuming (only after the user gives the go-ahead)
 
-When the user says 继续, resume from the inferred phase by following the pipeline in **`../spec/SKILL.md`** — its §Flow (design → tasks → 执行方式 selector → execution → acceptance), §执行方式 selector, §superpowers orchestration + relocation, §task-swarm handoff, and §Iron rules all apply unchanged. The 4-doc fixed-artifact invariant and the `<specsRoot>/<slug>/` location are identical. Read `../spec/SKILL.md` for the phase details.
+When the user says 继续, resume from the inferred phase:
+
+- Phase ∈ {intake, design, tasks} → follow the pipeline in **`../spec/SKILL.md`** — its §Flow (steps 2–4), §superpowers orchestration + relocation, and §Iron rules apply unchanged.
+- Phase ∈ {executing, complete, legacy 5.x} → **invoke the `specode:execute` skill via the `Skill` tool**. Never re-derive the 执行方式 selector or the engine dispatch from prose — that content lives only in `skills/execute/SKILL.md` and is loaded into context by invoking it (this is exactly the failure mode that motivated 6.3.0: prose references are not loaded, Skill invocations are).
+
+The 4-doc fixed-artifact invariant and the `<specsRoot>/<slug>/` location are identical everywhere.
 
 ## Output Language
 

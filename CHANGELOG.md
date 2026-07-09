@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 执行尾段 skill 化 (2026-07-09) — specode 6.3.0
+
+- specode 新增 `/specode:execute <slug>`：执行尾段（执行方式 selector → 执行 → 验收 → distill 提示）从 spec SKILL 内联散文原样抽离成独立 user-invocable skill；spec 管道 / continue 续接 / 手动触发三入口统一经 Skill 工具 invoke，修复 continue 之后执行节点调不起 AskUserQuestion 的装载问题。纯搬迁，语义零变化。
+
 ## 修 skill YAML 解析失败 P0 (2026-07-08) — specode 6.1.6 / task-swarm 0.10.5
 
 - PR #82 统一 skill description 时,把描述写成 `...Trigger: /xxx...`（**半角 `: ` 冒号+空格**）且未加引号——YAML frontmatter 解析失败,`claude plugin validate` 报错,**运行时 frontmatter 被整体静默丢弃**（name/description 全丢,影响 skill 按名发现/激活）。**与全角符号无关**（全角标点 YAML 正常解析,obsidian-wiki 全用全角却校验通过）。specode 主 skill + task-swarm 主 skill 中招(ragkit 4 个 skill 已在 0.1.3 修)。修法:受影响 description 加双引号 + 转义内部引号。零行为变化。

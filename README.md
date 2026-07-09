@@ -20,7 +20,7 @@ any plugin it hosts. More plugins will land here over time.
 
 | Plugin | Version | What it does |
 | --- | --- | --- |
-| **specode** | 6.2.0 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles a dedicated `intake` skill, a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
+| **specode** | 6.3.0 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles dedicated `intake` and `execute` skills (the execution tail is manually triggerable anytime via `/specode:execute`), a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
 | **task-swarm** | 0.11.0 | Standalone multi-agent **orchestration** driven by a `pipeline.yml` — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (`state.json` is the single source of truth). specode delegates its execution phase here; also runnable directly via `/task-swarm:swarm`. See [`plugins/task-swarm/`](./plugins/task-swarm) + its CHANGELOG. |
 | **obsidian-wiki** | 2.1.0 | Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (`wiki-struct`), content curation (`wiki-curate`), and a unified orchestrator (`wiki-orchestrate`). Generic code + per-vault config in the home-dir registry `~/.config/obsidian-wiki/` (fallback: `<vault>/.wiki/config.json`), zero hardcoded structure. See [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki). |
 | **ragkit** | 0.1.7 | Standalone knowledge-base **RAG** — vector + lexical + metadata three-channel recall, RRF-fused, returns pointer cards. Optional downstream consumer of specode `distill` output; zero heavy deps (stdlib + numpy for lexical mode). See [`plugins/ragkit/`](./plugins/ragkit). |
@@ -227,7 +227,20 @@ the phase from the documents present (and the `- [ ]` progress in
 then stops and waits** — say "继续" to resume, or supply requirement
 changes first. It never auto-resumes. Use `/specode:list` to find a slug.
 
-### 3. List specs
+### 3. Run the execution tail
+
+```sh
+/specode:execute <slug>
+```
+
+Run (or resume) a spec's execution tail at any time: presents the 执行方式
+selector (task-swarm / superpowers / specode-native), dispatches the chosen
+engine, then runs acceptance. The spec pipeline and `/specode:continue` route
+here automatically once `tasks.md` is ready; invoke it manually after a
+session break. Requires `tasks.md` (or a legacy 5.x `design.md` plan) to
+exist — it never generates the plan itself.
+
+### 4. List specs
 
 ```sh
 /specode:list
@@ -236,7 +249,7 @@ changes first. It never auto-resumes. Use `/specode:list` to find a slug.
 Lists every spec under `<specsRoot>` with its inferred phase. Overview
 only — it does not resume.
 
-### 4. Distill knowledge (off-pipeline)
+### 5. Distill knowledge (off-pipeline)
 
 ```sh
 /specode:distill <slug> [--target-dir <abs-path>]
@@ -263,15 +276,17 @@ plugins/specode/
     spec_hooks.py                 SessionStart discipline injection
     run.sh / run.cmd              python3 → python → py interpreter probe
   skills/spec/                    /specode:spec — orchestration shell (pipeline engine + new-spec entry)
-    SKILL.md                      requirements → design → tasks → execute → acceptance
+    SKILL.md                      requirements → design → tasks → hand off to execute
     references/
-      selectors.md                执行方式 selector verbatim examples
+      selectors.md                first-time directory-setup question
       obsidian.md                 specsRoot path resolution + conventions
       superpowers-wiring.md       phase ↔ superpowers skill mapping
       retrieval.md                experience retrieval spec (intake primary node)
       autonomous-mode.md          non-interactive / CI defaults rule
       knowledge-flow.md           one-page knowledge-loop mental model
   skills/continue/                /specode:continue <slug> — load-and-stop + documents-as-state inference
+  skills/execute/                 /specode:execute <slug> — execution tail (selector → dispatch → acceptance), also invoked by spec/continue
+    references/selectors.md       执行方式 selector verbatim example
   skills/list/                    /specode:list — list specs with inferred phase
   skills/intake/
     SKILL.md                      requirements phase engine (analysis + clarify + write)
