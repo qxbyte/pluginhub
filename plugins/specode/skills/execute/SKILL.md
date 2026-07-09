@@ -24,7 +24,6 @@ All three entries converge on the same flow: §Preflight → §执行方式 sele
   ```
 
 - **Core invariant (4 fixed docs)**: unchanged — see `../spec/SKILL.md` §Core invariant. This skill only appends to `implementation-log.md` and checks off `tasks.md` checkboxes; it never creates or renames artifacts.
-- **Autonomous-mode defaults rule**: applies at every `AskUserQuestion` site in this skill (the 执行方式 selector and the distill prompt) — gate→key→env mapping and decision pseudo-code live in `../spec/references/autonomous-mode.md`.
 - **Output language**: user-facing output (selector, progress, acceptance summary, errors) in **Chinese (中文)**; technical names / paths / code identifiers verbatim. **Document output brevity**: never reprint document bodies in chat (path + a few bullets only).
 
 ## Preflight (always run, all entries)
@@ -78,12 +77,11 @@ task-swarm is a **standalone plugin**; specode has **zero imports** of it and do
 - superpowers installed → call `superpowers:verification-before-completion` (optionally also `superpowers:requesting-code-review`).
 - not installed → **specode-native**: the host agent verifies item by item against the `AC-N` in `requirements.md` / `design.md`'s test strategy (测试策略) / all `tasks.md` checkboxes checked.
 - Say "请验收" in prose and write an acceptance summary in `implementation-log.md`. **There is no formal acceptance-gate selector.**
-- **distill prompt (gated by `auto_distill`)**: after acceptance is written, decide whether to prompt for distillation per the autonomous-mode defaults rule — get the effective value + source via `resolve_root.py read-defaults --key auto_distill --json`; when `interactive == false` with an effective default (`source ∈ {env, file}`), handle it **silently** per the default (no interruption), otherwise `AskUserQuestion`「是否运行 `/specode:distill <slug>` 把本次经验沉淀进项目 knowledge-base？」. distill is still a **user-triggered standalone command** (its behavior is in `../distill/SKILL.md`); this only re-hooks the entry-point prompt at the end of acceptance, and does **not** auto-run distill.
+- **distill is manual — leave a one-line reminder, do not prompt**: after acceptance is written, add a single passive line to the report, e.g.「如需把本次定位经验沉淀进项目 knowledge-base，可手动运行 `/specode:distill <slug>`」. Do **not** `AskUserQuestion` and do **not** auto-run distill — it stays a fully separate user-triggered command (`../distill/SKILL.md`). This keeps execute and distill decoupled (no gate, no config).
 
 ## References
 
 - `references/selectors.md` — verbatim `AskUserQuestion` example for the 「执行方式」 selector (moved here from the spec skill in 6.3.0).
 - `../spec/SKILL.md` — the pipeline that hands off to this skill (Core invariant, specsRoot resolution, Iron rules).
-- `../spec/references/autonomous-mode.md` — gate→key→env mapping + skip-the-prompt decision pseudo-code.
 - `../spec/references/superpowers-wiring.md` — phase ↔ superpowers skill mapping and availability checks.
 - `../spec/references/obsidian.md` — the full `resolve_root.py` verb table.

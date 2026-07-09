@@ -30,16 +30,12 @@ Every `resolve_root.py` call **must** go through the `run.sh` wrapper. The scrip
 sh ../../scripts/run.sh ../../scripts/resolve_root.py <verb> <args...>
 ```
 
-## §3 Autonomous-mode awareness (applies at every AskUserQuestion site)
-
-This skill has two `AskUserQuestion` sites (§Step 1 project_root confirmation, §Step 3 clarification). At each, first apply the autonomous-mode rule to decide whether to skip — the full rule (gate→key→env mapping + decision pseudo-code) is in `skills/spec/references/autonomous-mode.md`. In short: when `interactive == false` and the gate's key has `source ∈ {env, file}`, skip the prompt and use the default; otherwise ask via `AskUserQuestion`. This skill's two gates: project_root confirmation → key `project_root_default`; clarification → no dedicated key, governed only by the `interactive` master switch (when non-interactive, draft from the information at hand and record uncertainties under "开放问题" instead of blocking).
-
 ## §4 Flow (5 steps; quality is in Step 2–3)
 
-### Step 1 — Confirm project_root (required, autonomous-aware)
+### Step 1 — Confirm project_root (required)
 
 1. Get the default: `resolve_root.py resolve-project-root` (returns `git rev-parse --show-toplevel` of cwd, else cwd).
-2. Decide per §3: `AskUserQuestion` once (default pre-selected, user confirms or overrides), or use the default directly in autonomous mode.
+2. `AskUserQuestion` once — the default pre-selected, user confirms or overrides.
 3. **Hold the confirmed absolute path** — Step 2 (constraint scan + retrieval) uses it, and Step 4 persists it via `write-project-root`. At this point requirements.md frontmatter is not yet written, so use the held absolute path directly; do **not** call `read-project-root`.
 
 ### Step 2 — Project analysis (what lifts intake above a questionnaire — read the real project before asking)
@@ -69,7 +65,6 @@ Don't stop at "ask the user what they want" — **read the real project first to
 
 On top of Step 2's project analysis, **clarify one question at a time** (prefer multiple-choice), covering **purpose / scope (in / out) / constraints / success criteria**. The key: **let Step 2's analysis drive the questions** — ask grounded questions like "given the existing `X` code/pattern, how should this requirement plug in / where's the boundary" rather than a blank questionnaire.
 
-- Autonomous-aware (§3): when non-interactive, draft from what you have and record uncertainties under "开放问题" instead of blocking.
 - **When to stop**: once intent / scope / AC are clear enough and open questions are listed — don't over-ask (YAGNI).
 
 ### Step 4 — Write requirements.md
@@ -99,5 +94,4 @@ Don't reprint the full requirements.md. Report only: the file path (one line) + 
 
 - `skills/spec/references/retrieval.md` — experience-retrieval spec (the engine behind Step 2b; intake is its **primary node**).
 - `assets/templates/requirements.md` — requirements template (Step 4 structure + frontmatter contract).
-- `skills/spec/references/autonomous-mode.md` — the full rule behind §3 (gate→key→env + pseudo-code).
 - `skills/spec/references/knowledge-flow.md` — one-page knowledge-loop mental model (the global picture of who writes/reads the KB and when).

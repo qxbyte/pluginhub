@@ -3,7 +3,7 @@
 # pluginhub
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.zh-CN.md#许可证)
-[![specode](https://img.shields.io/badge/specode-6.1.4-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![specode](https://img.shields.io/badge/specode-6.4.0-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
 [![task-swarm](https://img.shields.io/badge/task--swarm-0.10.3-blue.svg)](./plugins/task-swarm/.claude-plugin/plugin.json)
 [![obsidian-wiki](https://img.shields.io/badge/obsidian--wiki-2.0.3-blue.svg)](./plugins/obsidian-wiki/.claude-plugin/plugin.json)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/pluginhub#installation)
@@ -18,7 +18,7 @@
 
 | 插件 | 版本 | 做什么 |
 | --- | --- | --- |
-| **specode** | 6.3.0 | 轻量**规格驱动工作流**编排外壳——带 host agent 走 requirements → design → tasks → 执行 → 验收，每阶段委托给 [superpowers](https://github.com/obra/superpowers) 技能（一等公民 specode 原生降级），每条规格固定产出 4 份文档（requirements / design / tasks / implementation-log）。内置独立 `intake` 与 `execute` skill（执行尾段可随时手动 `/specode:execute` 触发）、零 import 的 task-swarm 并发执行衔接、可选的定位型经验检索。版本历史见 [CHANGELOG](./plugins/specode/CHANGELOG.md)。 |
+| **specode** | 6.4.0 | 轻量**规格驱动工作流**编排外壳——带 host agent 走 requirements → design → tasks → 执行 → 验收，每阶段委托给 [superpowers](https://github.com/obra/superpowers) 技能（一等公民 specode 原生降级），每条规格固定产出 4 份文档（requirements / design / tasks / implementation-log）。内置独立 `intake` 与 `execute` skill（执行尾段可随时手动 `/specode:execute` 触发）、零 import 的 task-swarm 并发执行衔接、可选的定位型经验检索。版本历史见 [CHANGELOG](./plugins/specode/CHANGELOG.md)。 |
 | **task-swarm** | 0.11.0 | 由 `pipeline.yml` 驱动的独立**多 agent 编排**——语义任务组 + 跨组并发、fork coder、按组 reviewer + validator 循环（`state.json` 为单一事实源）。specode 把执行阶段委托到这里；也可用 `/task-swarm:swarm` 直接独立运行。详见 [`plugins/task-swarm/`](./plugins/task-swarm) 及其 CHANGELOG。 |
 | **obsidian-wiki** | 2.1.0 | 用三个 skill 维护 Obsidian LLM-Wiki——确定性结构层（`wiki-struct`）、内容策展（`wiki-curate`）、统一编排器（`wiki-orchestrate`）。通用代码 + 按库配置放在家目录注册表 `~/.config/obsidian-wiki/`（回退 `<vault>/.wiki/config.json`），零硬编码结构。详见 [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki)。 |
 | **ragkit** | 0.1.7 | 独立知识库 **RAG**——向量 + 词汇 + 元数据三路召回，RRF 融合，返回定位卡片。specode `distill` 产出的 `knowledge-base/` 可直接消费；零重型依赖（词汇路仅需 stdlib + numpy）。详见 [`plugins/ragkit/`](./plugins/ragkit)。 |
@@ -36,7 +36,7 @@
 - **单个轻量 hook。** 仅一个 `SessionStart` 提醒式 hook，告知代理 specode 可用，不阻断，无逐轮机制。
 - **并发执行是独立插件。** 选"委托 task-swarm"后，specode 读取 `tasks.md` 派生 `pipeline.yml`，零 import 衔接独立的 **task-swarm** 插件。
 - **项目级约束沿链路传递。** specode + task-swarm（AI-EDS v0.9 痛点 #14 方案 D，保留至 v4.0.0 / v0.10.0）扫 `<project_root>` 根 / 直接父目录 / 任何被 `@writes` 触达的子目录里的 `CLAUDE.md` / `AGENT.md` / `AGENTS.md` / `CODEBUDDY.md`，把命中的**绝对路径**（不复制内容）同步注入 `requirements.md` 的「## 项目级约束」段 + 每个 coder / reviewer / validator `task.md` 的「## 项目级约束（必读）」段。`_PROJECT_AGENT_DOCS.md` inbox sentinel 强化硬约束。修掉「独立 subagent 进程看不到主 agent 自动加载的指南文件」这个静默漏点。
-- **autonomous mode / CI 友好（opt-in）。** 设 `SPECODE_INTERACTIVE=false` + 相关 `SPECODE_PROJECT_ROOT` / `SPECODE_EXECUTION_MODE` / `SPECODE_AUTO_DISTILL` / `SPECODE_SPECS_ROOT_DEFAULT` env var（或 `resolve_root.py write-default --key X --value Y` 持久化），原本会在 CI / 长跑场景阻塞的每个 `AskUserQuestion` 都会 silently 跳过用 default。schema default 是 `interactive=true`，**默认行为零变化**——只 opt-in 用户走 autonomous 路径。
+- **只有两个输入，别无配置。** specode 唯一的持久状态就是 specsRoot 配置（`~/.config/specode/config.json`，或 `SPECODE_ROOT` env 覆盖）+ 每个 spec 的 `project_root`（写在其 `requirements.md` frontmatter，作为下游各步读取的唯一真实源）。没有 defaults 文件、没有 autonomous-mode 环境变量旋钮——每个 `AskUserQuestion` 门就是直接问。
 - **定位型知识，而非记忆注入。** AI-EDS 时代的记忆注入管线（specode P3-1 `codemap recall` + P3-2 rule-check + acceptance auto-distill，加 task-swarm `cmd_resolve` auto-ingest 写 `.ai-memory/knowledge/*.yml`）在 baseline 实验（3 case）证明 recall 注入未 net 节省 token 后于 v4.0.0 / v0.10.0 完全移除，两插件都不读写 `.ai-memory/knowledge/`。**v5.1.0 以「定位用·非事实用」的全新路线重新引入检索**：手动跑 `/specode:distill <slug>` 把原子 case / navigation 知识点沉淀到项目自己的 `<project_root>/knowledge-base/`（gitignored，可选复制到你指定的 Obsidian 目录）；requirements / design 阶段对其小索引 `MEMORY.md` 跑两级 gated 检索、只注入定位指针——真实代码始终是唯一事实来源，执行 / task-swarm 阶段零注入。如需 v3.4.0 / v0.9.2 行为：`git checkout backup/specode-v3.4.0-task-swarm-v0.9.2`。
 
 ## 安装
@@ -180,7 +180,6 @@ plugins/specode/
       obsidian.md                 specsRoot 路径解析 + 惯例
       superpowers-wiring.md       阶段 ↔ superpowers 技能映射
       retrieval.md                经验检索规格（intake 为主节点）
-      autonomous-mode.md          非交互 / CI 默认值规则
       knowledge-flow.md           一页纸知识流心智模型
   skills/continue/                /specode:continue <slug> —— load-and-stop + 文档即状态推断
   skills/execute/                 /specode:execute <slug> —— 执行尾段（selector → 调度 → 验收），spec/continue 亦汇入此处

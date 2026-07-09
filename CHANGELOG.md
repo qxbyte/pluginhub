@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 配置极简 (2026-07-09) — specode 6.4.0
+
+- 收敛 specode 配置面到"只有两个真实源"：specsRoot（config.json，可 `SPECODE_ROOT` 覆盖）+ 每 spec 的 project_root（requirements.md frontmatter，下游唯一真实源）。**移除整套 autonomous-mode / defaults 子系统**：`resolve_root.py` 删 defaults.json 机制（5 键 + 5 个 `SPECODE_*` env + read/write/reset-default 3 CLI verb，约 180 行）、删 `references/autonomous-mode.md` + 各 skill 的 autonomous 门控（每个 AskUserQuestion 门直接问，默认交互场景零行为变化）、distill 收尾由 `auto_distill` 门控改为"execute 留一行被动提醒"（execute 与 distill 解耦）。删 `test_non_interactive_defaults.py`，全量 77 测通过。学 superpowers 低耦合、少配置的思路。无 API 面变化——minor。
+
 ## 实测修复 (2026-07-09) — specode 6.3.1
 
 - 6.3.0 多轮实测发现的 3 处修复（patch，无 API 面变化）：① continue 前置阶段(intake/design/tasks)续接不再用裸 prose 引用——intake→invoke `specode:intake`、design/tasks→显式 `Read ../spec/SKILL.md`、执行尾段→invoke `specode:execute`，彻底消除"prose 引用不装载"失败面；② `resolve_root.py get-root` 新增 specsRoot 可达性探测，未挂载外置盘/路径失联时 exit 4 + 区分性报错并重新请用户提供路径（此前静默回显幻影路径、下游误报"spec 丢失"），5 个调用方 skill + 首次设置问句同步，+2 测（共 92）；③ continue 推断表 intake 行陈旧文案纠偏（brainstorming→`specode:intake`）。

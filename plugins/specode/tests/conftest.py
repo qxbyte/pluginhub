@@ -29,7 +29,6 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
     monkeypatch.delenv("SPECODE_ROOT", raising=False)
-    monkeypatch.delenv("SPECODE_GUARD", raising=False)
     return tmp_path
 
 

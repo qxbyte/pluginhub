@@ -19,18 +19,16 @@ CLI via run.sh: `resolve_root.py get-root` / `set-root --root P` / `list-specs` 
 
 | verb | Purpose | exit |
 |---|---|---|
-| `get-root [--root P]` | Resolve specsRoot (`--root` > env `SPECODE_ROOT` > config.specsRoot) | 0 ok / 3 unconfigured |
+| `get-root [--root P]` | Resolve specsRoot (`--root` > env `SPECODE_ROOT` > config.specsRoot) + reachability probe | 0 ok / 3 unconfigured / 4 configured-but-unreachable (external drive not mounted / path gone → re-prompt for a path) |
 | `set-root --root <abs>` | Absolute path, persisted to `~/.config/specode/config.json.specsRoot` | 0 / 1 path not absolute |
 | `list-specs [--root P]` | List spec slugs under root: subdirs with any fixed doc (`requirements.md` / `design.md` / `tasks.md` / `implementation-log.md`) **plus empty subdirs (intake)**; hidden dirs excluded | 0 / 3 unconfigured |
 | `resolve-project-root [--cwd P]` | Compute the project_root default (`git rev-parse --show-toplevel` of cwd, else cwd) for the user to confirm | 0 |
 | `write-project-root --spec <dir\|file> --root <abs>` | **Single writer** of project_root → spec's requirements.md frontmatter (validates absolute / dir exists / `/Volumes` mounted) | 0 / 1 invalid |
 | `read-project-root --spec <dir\|file>` | **Single reader** of project_root from requirements.md frontmatter — all downstream skills use this | 0 / 3 missing field / 4 invalid value |
 | `plan-unchecked --spec <dir\|file>` (alias `design-unchecked`) | Count unchecked `- [ ]` in the plan (tasks.md; 5.x legacy: design.md) | 0 all-checked / 2 has-unchecked (prints N) / 3 no-plan |
-| `read-defaults [--key K] [--json]` | Read autonomous-mode defaults (env > `~/.config/specode/defaults.json` > schema). Single key → plain value; `--json` / no `--key` → `{value, source}` JSON | 0 / 1 unknown key |
-| `write-default --key K --value V` | Persist a defaults key. 5 valid keys: `interactive` / `project_root_default` / `execution_mode_default` / `auto_distill` / `specs_root_default`; type + execution_mode whitelist validated | 0 / 1 invalid |
-| `reset-default --key K \| --all` | Remove one key or `--all` wipe | 0 / 1 invalid |
+| `doctor` | Diagnose specsRoot config | 0 ok / 3 unconfigured / 4 dir missing |
 
-Autonomous-mode behavior (when to skip each `AskUserQuestion`) is specified in `references/autonomous-mode.md`.
+specode has exactly two persistent inputs — the **specsRoot** config (above) and each spec's **project_root** (its `requirements.md` frontmatter, single source of truth). There is no defaults/autonomous-mode config: every `AskUserQuestion` gate simply asks.
 
 ## Directory conventions
 - The directory the user provides is used **verbatim** as the specs root; specode appends no internal sub-structure (the user may supply a fully qualified path such as `.../spec-in/<os>-<user>/specs`).

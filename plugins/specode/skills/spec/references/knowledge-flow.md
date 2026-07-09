@@ -10,10 +10,10 @@ In one line: **the KB is "for locating, not for facts".** It only supplies point
   produce (write)                   index                     consume (read)
   ─────────────────────────         ───────────────           ─────────────────────────────
   /specode:distill <slug>           MEMORY.md                 intake (requirements analysis)
-   (manual; prompted at the         (small md index,          = primary retrieval node
-    end of acceptance per            columns 标题/类型/         · Tier-1: read MEMORY, match page/field/domain
-    auto_distill; never              描述/来源/路径/tags)       · hit → Tier-2: read ≤5 points → jump to real code
-    auto-run)                            ▲                     · if ragkit present and chunks.json exists
+   (manual only; execute            (small md index,          = primary retrieval node
+    leaves a one-line                columns 标题/类型/         · Tier-1: read MEMORY, match page/field/domain
+    reminder, never auto-run)        描述/来源/路径/tags)       · hit → Tier-2: read ≤5 points → jump to real code
+                                         ▲                     · if ragkit present and chunks.json exists
         │                                │ memory-rebuild        → Tier-0 ragkit:query multi-recall
         ▼                                │ (rebuilt in full          │
   <project_root>/knowledge-base/     from each doc's               ▼
@@ -30,7 +30,7 @@ In one line: **the KB is "for locating, not for facts".** It only supplies point
 
 ## Iron rules
 
-- **Production is manual**: only `/specode:distill <slug>` writes the KB; the main flow never auto-sediments (acceptance only *offers* the entry point, gated by `auto_distill`).
+- **Production is manual**: only `/specode:distill <slug>` writes the KB; the main flow never auto-sediments (execute just leaves a one-line reminder at acceptance end — no prompt, no gate).
 - **Frontmatter is the single source of truth**: `MEMORY.md` is always rebuilt in full by `knowledge.py memory-rebuild` from each doc's frontmatter, **never hand-edited** (`memory-validate` checks for drift).
 - **Consumption happens in only two places**: intake's project-analysis step (primary node) + design (conditional top-up). **tasks / execution / task-swarm inject nothing** — by then the file paths are already in design.md / tasks.md.
 - **Injection is pointers, not facts**: pasted as a `参考定位（非事实来源）` section, used only for locating, never written as a factual conclusion in requirements.md.

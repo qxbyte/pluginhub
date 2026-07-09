@@ -4,6 +4,16 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.4.0 (2026-07-09) — 配置极简：砍掉整套 autonomous-mode / defaults 子系统，只剩两个真实源
+
+设计哲学收敛（学 superpowers 低耦合、少配置）：**specode 的持久输入只应有两个——specsRoot（obsidian 仓库，config.json，可被 `SPECODE_ROOT` env 覆盖）+ 每个 spec 的 project_root（requirements.md frontmatter，唯一真实源，下游处处经 `read-project-root` 读）**。为此移除整套多余配置面：
+
+- **删 `resolve_root.py` 的 defaults/autonomous 机制**：`_DEFAULTS_SCHEMA` 5 键（interactive / project_root_default / execution_mode_default / auto_distill / specs_root_default）+ 对应 5 个 `SPECODE_*` env + `read-defaults` / `write-default` / `reset-default` 三个 CLI verb + `defaults.json` 读写（`_read_defaults` / `_effective_default` / `_coerce_value` 等，约 180 行）全部删除。保留 `get-root`（含 6.3.1 的可达性探测）/ `set-root` / `list-specs` / `resolve|write|read-project-root` / `plan-unchecked` / `doctor`。
+- **删 `skills/spec/references/autonomous-mode.md`**（整份规则文档）+ 各 skill 的 autonomous 门控措辞（spec / intake / execute）。每个 `AskUserQuestion` 门现在**就是直接问**——交互式单用户场景本来就走这条路径，autonomous 那套在默认 `interactive=true` 下本就是 no-op，零实际行为损失，只去掉了没人走的 CI 静默旁路。
+- **distill 收尾解耦**：不再由 `auto_distill` 门控 prompt。execute 验收末只留**一行被动提醒**（「可手动运行 `/specode:distill <slug>`」），不 AskUserQuestion、不 gate、不 auto-run——execute 与 distill 完全解耦，符合 superpowers 低耦合思路。
+- **测试/文档同步**：删 `test_non_interactive_defaults.py`（15 测）；conftest 去掉死变量 `SPECODE_GUARD` 的 delenv；`references/obsidian.md` verb 表去 defaults 行、明确"只有两个持久输入"；README EN/zh 把「autonomous mode / CI 友好」亮点替换为「两个输入，别无配置」；根 CLAUDE.md 同步。全量 **77 测**（92→删 15 defaults 测）通过、validate 通过。
+- 无 API 面变化（命令名 / hook / config.json.specsRoot 字段 / 4 固定产物均不变）。移除的是非声明面的内部配置能力——**minor**。
+
 ## 6.3.1 (2026-07-09) — 修 6.3.0 实测三处发现：continue 前置阶段续接 + specsRoot 不可达探测
 
 6.3.0 发布后多轮实测（ops-app substrate）发现的 3 个问题的修复，无 API 面变化（命令名/hook/config 字段/4 固定产物均不变）——**patch**。
