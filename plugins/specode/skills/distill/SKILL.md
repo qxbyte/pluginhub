@@ -75,7 +75,7 @@ The primary product **always** lands in `<project_root>/knowledge-base/` and can
 
 ### Step 1 — Resolve slug + project_root, make dirs, ensure .gitignore
 
-1. Get `<specsRoot>` via `resolve_root.py get-root` and confirm `<specsRoot>/<slug>/requirements.md` exists (else error out).
+1. Get `<specsRoot>` via `resolve_root.py get-root` (**exit 4** → specsRoot configured but **unreachable**, e.g. external drive not mounted → surface the cause and re-prompt for a path rather than reporting the spec missing) and confirm `<specsRoot>/<slug>/requirements.md` exists (else error out).
 2. Read `project_root`:
    ```bash
    sh ../../scripts/run.sh ../../scripts/resolve_root.py read-project-root --spec <specsRoot>/<slug>

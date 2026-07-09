@@ -160,6 +160,33 @@ def test_get_root_specsroot_beats_legacy_obsidian_root(run_script, fake_home, tm
     assert cp.stdout.strip() == str(tmp_path / "new-specs")
 
 
+# --- get-root reachability probe (ISSUE-2: external drive unmounted / unreachable) ---
+
+
+def test_get_root_unreachable_unmounted_volume_exits_4(run_script, fake_home, tmp_path):
+    # config 里的 specsRoot 指向一个未挂载的 /Volumes/<drive> → 不可达 → exit 4
+    # （区别于"未配置" exit 3；让 skill 能重新提示用户提供路径）
+    cfgp = _config_path(fake_home)
+    cfgp.parent.mkdir(parents=True, exist_ok=True)
+    phantom = "/Volumes/NoSuchDrive_specode_test_9x7/specs"
+    assert not Path("/Volumes/NoSuchDrive_specode_test_9x7").exists()
+    cfgp.write_text(json.dumps({"specsRoot": phantom}), encoding="utf-8")
+    cp = run_script("resolve_root.py", "get-root")
+    assert cp.returncode == 4, cp.stdout + cp.stderr
+    assert "不可达" in cp.stderr or "未挂载" in cp.stderr
+
+
+def test_get_root_not_yet_created_local_is_reachable_exits_0(run_script, fake_home, tmp_path):
+    # 已配置但尚未创建的本地 root（父目录存在可写）→ 可创建 → 仍 reachable exit 0，
+    # 不能误判成不可达（否则新机首用会被反复重问）
+    target = tmp_path / "will-be-created-on-first-spec"
+    assert not target.exists()
+    run_script("resolve_root.py", "set-root", "--root", str(target))
+    cp = run_script("resolve_root.py", "get-root")
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert cp.stdout.strip() == str(target)
+
+
 # --- plan-unchecked (tasks.md first; 5.x legacy specs keep the plan in design.md) ---
 
 

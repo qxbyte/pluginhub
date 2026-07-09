@@ -29,7 +29,7 @@ All three entries converge on the same flow: §Preflight → §执行方式 sele
 
 ## Preflight (always run, all entries)
 
-1. `resolve_root.py get-root` (exit 3 → first-time setup per `../spec/SKILL.md` §specsRoot resolution) → locate `<specsRoot>/<slug>/`; directory missing → report an error and suggest `/specode:list`.
+1. `resolve_root.py get-root` (**exit 3** → first-time setup; **exit 4** → specsRoot configured but **unreachable** — external drive not mounted / path gone → surface the cause and re-prompt the user for a path, do **not** treat it as "slug not found"; both per `../spec/SKILL.md` §specsRoot resolution) → on exit 0, locate `<specsRoot>/<slug>/`; directory missing → report an error and suggest `/specode:list`.
 2. Read the fixed docs present and branch on plan state:
 
 | On-disk state | Action |

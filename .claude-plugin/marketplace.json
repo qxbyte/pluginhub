@@ -10,7 +10,7 @@
     {
       "name": "specode",
       "source": "./plugins/specode",
-      "version": "6.3.0",
+      "version": "6.3.1",
       "description": "Lightweight spec-driven workflow orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to superpowers skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles dedicated intake and execute skills (the execution tail — selector, engine dispatch, acceptance — is manually triggerable anytime via /specode:execute), a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval.",
       "category": "development",
       "homepage": "https://github.com/qxbyte/pluginhub",

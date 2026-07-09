@@ -4,6 +4,14 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.3.1 (2026-07-09) — 修 6.3.0 实测三处发现：continue 前置阶段续接 + specsRoot 不可达探测
+
+6.3.0 发布后多轮实测（ops-app substrate）发现的 3 个问题的修复，无 API 面变化（命令名/hook/config 字段/4 固定产物均不变）——**patch**。
+
+- **[ISSUE-1] continue 前置阶段续接不再用"裸 prose 引用"**。6.3.0 只把执行尾段（executing/complete/legacy）改成 Skill invoke，`{intake, design, tasks}` 仍写「follow `../spec/SKILL.md`」——与原始 bug 同机制（prose 引用不装载内容）。现 §Resuming 显式区分：intake → **invoke `specode:intake`**；design/tasks → **`Read ../spec/SKILL.md` first**（显式装载再执行）；执行尾段 → invoke `specode:execute`。三条续接路径都靠"invoke 或 Read"真实装载内容，彻底消除 prose 引用不装载的失败面。
+- **[ISSUE-2] `resolve_root.py get-root` 新增 specsRoot 可达性探测**。此前 specsRoot 指向未挂载外置盘时 get-root 仍 exit 0 回显幻影路径，下游把它表现成「slug 不存在 / spec 列表为空」（像数据丢失）。现 get-root：可达（目录存在**或**最近存在的祖先可写→可 `mkdir -p` 创建）→ exit 0；**不可达（`/Volumes/<drive>` 未挂载 / 无可写祖先）→ exit 4 + 区分性报错**。"已配置但尚未创建的本地 root"仍判为可达（不误伤新机首用）。5 个调 get-root 的 skill（spec/continue/execute/list/distill）+ 首次设置问句同步：收到 exit 4 → 提示不可达原因并**重新请用户提供路径**（可挂载后重试，或 set-root 新路径，不静默覆盖临时未挂载的有效配置）。+2 测（共 92）。
+- **[ISSUE-3] continue 推断表 intake 行文案纠偏**。旧文案 `rerun requirements (brainstorming / native clarification)` 停留在 pre-6.0.0；6.x 需求恒由 `specode:intake` 产。改为 invoke `specode:intake`，与表下 §Resuming 及 spec Flow step 2 一致。
+
 ## 6.3.0 (2026-07-09) — 执行尾段 skill 化：新增 /specode:execute（三入口汇合）
 
 - **新增 `skills/execute/`（user-invocable → `/specode:execute <slug>`）**：把执行尾段（执行方式 selector → 执行调度（task-swarm handoff / superpowers / native TDD）→ 验收 → distill 提示）从 `skills/spec/SKILL.md` 内联散文**原样抽离**成独立 skill。语义零变化（selector 逐字范例、handoff 步骤、`auto_distill` 门控全部原文搬迁），selector 范例随迁至 `skills/execute/references/selectors.md`。

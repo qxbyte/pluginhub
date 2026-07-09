@@ -17,7 +17,7 @@ sh ../../scripts/run.sh ../../scripts/resolve_root.py list-specs
 
 ## Flow
 
-1. `resolve_root.py get-root`: exit 3 (not configured) → first-time setup (see `../spec/SKILL.md` §specsRoot resolution), then continue; exit 0 → `<specsRoot>`.
+1. `resolve_root.py get-root`: exit 3 (not configured) → first-time setup (see `../spec/SKILL.md` §specsRoot resolution), then continue; **exit 4** (configured but **unreachable** — external drive not mounted / path gone) → surface the cause and re-prompt for a path, don't present an empty list as if there were no specs; exit 0 → `<specsRoot>`.
 2. `resolve_root.py list-specs` to list slugs; for each slug, read its spec directory documents and infer the current phase per the documents-as-state table in `../continue/SKILL.md`, then display slug + phase.
 3. No specs found → prompt the user with `/specode:spec <request>`. **Do not resume.**
 

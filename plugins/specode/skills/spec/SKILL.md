@@ -28,7 +28,7 @@ Bug fixes do not get a separate `bugfix.md` — write Current / Expected directl
 
 ## specsRoot resolution (read on every start; ask only once if missing)
 
-**Every time specode starts, first call `resolve_root.py get-root` via run.sh to read specsRoot.** Only when the config is missing (typically first use) ask the user via `AskUserQuestion`, then immediately `set-root` to write it back to config. Afterwards all sessions use it silently and automatically, never prompting again.
+**Every time specode starts, first call `resolve_root.py get-root` via run.sh to read specsRoot.** `get-root` has three outcomes: **exit 0** → reachable root, use it silently; **exit 3** → not configured (typically first use) → ask via `AskUserQuestion` then `set-root`; **exit 4** → configured **but unreachable** (external drive not mounted / path moved or deleted) → the resolved path is a phantom, so **do not proceed with it** — tell the user it's unreachable and **re-prompt for a path** (mount + retry, or provide a new absolute path → `set-root`). Once a reachable root is set, all sessions use it silently, never prompting again.
 
 All specode CLIs **must** go through the `run.sh` wrapper. The scripts live in the plugin's `scripts/` directory — relative to this skill that is `../../scripts/`; use this skill's base directory to turn the relative path into an absolute one (do **not** resolve env vars, do **not** `find` the cache). Never call a bare `python3 <script>`:
 
@@ -42,7 +42,7 @@ sh ../../scripts/run.sh ../../scripts/resolve_root.py <verb> <args...>
 
 **project_root single-source-of-truth rule 🔒**: project_root lives in exactly one place — the spec's `requirements.md` frontmatter. The `specode:intake` skill writes it once (via `write-project-root`); every later phase and downstream skill (distill, task-swarm) obtains it via `read-project-root`. No component re-derives it from cwd / workdir / guessing.
 
-**First-time setup flow**: `get-root` exits 3 → call `AskUserQuestion` to ask the user for the document directory (absolute path, used **verbatim** as the specs root; specode makes no assumptions about its structure and appends nothing) → after the user provides it, persist with `set-root --root <abs>` → never ask again. `project_root` is **inferred per-spec** (default: `git rev-parse --show-toplevel` of cwd, falling back to cwd itself) and **confirmed once via `AskUserQuestion`** before requirements is written — see §requirements phase. Path-resolution details are in `references/obsidian.md`.
+**First-time setup / unreachable re-prompt flow**: `get-root` exits **3** (unconfigured) **or 4** (configured but unreachable — external drive not mounted / path gone) → call `AskUserQuestion` to ask the user for the document directory (absolute path, used **verbatim** as the specs root; specode makes no assumptions about its structure and appends nothing) → after the user provides it, persist with `set-root --root <abs>` → never ask again. For exit 4 specifically, first surface the unreachable path + likely cause (外置盘未挂载？) so the user can choose to remount and retry instead of overwriting the config; only `set-root` a new path if they provide one. `project_root` is **inferred per-spec** (default: `git rev-parse --show-toplevel` of cwd, falling back to cwd itself) and **confirmed once via `AskUserQuestion`** before requirements is written — see §requirements phase. Path-resolution details are in `references/obsidian.md`.
 
 ## Flow (start → coding complete)
 

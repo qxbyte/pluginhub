@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 实测修复 (2026-07-09) — specode 6.3.1
+
+- 6.3.0 多轮实测发现的 3 处修复（patch，无 API 面变化）：① continue 前置阶段(intake/design/tasks)续接不再用裸 prose 引用——intake→invoke `specode:intake`、design/tasks→显式 `Read ../spec/SKILL.md`、执行尾段→invoke `specode:execute`，彻底消除"prose 引用不装载"失败面；② `resolve_root.py get-root` 新增 specsRoot 可达性探测，未挂载外置盘/路径失联时 exit 4 + 区分性报错并重新请用户提供路径（此前静默回显幻影路径、下游误报"spec 丢失"），5 个调用方 skill + 首次设置问句同步，+2 测（共 92）；③ continue 推断表 intake 行陈旧文案纠偏（brainstorming→`specode:intake`）。
+
 ## 执行尾段 skill 化 (2026-07-09) — specode 6.3.0
 
 - specode 新增 `/specode:execute <slug>`：执行尾段（执行方式 selector → 执行 → 验收 → distill 提示）从 spec SKILL 内联散文原样抽离成独立 user-invocable skill；spec 管道 / continue 续接 / 手动触发三入口统一经 Skill 工具 invoke，修复 continue 之后执行节点调不起 AskUserQuestion 的装载问题。纯搬迁，语义零变化。

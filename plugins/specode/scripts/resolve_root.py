@@ -20,7 +20,9 @@ in exactly ONE place — that spec's requirements.md YAML frontmatter. write/rea
 write/read entry points, preventing the split-brain of each step deriving it from cwd/workdir.
 
 exit codes: 0 ok / 1 usage or argument error / 3 unconfigured (specsRoot unset / project_root field missing)
-            / 4 project_root value invalid (non-absolute / dir missing / external drive not mounted)
+            / 4 value present but unreachable (get-root: specsRoot configured but the external drive is
+              not mounted / no writable ancestor to create it; read-project-root: project_root
+              non-absolute / dir missing / external drive not mounted)
 """
 from __future__ import annotations
 
@@ -87,12 +89,54 @@ def _resolve(root_flag):
     return val or None
 
 
+def _root_reachable(root: str) -> tuple[bool, str]:
+    """Return ``(reachable, message)`` for a resolved specsRoot.
+
+    reachable = the specsRoot dir exists, OR it can still be created later
+    (its nearest existing ancestor is a writable directory, so ``mkdir -p
+    <root>`` would succeed). unreachable = an external drive isn't mounted,
+    or no writable ancestor exists.
+
+    This deliberately keeps the benign "configured but not yet created on a
+    fresh machine" case *reachable* (the root gets mkdir'd on the first spec),
+    and only flags the real "external drive unmounted / path vanished" case so
+    the caller can re-prompt the user for a path instead of silently writing to
+    a phantom location.
+    """
+    p = Path(root)
+    if p.is_dir():
+        return True, ""
+    # External-drive mount gap: /Volumes/<name> must be mounted.
+    if root.startswith("/Volumes/"):
+        parts = root.split("/")
+        if len(parts) >= 3 and parts[2]:
+            mount = "/Volumes/" + parts[2]
+            if not os.path.isdir(mount):
+                return False, f"specsRoot 不可达：外置盘未挂载 {mount}"
+    # General: mkdir -p needs the nearest existing ancestor to be a writable dir.
+    for ancestor in p.parents:
+        if ancestor.exists():
+            if ancestor.is_dir() and os.access(ancestor, os.W_OK):
+                return True, ""
+            return False, f"specsRoot 不可达：上级不可写或非目录 {ancestor}"
+    return False, f"specsRoot 不可达：{root}"
+
+
 def cmd_get_root(args) -> int:
     root = _resolve(args.root)
     if not root:
         sys.stderr.write(
             "specode: specsRoot 未配置。请先用 set-root 设置，或设 env SPECODE_ROOT。\n")
         return 3
+    reachable, msg = _root_reachable(root)
+    if not reachable:
+        sys.stderr.write(
+            f"specode: {msg}\n"
+            f"  当前 specsRoot: {root}\n"
+            f"  可能原因：外置盘未挂载 / 路径被移动或删除。\n"
+            f"  处理：挂载后重试，或让用户重新提供路径后 set-root --root <new-abs-path>。\n"
+        )
+        return 4
     sys.stdout.write(root + "\n")
     return 0
 
