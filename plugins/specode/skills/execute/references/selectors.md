@@ -21,4 +21,4 @@ After tasks.md is confirmed, call `AskUserQuestion` with **adaptive option assem
 
 Constraint: immediately end the turn after calling `AskUserQuestion` and wait for the user's choice; once selected, advance along the chosen path within the same turn (see SKILL.md §Execution dispatch).
 
-Note: `subagent-driven-development` / `executing-plans` are superpowers skills (backed by Claude Code's built-in Agent/subagent) — they are not native Claude workflows.
+Note: `subagent-driven-development` / `executing-plans` are superpowers skills (backed by the host CLI's built-in subagent capability) — they are not specode built-in workflows.

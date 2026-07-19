@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 多宿主适配 (2026-07-20) — specode 6.5.0 / task-swarm 0.12.0 / obsidian-wiki 2.2.0 / ragkit 0.2.0
+
+全库四插件同步做多宿主适配：从「Claude Code + CodeBuddy 共用一套」扩展到 **Claude Code / CodeBuddy / Codex / Kimi 四宿主各自独立一套安装适配**。
+
+- **skills prose 去宿主绑定**：每个用到宿主工具的 SKILL.md 顶部加一条「Host-tool convention」——具体工具名（`AskUserQuestion` / `Skill` 工具 / `Agent`·`Task` / `Explore` / teammates UI）**照旧保留**（对有该工具的宿主最可靠、最准确），只补一句兜底：宿主缺该工具时用最近等价物，都没有则降级为纯文本提问 / 直接读目标 SKILL.md / 顺序单代理执行。真正绑定单一宿主品牌的措辞（“Claude Code's native Agent”“reload Claude Code”“只用本机 Claude Code 上下文”等）改为中性；作为内容示例的模型名 / 目录名不改。
+- **CodeBuddy 拆成独立一套**：不再与 `.claude-plugin/` 共用——每插件新增 `.codebuddy-plugin/plugin.json` + 根 `.codebuddy-plugin/marketplace.json`（CodeBuddy 优先读 `.codebuddy-plugin/`，Claude 不认识它，互不干扰）。
+- **新增 Codex / Kimi 适配**：每插件 `.codex-plugin/plugin.json` + 根 `.agents/plugins/marketplace.json`；`.kimi-plugin/plugin.json` + 根 `.kimi-plugin/marketplace.json`。有 hooks 的 specode/ragkit 各加 `hooks/hooks.codebuddy.json`（`${CODEBUDDY_PLUGIN_ROOT}`）+ `hooks/hooks.codex.json`（`${PLUGIN_ROOT}`）。SessionStart hook 一份 handler 通吃（嵌套 `hookSpecificOutput.additionalContext` 三宿主共用）。**Codex/Kimi 的 manifest schema / hooks env var / marketplace 落盘位置尚未真机验证**，README 已逐条标注待实测。
+- **版本门禁升级**：`scripts/check_marketplace_versions.py` 改为校验 4 宿主 × 每插件 plugin.json + 每宿主根 catalog 全部与 `.claude-plugin` 版本锁步。
+
 ## 文档订正 (2026-07-09) — specode 6.4.1
 
 - README EN/zh「specode 共有四条命令」纠正为五条（6.3.0 起含 `/specode:execute`）。纯文档，无行为变化。

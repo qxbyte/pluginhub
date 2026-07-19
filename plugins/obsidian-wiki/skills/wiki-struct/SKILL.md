@@ -5,6 +5,8 @@ description: 用于维护 Obsidian LLM Wiki 的「结构层」——确定性重
 
 # Wiki Struct
 
+> **Host-tool convention** 🔧: tool names in this skill — `AskUserQuestion` (structured multiple-choice question) — are written for Claude-family hosts (Claude Code / CodeBuddy), where naming them directly is the most reliable. On a host that lacks one, use its nearest equivalent (a structured-question tool); with no equivalent, fall back to a plain-text question. The described behavior is what matters, not the exact tool name.
+
 > **配置说明**：vault 的结构配置存在**家目录注册表** `~/.config/obsidian-wiki/configs/<库名>.json`（按 active 库解析；未注册则回退库内 `<vault>/.wiki/config.json`）。schema 见本插件根 `config.example.json`。脚本仍通过 `--vault "<vault 根路径>"` 指定 vault，结构由注册表/回退提供。
 >
 > **脚本定位**：脚本装在本 skill 的 `scripts/` 目录下。用本 skill 的 base directory 把相对路径 `scripts/<脚本名>.py` 拼成绝对路径来跑（不解析环境变量、不 find 缓存）。

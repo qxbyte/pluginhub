@@ -5,6 +5,8 @@ description: 用于整理 Obsidian LLM Wiki 的统一编排入口——定位 va
 
 # wiki-orchestrate
 
+> **Host-tool convention** 🔧: tool names in this skill — `AskUserQuestion` (structured multiple-choice question) — are written for Claude-family hosts (Claude Code / CodeBuddy), where naming them directly is the most reliable. On a host that lacks one, use its nearest equivalent (a structured-question tool); with no equivalent, fall back to a plain-text question. The described behavior is what matters, not the exact tool name.
+
 整理笔记库的**统一入口**。把"逐步手动判断该调哪个 skill"换成一个
 **模型驱动的编排 playbook**：先做只读体检，再让模型依据结果决定调用
 `wiki-struct` / `wiki-curate` 的哪个命令、什么参数，

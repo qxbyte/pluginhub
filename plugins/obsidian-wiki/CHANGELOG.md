@@ -4,6 +4,13 @@ obsidian-wiki 是维护 Obsidian LLM-Wiki 的多 agent 插件（从独立 skills
 
 ## Unreleased
 
+## 2.2.0 (2026-07-20) — 多宿主适配：skills 去宿主绑定 + CodeBuddy/Codex/Kimi 独立 manifest
+
+obsidian-wiki 现在同时面向 Claude Code / CodeBuddy / Codex / Kimi 四个宿主。
+
+- **skills prose 去宿主绑定**：三个 skill（wiki-struct / wiki-curate / wiki-orchestrate）顶部各加一条「Host-tool convention」——`AskUserQuestion` 工具名**照旧保留**（对有它的宿主最可靠），补兜底：宿主缺该工具时用最近的结构化提问工具，都没有则降级为纯文本提问。`wiki-curate` 里「只用本机 Claude Code 上下文」等绑定单一宿主品牌的表述改为「只用本机 agent 上下文」。`AGENTS.md` 的宿主列举扩展为「Claude Code / Copilot CLI / CodeBuddy 及其它兼容 Agent-Skills 的 CLI」。作为**笔记内容示例**出现的模型名（如 “Claude 3.5”）与目录名（`.claude`）保持不改。零行为变化、红线不变。
+- **新增三宿主独立 manifest**：`.codebuddy-plugin/plugin.json` + `.codex-plugin/plugin.json` + `.kimi-plugin/plugin.json`（本插件无 hooks），及三份根 catalog。Codex/Kimi 的 schema 待实测（见 README 标注）。
+
 ## 2.1.0 (2026-07-08) — resolver 回归相对路径 + description 朴素化
 
 与同源发布的 ragkit 0.1.7 / specode 6.2.0 / task-swarm 0.11.0 一致，把脚本定位从旧 resolver 回归 superpowers 相对路径范式。旧 resolver（`WIKI="${CLAUDE_PLUGIN_ROOT:-${CODEBUDDY_PLUGIN_ROOT:-}}"` + `find … | sed`）在 Windows 下 `${VAR:-...}` 被 host 插值器吞成空、CodeBuddy 不注入这些环境变量，必然解析失败。

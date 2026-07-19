@@ -4,6 +4,15 @@
 Reads stdin (tolerates non-TTY / empty), emits additionalContext JSON to stdout, exit 0.
 Swallows any exception and exits 0 (advisory, never blocks).
 
+Multi-host: this one handler serves every supported host. It emits the nested
+`hookSpecificOutput.additionalContext` shape, which Claude Code, CodeBuddy, and Codex
+all consume for SessionStart; it reads no `*_PLUGIN_ROOT` env var (the drift check keys
+off `__file__`), so it does not care which host launched it. The per-host difference is
+only in the hooks manifest that invokes this script — `hooks/hooks.json`
+(`${CLAUDE_PLUGIN_ROOT}`), `hooks/hooks.codebuddy.json` (`${CODEBUDDY_PLUGIN_ROOT}`),
+`hooks/hooks.codex.json` (`${PLUGIN_ROOT}`, matcher `startup|resume|clear`) — so there
+is no output-format branching to add here.
+
 v0.9 trial M8: adds a silent _check_plugin_cache_drift() — parses __file__ to infer the
 currently cache-loaded version, compares against the local pluginhub git repo's (if present)
 marketplace.json latest version, and on a diff appends a hint to additionalContext telling the
@@ -117,7 +126,7 @@ def _check_plugin_cache_drift() -> str | None:
             f"\n\n⚠ specode cache drift detected: 本会话用的是 cache 版本 "
             f"`{plugin_name} {cache_version}`，但本地 pluginhub git 仓库的 "
             f"marketplace.json 已 pin 到 `{market_version}`。两者不一致——"
-            f"如果你刚 merge pluginhub PR 想验新行为，**必须 reload Claude Code "
+            f"如果你刚 merge pluginhub PR 想验新行为，**必须 reload 宿主 CLI "
             f"（重启 / 重连 session）** 让 host CLI 重新拉 cache，否则本会话仍跑旧代码。"
             f"（路径：{repo}/.claude-plugin/marketplace.json；设 `PLUGINHUB_REPO_PATH` "
             f"env var 可指向别处的 checkout）"

@@ -3,7 +3,7 @@
 维护 Obsidian **LLM-Wiki** 的一套 skill。代码通用、**零结构硬编码**：每个库的结构配置存在**家目录注册表**
 `~/.config/obsidian-wiki/configs/<名>.json`（按 `--vault` 路径解析；未注册则回退库内 `<vault>/.wiki/config.json`）。数据留在 vault，代码随插件安装，配置在家目录。
 
-> **给 Claude Code / Copilot CLI / CodeBuddy**：三个 skill 在 `skills/` 下，宿主会自动发现，
+> **给 Claude Code / Copilot CLI / CodeBuddy 及其它兼容 Agent-Skills 的 CLI**：三个 skill 在 `skills/` 下，宿主会自动发现，
 > 直接用触发语（`/wiki-struct`、`/wiki-curate`、`/wiki-orchestrate` 或「整理笔记库」）即可。
 > 各 skill 的完整流程、红线见对应 `skills/<name>/SKILL.md`。
 >

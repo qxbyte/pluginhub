@@ -5,6 +5,8 @@ description: Use when distilling a finished specode spec into atomic, locate-ori
 
 # distill — project knowledge-base sedimenter (atomic dual-track)
 
+> **Host-tool convention** 🔧: `AskUserQuestion` in this skill means a structured multiple-choice question — named for Claude-family hosts (Claude Code / CodeBuddy) where it's most reliable. On a host without it, use the nearest structured-question tool, or fall back to a plain-text question. The behavior (offer choices, wait for the user) is what matters, not the tool name.
+
 ## Top-level invariant 🔒
 
 **The KB is "for locating, not for facts".** Every knowledge point distill writes is a **location pointer** — file path + call chain + reusable navigation experience, **not a factual conclusion**. The retrieval side uses it only to quickly **locate** real code; real code is always the only source of truth. Never advance a new requirement on KB content alone, or treat a historical conclusion as the truth about current code. This invariant is the reason the whole design exists; where any downstream behavior conflicts with it, this rule wins (see design doc §0).

@@ -185,11 +185,12 @@ def _subagent_skills_block(role: str, mode: str = "any") -> str:
     """Render the '## 开发纪律 (范式参考)' section for a subagent's task.md.
 
     Originated as 方案 B of the v0.9.0 superpowers integration. v0.9.2 round 6
-    confirmed Claude Code subagents have no `Skill` tool in their runtime
-    schema (`tools:` field in persona md is ignored for host-level tools like
-    Skill). So this section no longer instructs subagents to *invoke* the
+    confirmed a dispatched subagent generally has no `Skill` tool in its runtime
+    schema (the `tools:` field in a persona md does not grant host-level tools
+    like Skill) — this holds across hosts, since a subagent is a sandboxed
+    executor. So this section no longer instructs subagents to *invoke* the
     skill — it lists each skill **by name as a paradigm reference**, and the
-    subagent applies the paradigm via native Bash/Read/Edit/Write.
+    subagent applies the paradigm via native file-read / file-edit / shell tools.
 
     role ∈ {coder, reviewer, validator}
     mode ∈ {initial, p0-fix, v-fix, any}; for reviewer/validator pass "any"
@@ -203,9 +204,9 @@ def _subagent_skills_block(role: str, mode: str = "any") -> str:
         "## 开发纪律 (范式参考)",
         "",
         ("以下 skill 名对应 superpowers 插件里同名 SKILL.md 的开发范式. "
-         "**不要尝试 `Skill(...)` 调用** — Claude Code subagent 在当前架构下 "
-         "无 Skill tool 权限, 调用必返回 unavailable. 把下面的 skill 名当作 "
-         "**范式标识**, 按其要求直接用 Bash/Read/Edit/Write 跑流程即可. "
+         "**不要尝试 `Skill(...)` 或等价的 skill 调用** — 被派发的子代理在当前"
+         "架构下通常无 skill 调用权限 (各宿主一致), 调用必返回 unavailable. "
+         "把下面的 skill 名当作 **范式标识**, 按其要求直接用文件读写 / shell 工具跑流程即可. "
          "task.md 的输出协议 / schema / 文件边界是本任务的 single source of "
          "truth — 范式参考为辅, 不替代 task.md 硬约束."),
         "",
@@ -488,6 +489,7 @@ def render_reviewer_prompt(
     group: int,
     round_: int = 1,
     project_root: Optional[str] = None,
+    preexisting_dirty: Optional[list[str]] = None,
 ) -> str:
     agent_key = f"reviewer-{group}-r{round_}"
     root, inbox, outbox = _ensure_agent_dirs(run_dir, agent_key)
@@ -516,6 +518,24 @@ def render_reviewer_prompt(
     for s in group_stages:
         st_writes = _stage_writes(s)
         lines.append(f"- 阶段 {s.number}: {s.title}（@writes: {', '.join(st_writes)}）")
+    lines.append("")
+    # v0.12.0: change attribution guard — stop the reviewer from blaming a coder
+    # for pre-existing dirty-tree changes (false-positive [contract] P0 → p0-fix on
+    # untouched files). The coder's result.md is the authoritative record of its work.
+    lines.append("## 变更归属（判断 @writes 边界前必读）")
+    lines.append("- 判断某 coder 改了哪些文件、是否越界写到其 `@writes` 之外——**以该 coder 的 "
+                 "result.md「关键变更」节为准**（那是 coder 对自己改动的权威声明）。")
+    lines.append("- **不要**用裸 `git status` / `git diff` 去推断「谁改了什么」：工作树里可能有本 "
+                 "run **开始前就已存在**的、与本轮任何 coder 都无关的未提交改动；把它们算到 coder 头上"
+                 "会造成**假阳性边界违规**，并可能触发对无关文件的 p0-fix。")
+    if preexisting_dirty:
+        lines.append("- 本 run 开始前**已 dirty**（非本轮 coder 改动，判断边界时必须排除）：")
+        for f in preexisting_dirty:
+            lines.append(f"  - `{f}`")
+    else:
+        lines.append("- 本 run 开始时工作树干净（或 project_root 非 git 仓库）：无需排除的预存改动。")
+    lines.append("- 仅当某文件 (a) 出现在某 coder 的 result.md 关键变更里、**或** (b) 是本轮相对上面"
+                 "「已 dirty」清单**新变脏**的文件时，才可判该 coder 越界（`[contract]`）。")
     lines.append("")
     lines.append("## inbox（上游 coder 全部产物）")
     for p in coder_outboxes:

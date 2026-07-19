@@ -5,6 +5,8 @@ description: Use when creating a new spec-driven workflow — the /specode:spec 
 
 # /specode:spec — create a new spec (orchestration shell)
 
+> **Host-tool convention** 🔧: tool names in this skill — `AskUserQuestion` (structured multiple-choice question), the `Skill` tool (invoke another skill by name), `Agent`/`Task` (dispatch a subagent) — are written for Claude-family hosts (Claude Code / CodeBuddy), where naming them directly is the most reliable. On a host that lacks one, use its nearest equivalent (a structured-question tool / a skill-invocation mechanism / a subagent-dispatch tool); with no equivalent, fall back to plain-text prose / reading the target skill's `SKILL.md` directly / sequential single-agent execution. The described behavior is what matters, not the exact tool name.
+
 specode is no longer a state machine. It is an **orchestration shell** that handles only its own distinctive value: the spec lifecycle, fixed on-disk artifacts, "documents-as-state" phase inference, and handing the execution tail (the `执行方式` selector → execution → acceptance, including the task-swarm handoff bridge) to the sibling `specode:execute` skill. The heavy lifting (clarification, design, TDD execution, acceptance) is done by **autonomously calling superpowers** skills in the matching phase; when superpowers is absent, **specode-native fallback** takes over. There is no persistent session file, no multi-window locking, no spec config file, no status-summary footer line, no forced code-doc sync nagging, and no session log collection.
 
 ## Activation Guard

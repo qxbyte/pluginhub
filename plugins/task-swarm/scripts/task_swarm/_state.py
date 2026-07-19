@@ -299,6 +299,14 @@ class StateMachine:
     failed_status: Optional[str] = None  # done / failed / failed-deadloop / aborted
     events: list[dict] = field(default_factory=list)
 
+    # v0.12.0: files already dirty in project_root's git working tree at init time
+    # (git status --porcelain). Changes that pre-existed the run must NOT be
+    # attributed to any coder when the reviewer judges @writes boundaries — else a
+    # dirty tree yields false-positive [contract] violations (and p0-fix rounds
+    # targeting files no coder ever touched). Empty when project_root is not a git
+    # repo / git is unavailable (reviewer then falls back to result.md attribution).
+    preexisting_dirty: list[str] = field(default_factory=list)
+
     # -----------------------------------------------------------------
     # 文件 IO
     # -----------------------------------------------------------------
@@ -342,6 +350,7 @@ class StateMachine:
             failed_status=data.get("failed_status"),
             events=data.get("events", []),
             skip_validator=data.get("skip_validator", False),
+            preexisting_dirty=data.get("preexisting_dirty", []),
         )
 
     def to_dict(self) -> dict:
@@ -367,6 +376,7 @@ class StateMachine:
             "failed_status": self.failed_status,
             "events": list(self.events),
             "skip_validator": self.skip_validator,
+            "preexisting_dirty": list(self.preexisting_dirty),
         }
 
     def save(self) -> None:

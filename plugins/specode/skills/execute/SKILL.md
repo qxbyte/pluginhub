@@ -5,6 +5,8 @@ description: Use when running a spec's execution tail — presents the 执行方
 
 # /specode:execute — run a spec's execution tail (selector → execution → acceptance)
 
+> **Host-tool convention** 🔧: tool names in this skill — `AskUserQuestion` (structured multiple-choice question), the `Skill` tool (invoke another skill by name), `Agent`/`Task` (dispatch a subagent) — are written for Claude-family hosts (Claude Code / CodeBuddy), where naming them directly is the most reliable. On a host that lacks one, use its nearest equivalent (a structured-question tool / a skill-invocation mechanism / a subagent-dispatch tool); with no equivalent, fall back to plain-text prose / reading the target skill's `SKILL.md` directly / sequential single-agent execution. The described behavior is what matters, not the exact tool name.
+
 This skill owns everything from "tasks.md is ready" to "acceptance written": the 「执行方式」 selector, engine dispatch (including the task-swarm handoff), `implementation-log.md` appending, acceptance, and the distill prompt. It never generates requirements / design / tasks — earlier phases belong to the sibling `spec` / `intake` skills. Extracted from `../spec/SKILL.md` as a pure relocation: the semantics below are unchanged from the pre-6.3.0 inline pipeline.
 
 ## Entry contract (three callers, one behavior)
@@ -47,9 +49,9 @@ Call `AskUserQuestion` to present **adaptive 4 options** — **show an option on
 3. **superpowers executing-plans（当前会话顺序批量 + checkpoint）** — requires superpowers.
 4. **specode 自执行（顺序单 agent）** — native fallback, the only option when nothing is installed.
 
-> Options 2/3 are both superpowers skills (built on Claude Code's native Agent/subagent capabilities), not Claude built-in workflows; their ergonomics differ (the former: clean context + per-Task review; the latter: single-session continuous batch).
+> Options 2/3 are both superpowers skills (built on the host CLI's built-in subagent capability), not specode built-in workflows; their ergonomics differ (the former: clean context + per-Task review; the latter: single-session continuous batch).
 
-When presenting, pass question / header / options **verbatim** per the `references/selectors.md` example — do not invent and do not collapse into a shorter option set. This is a single-user scenario with the PreToolUse hard-check removed, so "verbatim per the example" is enforced by this rule alone.
+When presenting, pass question / header / options **verbatim** per the `references/selectors.md` example — do not invent and do not collapse into a shorter option set. There is no hard-check hook; "verbatim per the example" is enforced by this rule alone.
 
 ## Execution dispatch (branches by selector choice, all TDD)
 

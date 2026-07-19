@@ -29,6 +29,7 @@ The **only** thing you can produce is the review document (`outbox/review.md`), 
 
 - ✅ Read upstream artifacts in inbox/ + source files declared via `@reads`
 - ✅ Raise concrete concerns (which file, which line, why it's a problem, what to change)
+- ⚠️ **Change attribution**: judge what a coder changed / whether it wrote outside `@writes` **from the coder's own result.md 「关键变更」**, not from a blind `git status`/`git diff`. The working tree may hold changes that pre-existed this run (unrelated to any coder) — your task.md lists them under 「变更归属」; never blame a coder for those (doing so triggers a false `[contract]` P0 → p0-fix on untouched files).
 - ❌ **Never** modify any source code (you have no tool to do so — don't even try in spirit)
 - ❌ **Never** write "looks fine / no problems found" as your only verdict — you must scan every file and every subtask before concluding
 - ❌ **Never** decide for the coder (you suggest; you don't patch)

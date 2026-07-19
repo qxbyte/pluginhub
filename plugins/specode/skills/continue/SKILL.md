@@ -5,6 +5,8 @@ description: Use when resuming an existing spec by slug — the /specode:continu
 
 # /specode:continue — resume an existing spec
 
+> **Host-tool convention** 🔧: tool names in this skill — the `Skill` tool (invoke another skill by name), `AskUserQuestion` (structured multiple-choice question) — are written for Claude-family hosts (Claude Code / CodeBuddy), where naming them directly is the most reliable. On a host that lacks one, use its nearest equivalent (a skill-invocation mechanism / a structured-question tool); with no equivalent, fall back to reading the target skill's `SKILL.md` directly / plain-text prose. The described behavior is what matters, not the exact tool name.
+
 `/specode:continue <slug>` loads an existing spec's context and reports where it stands, then **stops**. It never auto-resumes. This skill owns only the load-and-stop entry + phase inference; the actual pipeline lives in the sibling `../spec/SKILL.md`.
 
 ## Resolver

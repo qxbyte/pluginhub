@@ -113,15 +113,44 @@ fixed docs exist + `- [ ]` progress in `design.md`). Config writes use
 
 Public release procedure for plugin maintainers.
 
+### Multi-host manifest convention
+
+Every plugin ships **four** independent host manifests, one per
+supported host, plus a matching **root catalog** per host. All eight
+sites carry the same `version` and MUST stay in lock-step:
+
+| Host | Per-plugin manifest | Root catalog |
+| --- | --- | --- |
+| Claude Code | `<plugin>/.claude-plugin/plugin.json` | `.claude-plugin/marketplace.json` |
+| CodeBuddy | `<plugin>/.codebuddy-plugin/plugin.json` | `.codebuddy-plugin/marketplace.json` |
+| Codex | `<plugin>/.codex-plugin/plugin.json` | `.agents/plugins/marketplace.json` |
+| Kimi | `<plugin>/.kimi-plugin/plugin.json` | `.kimi-plugin/marketplace.json` |
+
+The `.claude-plugin/plugin.json` version is the **canonical** source.
+When bumping a plugin, change all four host manifests and all four root
+catalogs together — `scripts/check_marketplace_versions.py` (the CI
+gate) validates that all four hosts are in lock-step and refuses
+otherwise. Plugins with hooks (specode, ragkit) additionally maintain
+per-host hook files under `hooks/` (`hooks.json` for Claude,
+`hooks.codebuddy.json`, `hooks.codex.json`) that differ only in the
+plugin-root env var; the `SessionStart` handler script itself is shared.
+Codex and Kimi are experimental (unverified on a real host) — see
+README §Multi-host support.
+
 ### Version manifests (must agree)
 
-Two manifests carry `version` for the plugin being released. They MUST
-match or both the CI gate (`scripts/check_marketplace_versions.py`)
-and the plugin tag tooling refuse to operate:
+Each plugin's version lives in **four** per-plugin host manifests and
+**four** root catalogs (see Multi-host manifest convention above). They
+MUST all match or both the CI gate
+(`scripts/check_marketplace_versions.py`) and the plugin tag tooling
+refuse to operate. The `.claude-plugin/plugin.json` version is
+canonical:
 
-- `plugins/<plugin>/.claude-plugin/plugin.json` → `"version": "X.Y.Z"`
-- `.claude-plugin/marketplace.json` → **that plugin's** entry's
-  `version` (leave the other two entries untouched)
+- `plugins/<plugin>/.{claude,codebuddy,codex,kimi}-plugin/plugin.json` → `"version": "X.Y.Z"`
+- each root catalog (`.claude-plugin/marketplace.json` /
+  `.codebuddy-plugin/marketplace.json` / `.agents/plugins/marketplace.json`
+  / `.kimi-plugin/marketplace.json`) → **that plugin's** entry's `version`
+  (leave the other plugins' entries untouched)
 
 ### Picking the next version (semver)
 
@@ -143,9 +172,18 @@ When in doubt, bump higher.
 ### Cutting a release
 
 ```sh
-# 1. Bump both manifests to the new version
+# 1. Bump all four host manifests + all four root catalogs to the new
+#    version (Claude / CodeBuddy / Codex / Kimi — see Multi-host
+#    manifest convention). check_marketplace_versions.py validates all
+#    four hosts are in lock-step.
 $EDITOR plugins/<plugin>/.claude-plugin/plugin.json
+$EDITOR plugins/<plugin>/.codebuddy-plugin/plugin.json
+$EDITOR plugins/<plugin>/.codex-plugin/plugin.json
+$EDITOR plugins/<plugin>/.kimi-plugin/plugin.json
 $EDITOR .claude-plugin/marketplace.json
+$EDITOR .codebuddy-plugin/marketplace.json
+$EDITOR .agents/plugins/marketplace.json
+$EDITOR .kimi-plugin/marketplace.json
 
 # 2. Land the plugin's CHANGELOG: rename `## Unreleased` →
 #    `## X.Y.Z (YYYY-MM-DD)`, then add a fresh empty `## Unreleased`

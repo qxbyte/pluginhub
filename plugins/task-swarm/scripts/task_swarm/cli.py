@@ -33,6 +33,7 @@ import json
 import os
 import random
 import string
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -241,6 +242,43 @@ def _mark_run_aborted(run_dir: Path, reason: str) -> None:
         sys.stderr.write(f"task-swarm: failed to abort stale run {run_dir}: {exc}\n")
 
 
+def _capture_preexisting_dirty(project_root: Optional[str]) -> list[str]:
+    """Snapshot files already dirty in project_root's git tree at init time.
+
+    Returns paths (relative to project_root, git-porcelain form) that were already
+    modified / staged / untracked BEFORE this run started. The reviewer excludes
+    them from @writes-boundary judgment, so a dirty working tree doesn't produce
+    false-positive [contract] violations mis-attributed to a coder.
+
+    Graceful by design: project_root missing / not a git repo / git unavailable /
+    any error → returns [] (the reviewer then attributes changes via result.md only,
+    which is the pre-0.12.0 behavior).
+    """
+    if not project_root:
+        return []
+    try:
+        proc = subprocess.run(
+            ["git", "-C", project_root, "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return []
+    dirty: list[str] = []
+    for line in proc.stdout.splitlines():
+        if not line.strip():
+            continue
+        # porcelain v1: 'XY <path>' (2 status cols + space); renames: '<old> -> <new>'
+        path = line[3:] if len(line) > 3 else line.strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        path = path.strip().strip('"')
+        if path:
+            dirty.append(path)
+    return dirty
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     if not getattr(args, "pipeline", None):
         sys.stderr.write("必须给 --pipeline <yml>（markdown --tasks 路径已在 M3 移除）\n")
@@ -326,6 +364,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     pipeline_end_validator = bool(run_meta.get("pipeline_end_validator", False))
     pipeline_end_status = "pending" if pipeline_end_validator else "not-required"
 
+    # v0.12.0: snapshot the pre-existing dirty tree so the reviewer won't blame a
+    # coder for changes that were already there before the run.
+    preexisting_dirty = _capture_preexisting_dirty(project_root)
+
     run_id = _gen_run_id()
     runs_root = _runs_root_for(workdir)
     run_dir = runs_root / run_id
@@ -356,6 +398,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         started_at=_now_iso(),
         last_activity_at=_now_iso(),
         skip_validator=bool(getattr(args, "skip_validator", False)),
+        preexisting_dirty=preexisting_dirty,
     )
     sm.events_append({
         "type": "init",
@@ -778,6 +821,7 @@ def _materialize_prompt_reviewer(sm: StateMachine, gs: "GroupState") -> None:
         group=gs.id,
         round_=1,
         project_root=_resolve_project_root(sm),
+        preexisting_dirty=sm.preexisting_dirty,
     )
 
 

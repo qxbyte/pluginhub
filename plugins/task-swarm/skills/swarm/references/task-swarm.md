@@ -4,6 +4,8 @@ description: Use when working with task-swarm / reviewer / validator / v-fix / p
 
 # task-swarm Protocol Reference (references/task-swarm.md)
 
+> **Host-tool convention** 🔧: "fork" throughout this doc means "dispatch a subagent" via the host's subagent mechanism (the `Task`/`Agent` tool on Claude-family hosts such as Claude Code / CodeBuddy; the `Task(...)` calls in the flow diagrams are illustrative of that dispatch). Naming these directly is the most reliable on hosts that have them; on a host without a subagent tool, run the groups sequentially as a single agent. A subagent counts as done only when the host confirms its dispatched task returned successfully — not from its verbal report.
+
 This document is the full protocol behind the task-swarm `/task-swarm:swarm` skill.
 During a task-swarm run the lead agent must follow this protocol strictly.
 

@@ -1,6 +1,6 @@
 """Regression tests for the «开发纪律 (范式参考)» section in task.md
 (originated as v0.9.0 方案 B; v0.9.2 dropped 方案 A and reframed this section
-as a paradigm reference — Claude Code subagent has no Skill tool, so the
+as a paradigm reference — a dispatched subagent has no Skill tool, so the
 section now lists skill names as paradigm identifiers, not invoke targets).
 """
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-07-20) — 多宿主适配：bootstrap 去宿主绑定 + CodeBuddy/Codex/Kimi 独立 manifest
+
+ragkit 现在同时面向 Claude Code / CodeBuddy / Codex / Kimi 四个宿主。
+
+- **bootstrap / hook 文案去宿主绑定**：`ragkit_hooks.py` 的 SessionStart 注入文案「用 `Skill` 工具按名调用」保留 `Skill` 工具名、补「（或宿主等价的 skill 调用机制）」；docstring 里「Claude Code natively discovers…」泛化为「Some hosts (e.g. Claude Code) natively discover…」，语义不变。emit 的嵌套 `hookSpecificOutput.additionalContext` 被 Claude Code / CodeBuddy / Codex 共同接受，一份 handler 通吃。
+- **新增三宿主独立 manifest + hooks 变体**：`.codebuddy-plugin/plugin.json`（指向 `hooks/hooks.codebuddy.json`，用 `${CODEBUDDY_PLUGIN_ROOT}`）、`.codex-plugin/plugin.json`（指向 `hooks/hooks.codex.json`，用 `${PLUGIN_ROOT}`）、`.kimi-plugin/plugin.json`（最简 `skills` 形态），及三份根 catalog。注意 hooks 变体沿用 ragkit 自己的 `hooks/run-hook.sh` wrapper + `scripts/ragkit_hooks.py` handler。Codex/Kimi 的 schema 待实测（见 README 标注）。
+
 ## 0.1.7 (2026-07-08) — skill/hook 定位脚本回归 superpowers 范式（删 resolver 特殊处理）
 
 - **skill 定位脚本回归 superpowers 范式（删掉所有 resolver 特殊处理）**。实证 superpowers 如何在 skill 里定位并执行脚本：纯**相对路径**（`scripts/x.sh`，脚本放 skill 目录）+ 模型用 host 提供的 `Base directory for this skill: <abs>` 拼绝对路径 + 脚本内部 `dirname $0` / `__file__` 自定位——**全程零环境变量、零 find、零 `${CLAUDE_PLUGIN_ROOT}`**。ragkit 之前那行 `R="${CLAUDE_PLUGIN_ROOT:-$CODEBUDDY_PLUGIN_ROOT}"; find ... ` 正是 superpowers 明确不做的特殊处理，也是 Windows 全部故障的根：探针实测 `${VAR:-default}` 被 host 插值器整体吞成空（Claude Code combined_dash=[]）、CodeBuddy 连简单 `${CLAUDE_PLUGIN_ROOT}` 都不注入且把多行 bash 压成一行。修法：四个 skill 执行段删掉 resolver + find，改为裸相对路径 `sh ../../scripts/run.sh ../../scripts/ragkit.py ...`（脚本共用、在插件根 `scripts/`，故相对 skill 目录为 `../../`；除深度外与 superpowers 手法一致）。

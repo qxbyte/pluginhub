@@ -4,6 +4,16 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.5.0 (2026-07-20) — 多宿主适配：skills 去宿主绑定 + CodeBuddy/Codex/Kimi 独立 manifest
+
+specode 现在同时面向 Claude Code / CodeBuddy / Codex / Kimi 四个宿主，且四套安装适配互不共用。
+
+- **skills prose 去宿主绑定**：每个 SKILL.md（spec / execute / continue / intake / distill）顶部新增一条「Host-tool convention」说明——正文里的具体工具名（`AskUserQuestion`、`Skill` 工具、`Agent`/`Task`）**照旧保留**（对有该工具的宿主最可靠），但补一句兜底：宿主缺该工具时用最近的等价物（结构化提问工具 / skill 调用机制 / 子代理派发工具），都没有则降级为纯文本提问 / 直接 `Read` 目标 SKILL.md / 顺序单代理执行。真正绑定单一宿主品牌的表述（“Claude Code's native Agent/subagent”“not native Claude workflows”“reload Claude Code”）改为中性（“the host CLI's built-in subagent capability”“reload 宿主 CLI”等）。`references/*.md` 里作为「读文件」动作的 `Read` 工具名改为普通措辞。零行为变化。
+- **CodeBuddy 适配拆成独立一套**：新增 `.codebuddy-plugin/plugin.json`（指向 `hooks/hooks.codebuddy.json`，用 `${CODEBUDDY_PLUGIN_ROOT}`）+ 根 `.codebuddy-plugin/marketplace.json`。CodeBuddy 优先读 `.codebuddy-plugin/`、Claude 不认识它，两套天然互不干扰——不再与 `.claude-plugin/` 共用同一份。
+- **新增 Codex / Kimi 适配**：`.codex-plugin/plugin.json`（`skills` + `hooks/hooks.codex.json`，用 `${PLUGIN_ROOT}`、matcher `startup|resume|clear`）+ 根 `.agents/plugins/marketplace.json`；`.kimi-plugin/plugin.json`（最简 `skills` 形态，靠原生扫描）+ 根 `.kimi-plugin/marketplace.json`。Codex / Kimi 的 manifest schema、hooks env var、marketplace 落盘位置**尚未在真机验证**，见 README「多宿主支持」表的待实测标注。
+- **SessionStart hook 保持不变、一份 handler 通吃**：`spec_hooks.py` 输出的嵌套 `hookSpecificOutput.additionalContext` 被 Claude Code / CodeBuddy / Codex 共同接受，且它不读任何 `*_PLUGIN_ROOT`（cache-drift 探测靠 `__file__`），所以无需按宿主分支输出——宿主差异只在「哪份 hooks manifest 用哪个 env var 调它」。docstring 补了这条多宿主说明。
+- **版本门禁升级**：`scripts/check_marketplace_versions.py` 从「只校验 `.claude-plugin`」升级为「校验 4 宿主 × 每插件 plugin.json + 每宿主根 catalog 全部与 `.claude-plugin` 版本锁步」，任一漂移或缺失即 CI 失败。
+
 ## 6.4.1 (2026-07-09) — 文档订正：README 命令数四→五（补 `/specode:execute`）
 
 - README EN/zh「使用」段开头的「specode 共有四条命令 / has exactly four commands」纠正为**五条**——6.3.0 新增 `/specode:execute` 后，命令段落已列全 1 spec / 2 continue / 3 execute / 4 list / 5 distill，但这句计数遗漏未同步。纯文档订正，无行为/代码变化。

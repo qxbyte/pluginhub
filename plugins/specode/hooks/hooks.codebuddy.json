@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "sh \"${CODEBUDDY_PLUGIN_ROOT}/scripts/run.sh\" \"${CODEBUDDY_PLUGIN_ROOT}/scripts/spec_hooks.py\" session-start" } ] }
+    ]
+  }
+}

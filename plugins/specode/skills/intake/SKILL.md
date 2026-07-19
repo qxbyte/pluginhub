@@ -6,6 +6,8 @@ description: Use when running specode's requirements phase — project analysis 
 
 # intake — specode's requirements-intake engine
 
+> **Host-tool convention** 🔧: tool names in this skill — `AskUserQuestion` (structured multiple-choice question), the `Skill` tool (invoke another skill by name) — are written for Claude-family hosts (Claude Code / CodeBuddy), where naming them directly is the most reliable. On a host that lacks one, use its nearest equivalent (a structured-question tool / a skill-invocation mechanism); with no equivalent, fall back to a plain-text question / reading the target skill's `SKILL.md` directly. The described behavior is what matters, not the exact tool name.
+
 ## §0 Who you are / when you're invoked
 
 - The specode orchestration shell invokes you by name (`specode:intake`) via the `Skill` tool during the **requirements phase**. By then `<specsRoot>` is resolved, `<specsRoot>/<slug>/` exists, and the slug is fixed.

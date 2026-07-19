@@ -5,6 +5,8 @@ description: Use when driving the task-swarm multi-agent orchestrator standalone
 
 # task-swarm — standalone multi-agent orchestration (`/task-swarm:swarm`)
 
+> **Host-tool convention** 🔧: this skill orchestrates by dispatching subagents ("fork") and reading their completion status. Mechanism names — the `Task`/`Agent` tool (dispatch a subagent), the `Explore` agent (a read-only investigation subagent), the subagent run-status display ("teammates UI", the ✓/streaming/running indicators) — are written for Claude-family hosts (Claude Code / CodeBuddy), where naming them directly is the most reliable. On a host that lacks a given mechanism, use its nearest equivalent (a subagent-dispatch tool / a read-only subagent / whatever surfaces subagent completion); with no subagent capability at all, run the groups sequentially as a single agent. A subagent counts as done only when the host confirms its dispatched task returned successfully — never from the subagent's own verbal report. The described behavior matters, not the exact tool name.
+
 ## §0 Who you are
 
 The lead agent = task-swarm's **orchestrator + planner**. task-swarm provides four things:
@@ -83,8 +85,8 @@ Every subcommand uses the §1 wrapper (`sh ../../scripts/run.sh ../../scripts/ta
 2. `plan --run <run_id>` returns the **multi-group concurrent schedule**: `{schedule:{done,running,runnable,blocked,failed}, actions:[...], serial_validation, max_parallel}`. `actions` lists the `fork` set for each runnable/advanceable group; `schedule.runnable` is the groups startable now, `blocked` gives the reason (`needs` unmet / `writes` conflicts with a running group).
 3. `fork`: in a single message, fork the coders for **all runnable groups** in `actions` together (copy each `fork[].agent_key` **verbatim**, **never** invent `coder-fix-xxx`). Total concurrency is bounded by `max_parallel` — overflow groups carry to the next round.
 4. **Wait for all in-flight Tasks to be ✓ completed before you advance** (hard constraint):
-   - You must see every forked Task ✓ completed in the teammates UI; any ⠙ streaming / ⠴ running Bash blocks advance.
-   - **Do not** judge completion from verbal reports — only a subagent's own Task tool returning ✓ counts.
+   - You must see every forked Task ✓ completed via the host's subagent run-status display (the teammates UI on Claude Code); any still-streaming / still-running subagent blocks advance.
+   - **Do not** judge completion from verbal reports — only a subagent's own dispatch tool returning ✓ (the `Task` tool on Claude-family hosts) counts.
    - When unsure, call `plan --run <run_id>`; if it returns `coding-waiting`/`p0-fix-waiting`/`v-fix-waiting`, go back to waiting.
 5. `advance --run <run_id> --group <gid> --phase <p>` (gid is a string like `g1`) advances **that group's** sub state machine.
 6. `writeback --run <run_id> --group <gid>` (finalize this group, does not write tasks.md).
