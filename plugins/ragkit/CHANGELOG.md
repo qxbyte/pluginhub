@@ -9,6 +9,7 @@
 - **DashScope 兼容模式批大小超限**（`backend.py`）：`_BATCH` 由 16 降为 **10**。通义 `text-embedding-v4` 兼容模式单请求硬上限为 10 条，原值 16 会导致 embed/query 报 `400 InvalidParameter`（`batch size ... should not be larger than 10`）。
 - **云端向量调用失败导致 query 崩溃**（`pipeline.py` + `ragkit.py`）：密钥失效 / 网络抖动 / sidecar 异常时，`_vector_rank` 原会抛异常使整个 query 中断；现捕获为新状态 `vector_error`，**自动降级到词汇+元数据路**，stderr 打印固定提示 + 失败详情，退出码仍为 0，与文档承诺的「无后端时降级仍可用」一致。
 - **Windows 下 CLI 测试编码崩溃**（`tests/conftest.py`）：`run_cli` 显式 `encoding="utf-8"` + 子进程 `PYTHONIOENCODING`，修复 GBK 默认解码对 UTF-8 中文/emoji 输出的 `UnicodeDecodeError`。
+- **SessionStart bootstrap 注入乱码**（`scripts/ragkit_hooks.py`）：Windows Python 重定向管道的 `sys.stdout.write()` 默认用 locale 编码（中文环境 cp936/GBK），把中文 bootstrap 写成 GBK 字节，宿主按 UTF-8 读取即乱码（`RagKit ���ã�...`）。改为显式写 UTF-8 字节（`sys.stdout.buffer.write(...encode("utf-8"))`），跨宿主一致。新增 `tests/test_hooks.py` 在 GBK locale 下回归。
 
 ### Added
 

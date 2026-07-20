@@ -43,7 +43,15 @@ def main() -> int:
                 "additionalContext": BOOTSTRAP,
             }
         }
-        sys.stdout.write(json.dumps(out, ensure_ascii=False))
+        # 显式写 UTF-8 字节，绕开文本层编码：Windows Python 重定向管道默认用
+        # locale 编码（中文环境 cp936/GBK），会把中文 bootstrap 写成 GBK 字节，
+        # 宿主按 UTF-8 读取即乱码。写 buffer 保证跨宿主一致的 UTF-8 输出。
+        payload = json.dumps(out, ensure_ascii=False).encode("utf-8")
+        try:
+            sys.stdout.buffer.write(payload)
+            sys.stdout.buffer.flush()
+        except (AttributeError, ValueError):
+            sys.stdout.write(payload.decode("utf-8"))
     except Exception:
         pass
     return 0
