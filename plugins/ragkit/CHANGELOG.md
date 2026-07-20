@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.2.1 (2026-07-20) — 云端后端兼容与容错
+
+### Fixed
+
+- **DashScope 兼容模式批大小超限**（`backend.py`）：`_BATCH` 由 16 降为 **10**。通义 `text-embedding-v4` 兼容模式单请求硬上限为 10 条，原值 16 会导致 embed/query 报 `400 InvalidParameter`（`batch size ... should not be larger than 10`）。
+- **云端向量调用失败导致 query 崩溃**（`pipeline.py` + `ragkit.py`）：密钥失效 / 网络抖动 / sidecar 异常时，`_vector_rank` 原会抛异常使整个 query 中断；现捕获为新状态 `vector_error`，**自动降级到词汇+元数据路**，stderr 打印固定提示 + 失败详情，退出码仍为 0，与文档承诺的「无后端时降级仍可用」一致。
+- **Windows 下 CLI 测试编码崩溃**（`tests/conftest.py`）：`run_cli` 显式 `encoding="utf-8"` + 子进程 `PYTHONIOENCODING`，修复 GBK 默认解码对 UTF-8 中文/emoji 输出的 `UnicodeDecodeError`。
+
+### Added
+
+- **云端 `batch_size` 覆盖**（`backend.py`）：`cloud` 配置可加 `"batch_size": <n>` 覆盖默认 10，供 OpenAI 等高上限端点调大以减少请求次数。
+- **文档：API key 全局设置 + 强制走云端**（`README.md`、`skills/query/SKILL.md`）：补充各平台临时/永久设密钥命令（含 Windows `setx`）、本地已缓存时用 `"backend": "cloud"` 强制云端、`vector_error` 降级信号说明。
+- **测试**：`test_pipeline_degrades_on_vector_backend_error`（降级不崩）、`test_cloud_encode_respects_batch_size_override`（batch 覆盖切分），批大小边界测试同步改为 `_BATCH=10`。共 47 passed。
+
 ## 0.2.0 (2026-07-20) — 多宿主适配：bootstrap 去宿主绑定 + CodeBuddy/Codex/Kimi 独立 manifest
 
 ragkit 现在同时面向 Claude Code / CodeBuddy / Codex / Kimi 四个宿主。

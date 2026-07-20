@@ -10,6 +10,9 @@ TOP_CHUNK_HITS = 50
 DEFAULT_TOP = 8
 ALL_CHANNELS = ["lexical", "metadata", "vector"]
 
+# _vector_rank 里捕获到的向量后端异常详情，供 query_pipeline 透出到输出（stderr 提示用）。
+_VECTOR_ERROR_DETAIL: dict = {"msg": ""}
+
 
 def query_pipeline(kb_root: Path, query: str, top: int = DEFAULT_TOP,
                    channels_filter: list[str] | None = None) -> dict:
@@ -37,11 +40,14 @@ def query_pipeline(kb_root: Path, query: str, top: int = DEFAULT_TOP,
         rankings["metadata"] = [k for k, _ in md]
         channel_scores["metadata"] = dict(md)
     if "vector" in active:
+        _VECTOR_ERROR_DETAIL["msg"] = ""
         state, vec = _vector_rank(kb_root, chunks, focus)
         out["vector_channel"] = state
         if state == "ok":
             rankings["vector"] = [k for k, _ in vec]
             channel_scores["vector"] = dict(vec)
+        elif state == "vector_error":
+            out["vector_error_detail"] = _VECTOR_ERROR_DETAIL["msg"]
     fused = fuse.rrf_fuse(rankings)[:top]
     for row in fused:
         d = docs[row["knowledge_id"]]
@@ -69,7 +75,11 @@ def _vector_rank(kb_root: Path, chunks: list[dict], focus_text: str):
         return "no_backend", []
     if backend.model_id(kind, opts) != stored:
         return "model_mismatch", []
-    q = backend.encode(kind, opts, [focus_text])[0]
+    try:
+        q = backend.encode(kind, opts, [focus_text])[0]
+    except Exception as exc:  # 云端认证失败/网络抖动/sidecar 崩溃：不整体崩，降级到词汇+元数据路
+        _VECTOR_ERROR_DETAIL["msg"] = f"{type(exc).__name__}: {exc}"[:200]
+        return "vector_error", []
     sims = vectors @ q
     order = np.argsort(-sims)[:TOP_CHUNK_HITS]
     best: dict[str, float] = {}
