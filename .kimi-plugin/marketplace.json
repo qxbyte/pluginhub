@@ -13,7 +13,7 @@
       "id": "task-swarm",
       "name": "task-swarm",
       "displayName": "task-swarm",
-      "version": "0.12.1",
+      "version": "0.12.2",
       "description": "Standalone multi-agent orchestration via pipeline.yml (fork coders + reviewer/validator loops).",
       "source": "../plugins/task-swarm"
     },

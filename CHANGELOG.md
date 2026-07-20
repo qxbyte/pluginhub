@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## Codex 适配修正 (2026-07-21) — task-swarm 0.12.2
+
+据 Codex 官方文档 + openai/codex 源码调研，修正 Codex 适配（Codex 与 Kimi 不同——**支持 monorepo 子目录安装**）：
+
+- **根 `.agents/plugins/marketplace.json` 改为 Codex 官方 schema**：从早先「CodeBuddy 拷来的字符串 `source`」改为每条 `source: {source: "local", path: "./plugins/<name>"}` + `policy`（`installation`/`authentication`）+ 顶层 `interface`。用户一条 `codex plugin marketplace add qxbyte/pluginhub` + `codex plugin add <name>@pluginhub`（注意是 `plugin add` 不是 `install`）即可装。
+- **specode/ragkit 的 Codex SessionStart hook 经确认写法正确**（`hooks/hooks.codex.json`，`${PLUGIN_ROOT}`，`CLAUDE_PLUGIN_ROOT` 别名也认），无需改。
+- **task-swarm 的 Codex 子代理差异写进 SKILL**：Codex 派子代理是 `spawn_agent`/`wait_agent`/`close_agent` + 需 `multi_agent = true`；`agents/*.md`（Claude 格式）Codex 不加载 → 角色隔离靠 prompt。→ task-swarm bump 0.12.2。
+- README EN/zh Codex 段改对。**仍未在真机 Codex 验证。**
+
 ## 修 Kimi 安装 (2026-07-21) — specode 6.5.1 / task-swarm 0.12.1 / obsidian-wiki 2.2.1 / ragkit 0.2.1
 
 真机反馈 Kimi Code 上 `/plugins install <仓库URL>` 报 `No manifest at .kimi-plugin/plugin.json`。据 Kimi 官方文档 + kimi-code 源码确认：**kimi-code 不支持从 GitHub 子目录安装、也不做多子目录扫描**，故 monorepo 市场无法用裸仓库 URL 远程装（这是 Kimi 的硬限制，非我方 bug）。

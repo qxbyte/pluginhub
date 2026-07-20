@@ -1,71 +1,64 @@
 {
   "name": "pluginhub",
-  "owner": "qxbyte",
-  "description": "qxbyte's multi-host plugin marketplace (Claude Code / CodeBuddy / Codex / Kimi).",
+  "interface": {
+    "displayName": "qxbyte pluginhub"
+  },
   "plugins": [
     {
       "name": "specode",
-      "source": "./plugins/specode",
       "version": "6.5.1",
       "description": "Lightweight spec-driven workflow (requirements → design → tasks → execute → acceptance).",
-      "category": "development",
-      "homepage": "https://github.com/qxbyte/pluginhub",
-      "repository": "https://github.com/qxbyte/pluginhub",
-      "license": "MIT",
-      "keywords": [
-        "spec",
-        "specification",
-        "workflow"
-      ]
+      "source": {
+        "source": "local",
+        "path": "./plugins/specode"
+      },
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
     },
     {
       "name": "task-swarm",
-      "source": "./plugins/task-swarm",
-      "version": "0.12.1",
+      "version": "0.12.2",
       "description": "Standalone multi-agent orchestration via pipeline.yml (fork coders + reviewer/validator loops).",
-      "category": "development",
-      "homepage": "https://github.com/qxbyte/pluginhub",
-      "repository": "https://github.com/qxbyte/pluginhub",
-      "license": "MIT",
-      "keywords": [
-        "task-swarm",
-        "multi-agent",
-        "orchestration",
-        "pipeline"
-      ]
+      "source": {
+        "source": "local",
+        "path": "./plugins/task-swarm"
+      },
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
     },
     {
       "name": "obsidian-wiki",
-      "source": "./plugins/obsidian-wiki",
       "version": "2.2.1",
       "description": "Maintain an Obsidian LLM-Wiki (structure layer + content curation + orchestrator).",
-      "category": "productivity",
-      "homepage": "https://github.com/qxbyte/pluginhub",
-      "repository": "https://github.com/qxbyte/pluginhub",
-      "license": "MIT",
-      "keywords": [
-        "obsidian",
-        "llm-wiki",
-        "knowledge-base",
-        "notes",
-        "curation"
-      ]
+      "source": {
+        "source": "local",
+        "path": "./plugins/obsidian-wiki"
+      },
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
     },
     {
       "name": "ragkit",
-      "source": "./plugins/ragkit",
       "version": "0.2.2",
       "description": "Standalone knowledge-base RAG (vector + lexical + metadata recall, RRF-fused).",
-      "category": "database",
-      "homepage": "https://github.com/qxbyte/pluginhub",
-      "repository": "https://github.com/qxbyte/pluginhub",
-      "license": "MIT",
-      "keywords": [
-        "rag",
-        "knowledge-base",
-        "vector-search",
-        "embedding"
-      ]
+      "source": {
+        "source": "local",
+        "path": "./plugins/ragkit"
+      },
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
     }
   ]
 }

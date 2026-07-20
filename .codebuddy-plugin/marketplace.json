@@ -21,7 +21,7 @@
     {
       "name": "task-swarm",
       "source": "./plugins/task-swarm",
-      "version": "0.12.1",
+      "version": "0.12.2",
       "description": "Standalone multi-agent orchestration via pipeline.yml (fork coders + reviewer/validator loops).",
       "category": "development",
       "homepage": "https://github.com/qxbyte/pluginhub",
