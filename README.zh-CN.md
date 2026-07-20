@@ -44,39 +44,80 @@
 > 📌 **marketplace 的名字是 `pluginhub`（仓库名），不是 `qxbyte`（owner 名）。**
 > 所有安装 / 卸载命令都用 `<plugin>@pluginhub`（如 `specode@pluginhub` / `task-swarm@pluginhub`）。写成 `@qxbyte` 会报 `Marketplace "qxbyte" not found`。本地 cache 路径也按 marketplace 名挂在 `~/.claude/plugins/cache/pluginhub/<plugin>/<version>/`——排查"装了哪个版本"时常用到。
 
-### GitHub（推荐）
+按下面选你的宿主。四个插件都出自同一个 `pluginhub` marketplace——你只需
+`marketplace add` **一次**，然后按需安装任意插件。**specode** 是旗舰；
+**task-swarm**（并发多 agent 执行）、**ragkit**（知识库检索）与 **obsidian-wiki**
+都是可选。装了 task-swarm，specode 会在执行阶段委托给它；没装则 specode 顺序
+自执行——两条路都是一等公民。
 
-支持四个宿主。**Claude Code** 与 **CodeBuddy** 已支持并验证（CodeBuddy 已在
-2.97.1 上验证）；**Codex** 附带实验性 manifest，安装语法尚未实测；**Kimi Code**
-**只能本地 clone 安装**（无法从 URL 装 monorepo 插件）——详见下方
-[Kimi Code（本地安装）](#kimi-code本地安装)与 [多宿主支持](#多宿主支持)。
+验证状态：**Claude Code** ✅ 与 **CodeBuddy** ✅（2.97.1）已验证；**Kimi Code**
+✅ 已验证本地安装（无法从 URL 装——见其专节）；**Codex CLI** ⏳ 附带按 Codex
+官方文档改对的 manifest，但尚未在真机宿主上跑过。
+
+### Claude Code
 
 ```sh
-# Claude Code
+# 1) 添加 marketplace（只需一次）。
 claude plugin marketplace add https://github.com/qxbyte/pluginhub
-claude plugin install specode@pluginhub
 
-# CodeBuddy
+# 2) 按需安装插件（都来自 @pluginhub）。
+claude plugin install specode@pluginhub          # 旗舰
+claude plugin install task-swarm@pluginhub        # 可选：并发多 agent 执行
+claude plugin install ragkit@pluginhub            # 可选：知识库检索
+claude plugin install obsidian-wiki@pluginhub     # 可选：Obsidian LLM-Wiki
+
+# 3) 验证。
+claude plugin list
+```
+
+specode 的 `SessionStart` hook 会自动注入一条「specode available」提示；用
+`/specode:spec <需求>` 起步。如需完整的 superpowers 加持体验，请额外安装
+**superpowers** 插件。
+
+### CodeBuddy
+
+与 Claude Code 完全一致——CodeBuddy 吃同一套插件格式（读自己的
+`.codebuddy-plugin/` manifest，回退 `.claude-plugin/`），只是换成 `codebuddy`
+CLI。已在 CodeBuddy 2.97.1 上验证。
+
+```sh
 codebuddy plugin marketplace add https://github.com/qxbyte/pluginhub
 codebuddy plugin install specode@pluginhub
-
-# Codex（schema 已按官方文档改对；尚未在真机 Codex 跑过）
-codex plugin marketplace add qxbyte/pluginhub
-codex plugin add specode@pluginhub        # 注意是 `plugin add`，不是 `install`
-
-# Kimi Code —— 不是 URL 安装；见下方「Kimi Code（本地安装）」。
+codebuddy plugin install task-swarm@pluginhub     # 可选
+codebuddy plugin install ragkit@pluginhub          # 可选
+codebuddy plugin install obsidian-wiki@pluginhub   # 可选
+codebuddy plugin list
 ```
 
-如需完整的 superpowers 加持体验，请额外安装 **superpowers** 插件。如需多 agent 并发执行，请从同一 marketplace 额外安装 **task-swarm**（**无需**再 `marketplace add`）——装了它 specode 会在执行阶段委托给它，没装则 specode 顺序自执行：
+### Codex CLI
+
+Codex 用两步、apt-get 风格的流程——安装动词是 **`plugin add`，不是
+`plugin install`**——而且（与 Kimi 不同）直接从 monorepo 子目录安装插件。
 
 ```sh
-# Claude Code
-claude plugin install task-swarm@pluginhub
-# CodeBuddy
-codebuddy plugin install task-swarm@pluginhub
+# 1) 添加 marketplace（GitHub 简写或完整 URL 均可）。
+codex plugin marketplace add qxbyte/pluginhub
+
+# 2) 按需添加插件。
+codex plugin add specode@pluginhub
+codex plugin add task-swarm@pluginhub             # 可选
+codex plugin add ragkit@pluginhub                 # 可选
+codex plugin add obsidian-wiki@pluginhub          # 可选
+
+# 在 TUI 里也可以打开 /plugins 浏览，再 /reload-plugins
+codex plugin list
 ```
 
-specode 不依赖这两者，原生降级路径开箱即用。
+- 由 `.agents/plugins/marketplace.json` 驱动，每条指向各插件子目录
+  （`source: {source: "local", path: "./plugins/<name>"}`）。
+- specode/ragkit 的 `SessionStart` 提示经 Codex hook 触发（环境变量
+  `${PLUGIN_ROOT}`）。
+- **要用 task-swarm 的多 agent 执行，需在 `~/.codex/config.toml` 开
+  `multi_agent = true`**——Codex 用 `spawn_agent` 派子代理；不开这个开关
+  task-swarm 会退回单 agent 顺序执行。task-swarm 的 `agents/*.md` 是 Claude 格式，
+  Codex 不加载，故按角色的工具隔离（reviewer/validator 无 Edit/Write）靠 prompt 约束。
+- 状态：manifest 已按 Codex 官方文档改对，但整套流程**尚未在真机 Codex 上跑过**
+  ——遇到报错欢迎反馈。
 
 ### Kimi Code（本地安装）
 

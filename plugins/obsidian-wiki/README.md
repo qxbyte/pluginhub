@@ -17,13 +17,14 @@
 
 ## 安装
 
+四个宿主（Claude Code / CodeBuddy / Codex / Kimi）各自安装。以 Claude Code 为例：
+
 ```text
 /plugin marketplace add qxbyte/pluginhub      # 或本地路径 /plugin marketplace add /Users/xueqiang/Git/pluginhub
 /plugin install obsidian-wiki@pluginhub
 ```
 
-Claude Code、Copilot CLI、CodeBuddy 都按各自的 `/plugin` 机制安装；skill 自动发现。
-Codex CLI 无 SKILL.md 斜杠系统，见根 `AGENTS.md`（脚本照跑，LLM 流程内联读对应 SKILL.md）。
+CodeBuddy 换 `codebuddy` CLI，语法相同；Codex 用 `codex plugin add obsidian-wiki@pluginhub`（是 `plugin add` 不是 `install`）；Kimi 仅支持本地 clone 安装，详见仓库根 README 的 Kimi 段。skill 自动发现。
 
 ## 用前：注册你的 vault（配置存家目录，不进库）
 

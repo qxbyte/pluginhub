@@ -104,45 +104,84 @@ see its own `README.md` / `AGENTS.md` under
 > 📌 **Marketplace name is `pluginhub` (the repo name), not `qxbyte` (the owner name).**
 > All install / uninstall commands use `<plugin>@pluginhub`, e.g. `specode@pluginhub` and `task-swarm@pluginhub`. Using `@qxbyte` will fail with `Marketplace "qxbyte" not found`. Cached plugins are also stored under `~/.claude/plugins/cache/pluginhub/<plugin>/<version>/` — useful when troubleshooting which version is actually loaded.
 
-### From GitHub (recommended)
+Pick your host below. All four plugins come from the one `pluginhub`
+marketplace — you `marketplace add` **once**, then install whichever plugins
+you want. **specode** is the flagship; **task-swarm** (parallel multi-agent
+execution), **ragkit** (knowledge-base retrieval) and **obsidian-wiki** are
+optional. specode delegates parallel execution to task-swarm when it's
+installed and self-executes sequentially otherwise — both are first-class.
 
-Works across four hosts. **Claude Code** and **CodeBuddy** are supported
-and verified (CodeBuddy on 2.97.1). **Codex** ships experimental manifests
-whose install syntax is unverified. **Kimi Code** is **local-clone only**
-(it cannot install a monorepo plugin from a URL) — see
-[Kimi Code (local install)](#kimi-code-local-install) below and
-[Multi-host support](#multi-host-support).
+Verification status: **Claude Code** ✅ and **CodeBuddy** ✅ (2.97.1) are
+verified; **Kimi Code** ✅ is verified for local install (it cannot install
+from a URL — see its own section); **Codex CLI** ⏳ ships manifests matching
+Codex's docs but is not yet run on a real host.
+
+### Claude Code
 
 ```sh
-# Claude Code
+# 1) Add the marketplace once.
 claude plugin marketplace add https://github.com/qxbyte/pluginhub
-claude plugin install specode@pluginhub
 
-# CodeBuddy
+# 2) Install the plugins you want (all from @pluginhub).
+claude plugin install specode@pluginhub          # flagship
+claude plugin install task-swarm@pluginhub        # optional: parallel multi-agent execution
+claude plugin install ragkit@pluginhub            # optional: knowledge-base retrieval
+claude plugin install obsidian-wiki@pluginhub     # optional: Obsidian LLM-Wiki
+
+# 3) Verify.
+claude plugin list
+```
+
+specode's `SessionStart` hook injects a "specode available" advisory
+automatically; start with `/specode:spec <request>`. For the full
+superpowers-backed experience, also install the **superpowers** plugin.
+
+### CodeBuddy
+
+Identical to Claude Code — CodeBuddy consumes the same plugin format (reading
+its own `.codebuddy-plugin/` manifests, falling back to `.claude-plugin/`),
+just the `codebuddy` CLI. Verified on CodeBuddy 2.97.1.
+
+```sh
 codebuddy plugin marketplace add https://github.com/qxbyte/pluginhub
 codebuddy plugin install specode@pluginhub
-
-# Codex (schema per Codex docs; not yet run on a real Codex host)
-codex plugin marketplace add qxbyte/pluginhub
-codex plugin add specode@pluginhub        # note: `plugin add`, not `install`
-
-# Kimi Code — NOT a URL install; see "Kimi Code (local install)" below.
+codebuddy plugin install task-swarm@pluginhub     # optional
+codebuddy plugin install ragkit@pluginhub          # optional
+codebuddy plugin install obsidian-wiki@pluginhub   # optional
+codebuddy plugin list
 ```
 
-For the full superpowers-backed experience, also install the
-**superpowers** plugin. For multi-agent parallel execution, also install
-**task-swarm** from this same marketplace (no second `marketplace add`
-needed) — specode delegates the execution phase to it when installed, and
-self-executes sequentially otherwise:
+### Codex CLI
+
+Codex uses a two-step, apt-get-style flow — the install verb is
+**`plugin add`, not `plugin install`** — and (unlike Kimi) installs plugins
+straight from the monorepo subdirectories.
 
 ```sh
-# Claude Code
-claude plugin install task-swarm@pluginhub
-# CodeBuddy
-codebuddy plugin install task-swarm@pluginhub
+# 1) Add the marketplace (GitHub shorthand or full URL).
+codex plugin marketplace add qxbyte/pluginhub
+
+# 2) Add the plugins you want.
+codex plugin add specode@pluginhub
+codex plugin add task-swarm@pluginhub             # optional
+codex plugin add ragkit@pluginhub                 # optional
+codex plugin add obsidian-wiki@pluginhub          # optional
+
+# in the TUI you can instead open /plugins to browse, then /reload-plugins
+codex plugin list
 ```
 
-specode runs fine without either via its native fallbacks.
+- Driven by `.agents/plugins/marketplace.json`, whose entries point at each
+  plugin's subdir (`source: {source: "local", path: "./plugins/<name>"}`).
+- specode/ragkit's `SessionStart` advisory fires via the Codex hook
+  (env var `${PLUGIN_ROOT}`).
+- **For task-swarm's multi-agent execution, enable `multi_agent = true` in
+  `~/.codex/config.toml`** — Codex dispatches subagents via `spawn_agent`;
+  without the flag task-swarm falls back to sequential single-agent. task-swarm's
+  `agents/*.md` personas are Claude-format and Codex does not load them, so
+  per-role tool isolation (reviewer/validator having no Edit/Write) is by prompt.
+- Status: the manifests match Codex's docs, but the flow is **not yet run on a
+  real Codex host** — please report any error.
 
 ### Kimi Code (local install)
 

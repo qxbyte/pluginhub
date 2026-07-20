@@ -134,8 +134,12 @@ otherwise. Plugins with hooks (specode, ragkit) additionally maintain
 per-host hook files under `hooks/` (`hooks.json` for Claude,
 `hooks.codebuddy.json`, `hooks.codex.json`) that differ only in the
 plugin-root env var; the `SessionStart` handler script itself is shared.
-Codex and Kimi are experimental (unverified on a real host) — see
-README §Multi-host support.
+Codex's root catalog (`.agents/plugins/marketplace.json`) uses the
+Codex schema — each plugin entry carries `source: {source: "local",
+path: "./plugins/<name>"}` (subdirectory install) plus a `policy` block,
+not a bare owner/URL string source. Claude Code / CodeBuddy are verified
+and Kimi's local install is verified; Codex's schema is conformed to its
+docs but not yet run on a real host — see README §Multi-host support.
 
 ### Version manifests (must agree)
 
