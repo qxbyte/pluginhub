@@ -180,8 +180,11 @@ git clone https://github.com/qxbyte/pluginhub
   (their skills are still found by Kimi's native scan).
 - A future one-command remote install is possible by shipping per-plugin
   release-asset zips (Kimi accepts zip-URL sources) — not yet set up.
-- Not yet verified on a real Kimi host; if an install command errors,
-  please report the exact message.
+- **Verified on a real Kimi host:** the local **marketplace-browse** install
+  (`/plugins marketplace <abs>/.kimi-plugin/marketplace.json`) succeeds and
+  `/specode:spec` triggers specode. Still unconfirmed: the `sessionStart.skill`
+  auto-advisory (so far specode is triggered by typing its command, not by the
+  model proactively knowing) and the end-to-end flows of the other three plugins.
 
 ### One-shot (Claude Code only)
 
@@ -238,7 +241,7 @@ difference is the manifest's hook env var.
 | Claude Code | `<plugin>/.claude-plugin/plugin.json` | `.claude-plugin/marketplace.json` | `${CLAUDE_PLUGIN_ROOT}` (`hooks/hooks.json`) | supported |
 | CodeBuddy | `<plugin>/.codebuddy-plugin/plugin.json` | `.codebuddy-plugin/marketplace.json` | `${CODEBUDDY_PLUGIN_ROOT}` (`hooks/hooks.codebuddy.json`) | supported |
 | Codex | `<plugin>/.codex-plugin/plugin.json` | `.agents/plugins/marketplace.json` | `${PLUGIN_ROOT}` (`hooks/hooks.codex.json`, matcher `startup\|resume\|clear`) | experimental — unverified |
-| Kimi | `<plugin>/.kimi-plugin/plugin.json` | `.kimi-plugin/marketplace.json` (Kimi schema: `version` `"2"` + `id`/`source`) | — (`sessionStart.skill`, no hooks) | experimental — local-clone install only |
+| Kimi | `<plugin>/.kimi-plugin/plugin.json` | `.kimi-plugin/marketplace.json` (Kimi schema: `version` `"2"` + `id`/`source`) | — (`sessionStart.skill`, no hooks) | local-clone only — install + specode trigger **verified**; `sessionStart` advisory unconfirmed |
 
 Codex and Kimi are wired but **not yet verified on a real host**. Open
 items:

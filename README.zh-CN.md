@@ -110,7 +110,10 @@ git clone https://github.com/qxbyte/pluginhub
   obsidian-wiki 无会话提示（skills 仍靠 Kimi 原生扫描发现）。
 - 未来的「远程一键装」需给每个插件挂 release zip 资产（Kimi 接受 zip-URL 作为
   source）——尚未搭建。
-- **尚未在真机 Kimi 验证**；若某条安装命令报错，请把确切报错发我。
+- **已在真机 Kimi 验证**：本地 **marketplace 浏览**安装
+  （`/plugins marketplace <abs>/.kimi-plugin/marketplace.json`）成功，`/specode:spec`
+  能触发 specode。**尚未确认**：`sessionStart.skill` 自动提示（目前是手动打命令触发的，
+  不是模型主动知道）、以及其余三个插件的端到端流程。
 
 ### 一次性会话（仅 Claude Code）
 
@@ -165,7 +168,7 @@ prose 为单一来源、宿主中立（工具名 `AskUserQuestion` / `Skill` / `
 | Claude Code | `<plugin>/.claude-plugin/plugin.json` | `.claude-plugin/marketplace.json` | `${CLAUDE_PLUGIN_ROOT}`（`hooks/hooks.json`） | supported |
 | CodeBuddy | `<plugin>/.codebuddy-plugin/plugin.json` | `.codebuddy-plugin/marketplace.json` | `${CODEBUDDY_PLUGIN_ROOT}`（`hooks/hooks.codebuddy.json`） | supported |
 | Codex | `<plugin>/.codex-plugin/plugin.json` | `.agents/plugins/marketplace.json` | `${PLUGIN_ROOT}`（`hooks/hooks.codex.json`，matcher `startup\|resume\|clear`） | experimental — unverified |
-| Kimi | `<plugin>/.kimi-plugin/plugin.json` | `.kimi-plugin/marketplace.json`（Kimi schema：`version` `"2"` + `id`/`source`） | —（`sessionStart.skill`，无 hooks） | experimental — 仅本地 clone 安装 |
+| Kimi | `<plugin>/.kimi-plugin/plugin.json` | `.kimi-plugin/marketplace.json`（Kimi schema：`version` `"2"` + `id`/`source`） | —（`sessionStart.skill`，无 hooks） | 仅本地 clone — 安装 + specode 触发**已验证**；`sessionStart` 自动提示未确认 |
 
 Codex 与 Kimi 已接线但**尚未在真机宿主上验证**。待实测清单：
 
