@@ -47,8 +47,9 @@
 ### GitHub（推荐）
 
 支持四个宿主。**Claude Code** 与 **CodeBuddy** 已支持并验证（CodeBuddy 已在
-2.97.1 上验证）；**Codex** 与 **Kimi** 附带实验性 manifest，其安装语法**尚未实测**——
-详见 [多宿主支持](#多宿主支持)。
+2.97.1 上验证）；**Codex** 附带实验性 manifest，安装语法尚未实测；**Kimi Code**
+**只能本地 clone 安装**（无法从 URL 装 monorepo 插件）——详见下方
+[Kimi Code（本地安装）](#kimi-code本地安装)与 [多宿主支持](#多宿主支持)。
 
 ```sh
 # Claude Code
@@ -63,14 +64,7 @@ codebuddy plugin install specode@pluginhub
 codex plugin marketplace add qxbyte/pluginhub
 codex plugin install specode@pluginhub
 
-# Kimi Code —— 裸仓库 URL 装不了：Kimi 不支持从 monorepo 子目录安装插件。
-# 需先 clone，再让 Kimi 指向本地 marketplace 文件（其 source 会解析到各插件子目录），
-# 或按绝对本地路径装单个插件：
-git clone https://github.com/qxbyte/pluginhub
-# 在 Kimi 会话里（用 clone 的绝对路径）：
-/plugins marketplace /abs/path/to/pluginhub/.kimi-plugin/marketplace.json
-# …再从浏览到的 marketplace 逐个安装；或直接：
-/plugins install /abs/path/to/pluginhub/plugins/specode
+# Kimi Code —— 不是 URL 安装；见下方「Kimi Code（本地安装）」。
 ```
 
 如需完整的 superpowers 加持体验，请额外安装 **superpowers** 插件。如需多 agent 并发执行，请从同一 marketplace 额外安装 **task-swarm**（**无需**再 `marketplace add`）——装了它 specode 会在执行阶段委托给它，没装则 specode 顺序自执行：
@@ -83,6 +77,40 @@ codebuddy plugin install task-swarm@pluginhub
 ```
 
 specode 不依赖这两者，原生降级路径开箱即用。
+
+### Kimi Code（本地安装）
+
+Kimi Code **无法从 GitHub URL 安装 pluginhub**——裸仓库 URL
+（`/plugins install https://github.com/qxbyte/pluginhub`）和远程 marketplace URL
+（`/plugins marketplace https://…/marketplace.json`）**都不行**：Kimi 不支持从
+monorepo **子目录**安装插件，其扫描只认单个顶层插件目录（据 Kimi 官方文档 + 源码
+确认）。请改用**本地 clone** 安装：
+
+```sh
+# 1) 任意位置 clone，记下 clone 的绝对路径。
+git clone https://github.com/qxbyte/pluginhub
+
+# 2) 在 Kimi 会话里，按【绝对路径】逐个安装你要的插件：
+/plugins install /绝对路径/pluginhub/plugins/specode
+/plugins install /绝对路径/pluginhub/plugins/task-swarm
+/plugins install /绝对路径/pluginhub/plugins/ragkit
+/plugins install /绝对路径/pluginhub/plugins/obsidian-wiki
+
+#    …或用本地 marketplace 文件浏览四个再装：
+/plugins marketplace /绝对路径/pluginhub/.kimi-plugin/marketplace.json
+
+# 3) 开新会话——Kimi 只在【新会话】加载插件变更。
+/new
+```
+
+- 路径**必须是绝对路径**；相对路径会报 `Plugin root must be an absolute path`。
+- Kimi 安装时会把插件**拷贝**进它的托管目录，所以 `git pull` 更新后需**重装**才生效。
+- Kimi 下 specode/ragkit 的会话提示由各 manifest 的 `sessionStart.skill`
+  （`using-specode` / `using-ragkit`）注入——没有 `SessionStart` hook；task-swarm /
+  obsidian-wiki 无会话提示（skills 仍靠 Kimi 原生扫描发现）。
+- 未来的「远程一键装」需给每个插件挂 release zip 资产（Kimi 接受 zip-URL 作为
+  source）——尚未搭建。
+- **尚未在真机 Kimi 验证**；若某条安装命令报错，请把确切报错发我。
 
 ### 一次性会话（仅 Claude Code）
 

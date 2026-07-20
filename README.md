@@ -107,8 +107,10 @@ see its own `README.md` / `AGENTS.md` under
 ### From GitHub (recommended)
 
 Works across four hosts. **Claude Code** and **CodeBuddy** are supported
-and verified (CodeBuddy on 2.97.1); **Codex** and **Kimi** ship
-experimental manifests whose install syntax is **unverified** — see
+and verified (CodeBuddy on 2.97.1). **Codex** ships experimental manifests
+whose install syntax is unverified. **Kimi Code** is **local-clone only**
+(it cannot install a monorepo plugin from a URL) — see
+[Kimi Code (local install)](#kimi-code-local-install) below and
 [Multi-host support](#multi-host-support).
 
 ```sh
@@ -124,15 +126,7 @@ codebuddy plugin install specode@pluginhub
 codex plugin marketplace add qxbyte/pluginhub
 codex plugin install specode@pluginhub
 
-# Kimi Code — a bare repo URL does NOT work: Kimi cannot install a plugin
-# from a monorepo subdirectory. Clone, then point Kimi at the local
-# marketplace file (its sources resolve to the plugin subdirs), or install
-# a single plugin by absolute local path:
-git clone https://github.com/qxbyte/pluginhub
-# in a Kimi session (use the ABSOLUTE path to your clone):
-/plugins marketplace /abs/path/to/pluginhub/.kimi-plugin/marketplace.json
-# …then install each plugin from the browsed marketplace; or directly:
-/plugins install /abs/path/to/pluginhub/plugins/specode
+# Kimi Code — NOT a URL install; see "Kimi Code (local install)" below.
 ```
 
 For the full superpowers-backed experience, also install the
@@ -149,6 +143,45 @@ codebuddy plugin install task-swarm@pluginhub
 ```
 
 specode runs fine without either via its native fallbacks.
+
+### Kimi Code (local install)
+
+Kimi Code **cannot install pluginhub from a GitHub URL** — neither a bare
+repo URL (`/plugins install https://github.com/qxbyte/pluginhub`) nor a
+remote marketplace URL (`/plugins marketplace https://…/marketplace.json`).
+Kimi does not support installing a plugin from a monorepo **subdirectory**,
+and its scan only handles a single top-level plugin dir (confirmed against
+Kimi Code's docs + source). Install from a **local clone** instead:
+
+```sh
+# 1) Clone anywhere; note the ABSOLUTE path to the clone.
+git clone https://github.com/qxbyte/pluginhub
+
+# 2) In a Kimi session, install each plugin you want by ABSOLUTE local path:
+/plugins install /ABS/PATH/TO/pluginhub/plugins/specode
+/plugins install /ABS/PATH/TO/pluginhub/plugins/task-swarm
+/plugins install /ABS/PATH/TO/pluginhub/plugins/ragkit
+/plugins install /ABS/PATH/TO/pluginhub/plugins/obsidian-wiki
+
+#    …or browse all four via the local marketplace file, then install them:
+/plugins marketplace /ABS/PATH/TO/pluginhub/.kimi-plugin/marketplace.json
+
+# 3) Start a fresh session — Kimi loads plugin changes on NEW sessions only.
+/new
+```
+
+- The path **must be absolute**; a relative path fails with
+  `Plugin root must be an absolute path`.
+- Kimi **copies** the plugin into its managed dir at install time, so
+  re-run the install after you `git pull` to pick up updates.
+- On Kimi the session advisory is injected via each manifest's
+  `sessionStart.skill` (`using-specode` / `using-ragkit`) — there is no
+  `SessionStart` hook. task-swarm / obsidian-wiki have no session advisory
+  (their skills are still found by Kimi's native scan).
+- A future one-command remote install is possible by shipping per-plugin
+  release-asset zips (Kimi accepts zip-URL sources) — not yet set up.
+- Not yet verified on a real Kimi host; if an install command errors,
+  please report the exact message.
 
 ### One-shot (Claude Code only)
 
