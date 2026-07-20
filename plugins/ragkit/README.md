@@ -44,17 +44,65 @@ export DASHSCOPE_API_KEY=<你的密钥>
 
 内置 preset（`--provider` 可选值）：
 
-| preset | model | key_env |
-| --- | --- | --- |
-| `openai` | text-embedding-3-small | `OPENAI_API_KEY` |
-| `qwen` | text-embedding-v4 | `DASHSCOPE_API_KEY` |
-| `zhipu` | embedding-3 | `ZHIPUAI_API_KEY` |
-| `voyage` | voyage-3 | `VOYAGE_API_KEY` |
-| `azure` | text-embedding-3-small | `AZURE_OPENAI_API_KEY` |
+| preset | model | key_env | 单请求上限 |
+| --- | --- | --- | --- |
+| `openai` | text-embedding-3-small | `OPENAI_API_KEY` | 高（可调大 `batch_size`） |
+| `qwen` | text-embedding-v4 | `DASHSCOPE_API_KEY` | **10 条/请求**（硬上限） |
+| `zhipu` | embedding-3 | `ZHIPUAI_API_KEY` | 视文档 |
+| `voyage` | voyage-3 | `VOYAGE_API_KEY` | 视文档 |
+| `azure` | text-embedding-3-small | `AZURE_OPENAI_API_KEY` | 高 |
 
 自定义端点：`--base-url <url> --model <model> --key-env <ENV_VAR>`（任何 OpenAI 兼容接口均可）。
 
 密钥只通过环境变量传入，**不落盘**。
+
+#### 设置 API key（按平台）
+
+密钥读取自 `key_env` 指定的环境变量。**临时**（仅当前终端会话有效）：
+
+```sh
+# macOS / Linux (bash/zsh)
+export DASHSCOPE_API_KEY=<你的密钥>
+```
+```powershell
+# Windows PowerShell
+$env:DASHSCOPE_API_KEY = "<你的密钥>"
+```
+
+**永久 / 全局**（新开终端也生效，推荐）：
+
+```powershell
+# Windows —— 写入用户环境变量，设完需【新开】终端才生效
+setx DASHSCOPE_API_KEY "<你的密钥>"
+```
+```sh
+# macOS / Linux —— 追加到 shell 配置后 source 生效
+echo 'export DASHSCOPE_API_KEY=<你的密钥>' >> ~/.zshrc && source ~/.zshrc
+```
+
+> ⚠️ 未设置密钥时后端解析会跳过云端；若本地模型也未缓存则降级为词汇+元数据路。
+> query 时云端调用失败（密钥失效/网络异常）不再崩溃，**自动降级**并在 stderr 提示。
+
+#### 强制走云端（本地模型已缓存时）
+
+后端解析优先级为「本地已缓存 > 云端」。**若本地已装过模型、但想强制用云端**，在 `<知识库路径>/.ragkit/config.json` 显式指定：
+
+```json
+{
+  "backend": "cloud",
+  "cloud": { "provider": "qwen", "base_url": "...", "model": "text-embedding-v4", "key_env": "DASHSCOPE_API_KEY" }
+}
+```
+
+#### 单请求批大小（batch_size）
+
+云端每次请求最多上传 `batch_size` 条文本，默认 **10**（DashScope text-embedding-v4 兼容模式硬上限，超出返回 `400 InvalidParameter`）。OpenAI 等端点上限更高，可在 `cloud` 配置里加 `"batch_size": 64` 减少请求次数、加快 embed：
+
+```json
+{ "cloud": { "provider": "openai", "...": "...", "batch_size": 64 } }
+```
+
+> 切换后端或改 batch 后，需 `embed --rebuild` 重建索引（向量维度/模型空间不同，旧向量不可混用）。
 
 ### 无 uv 时的回退
 

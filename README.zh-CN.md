@@ -21,7 +21,7 @@
 | **specode** | 6.5.1 | 轻量**规格驱动工作流**编排外壳——带 host agent 走 requirements → design → tasks → 执行 → 验收，每阶段委托给 [superpowers](https://github.com/obra/superpowers) 技能（一等公民 specode 原生降级），每条规格固定产出 4 份文档（requirements / design / tasks / implementation-log）。内置独立 `intake` 与 `execute` skill（执行尾段可随时手动 `/specode:execute` 触发）、零 import 的 task-swarm 并发执行衔接、可选的定位型经验检索。版本历史见 [CHANGELOG](./plugins/specode/CHANGELOG.md)。 |
 | **task-swarm** | 0.12.1 | 由 `pipeline.yml` 驱动的独立**多 agent 编排**——语义任务组 + 跨组并发、fork coder、按组 reviewer + validator 循环（`state.json` 为单一事实源）。specode 把执行阶段委托到这里；也可用 `/task-swarm:swarm` 直接独立运行。详见 [`plugins/task-swarm/`](./plugins/task-swarm) 及其 CHANGELOG。 |
 | **obsidian-wiki** | 2.2.1 | 用三个 skill 维护 Obsidian LLM-Wiki——确定性结构层（`wiki-struct`）、内容策展（`wiki-curate`）、统一编排器（`wiki-orchestrate`）。通用代码 + 按库配置放在家目录注册表 `~/.config/obsidian-wiki/`（回退 `<vault>/.wiki/config.json`），零硬编码结构。详见 [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki)。 |
-| **ragkit** | 0.2.1 | 独立知识库 **RAG**——向量 + 词汇 + 元数据三路召回，RRF 融合，返回定位卡片。specode `distill` 产出的 `knowledge-base/` 可直接消费；零重型依赖（词汇路仅需 stdlib + numpy）。详见 [`plugins/ragkit/`](./plugins/ragkit)。 |
+| **ragkit** | 0.2.2 | 独立知识库 **RAG**——向量 + 词汇 + 元数据三路召回，RRF 融合，返回定位卡片。specode `distill` 产出的 `knowledge-base/` 可直接消费；零重型依赖（词汇路仅需 stdlib + numpy）。详见 [`plugins/ragkit/`](./plugins/ragkit)。 |
 
 `## 安装` 覆盖整个 marketplace；其余章节（能力亮点、使用、项目结构）记录的是 **specode**（旗舰插件）。**task-swarm** 的文档见 [`plugins/task-swarm/`](./plugins/task-swarm) 下的源码与 `CHANGELOG`；**obsidian-wiki** 的文档见 [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki) 下的 `README.md` / `AGENTS.md`。
 
