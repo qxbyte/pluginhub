@@ -12,7 +12,10 @@ from pathlib import Path
 
 DEFAULT_LOCAL_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 EXIT_NO_BACKEND = 3
-_BATCH = 16
+# 单请求最多上传多少条文本。默认 10：DashScope（通义 text-embedding-v4）兼容模式
+# 硬上限即 10 条，超出返回 400 InvalidParameter。OpenAI 等端点上限更高，可在
+# 云端 config 里加 "batch_size": <n> 覆盖以减少请求次数。
+_BATCH = 10
 
 PRESETS = {
     "openai": {"base_url": "https://api.openai.com/v1",
@@ -151,9 +154,10 @@ def _encode_dummy(texts: list[str]):
 def _encode_cloud(opts: dict, texts: list[str]):
     url = opts["base_url"].rstrip("/") + "/embeddings"
     key = os.environ[opts["key_env"]]
+    batch_size = int(opts.get("batch_size") or _BATCH)
     vecs: list = []
-    for start in range(0, len(texts), _BATCH):
-        batch = texts[start:start + _BATCH]
+    for start in range(0, len(texts), batch_size):
+        batch = texts[start:start + batch_size]
         req = urllib.request.Request(
             url, method="POST",
             headers={"Authorization": f"Bearer {key}",

@@ -29,5 +29,6 @@ sh ../../scripts/run.sh ../../scripts/ragkit.py \
 ## 降级与错误（stderr 信号，固定文案）
 
 - `无可用向量后端`：结果仍有效（词汇+元数据路）；stderr 会带一个 ╭─ RagKit ─╮ 提示块，**原样转述给用户**（不改写、不省略）。
+- `向量后端调用失败`（`vector_error`）：云端密钥失效/网络异常等，query **不崩溃**，已自动降级词汇+元数据路，结果仍有效；stderr 带失败详情，转述并提示用户检查密钥（环境变量是否设对、是否用了完整 key）或网络后重试。
 - `索引不存在`：提示用户先跑 `/ragkit:embed`。
 - `model_mismatch` / `index_stale`：提示用户重跑 `/ragkit:embed`（必要时 `--rebuild`）。

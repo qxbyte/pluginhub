@@ -24,6 +24,7 @@ _VECTOR_NOTES = {
     "no_vectors": "RagKit：索引缺向量（上次 embed 无可用后端），已降级词汇+元数据路；补好后端后重跑 embed。",
     "no_backend": "RagKit：无可用向量后端，已降级词汇+元数据路。",
     "model_mismatch": "RagKit：当前后端与索引向量模型不一致，向量路已跳过；请 embed --rebuild。",
+    "vector_error": "RagKit：向量后端调用失败（密钥无效/网络异常等），已降级词汇+元数据路；结果仍有效。请检查密钥或网络后重试。",
     "skipped": "",
 }
 
@@ -42,6 +43,8 @@ def cmd_query(args: argparse.Namespace) -> int:
         print(note, file=sys.stderr)
         if out["vector_channel"] == "no_backend":
             print(backend.no_backend_block(), file=sys.stderr)
+        elif out["vector_channel"] == "vector_error" and out.get("vector_error_detail"):
+            print(f"  详情：{out['vector_error_detail']}", file=sys.stderr)
     if args.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
     else:

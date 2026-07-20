@@ -75,9 +75,13 @@ def run_cli():
     """Invoke ragkit.py as a CLI subprocess with the (monkeypatched) env."""
 
     def _run(*args):
+        # Windows 默认用 GBK 解码子进程输出，遇到 UTF-8 中文/emoji 会 UnicodeDecodeError；
+        # 显式 encoding=utf-8 + 子进程 PYTHONIOENCODING 保证跨平台一致。
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
         return subprocess.run(
             [sys.executable, str(SCRIPTS / "ragkit.py"), *args],
-            capture_output=True, text=True, env=os.environ.copy(),
+            capture_output=True, text=True, encoding="utf-8", env=env,
         )
 
     return _run

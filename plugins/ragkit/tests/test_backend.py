@@ -76,6 +76,24 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
 
+class _CountingHandler(BaseHTTPRequestHandler):
+    """记录每个请求的 input 条数，验证 batch_size 切分。"""
+    batch_sizes: list = []
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        _CountingHandler.batch_sizes.append(len(body["input"]))
+        data = [{"index": i, "embedding": [1.0, float(i)]} for i in range(len(body["input"]))]
+        payload = json.dumps({"data": data}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *a):
+        pass
+
+
 def test_cloud_encode_openai_compat(monkeypatch):
     _Handler.seen_auth.clear()
     server = HTTPServer(("127.0.0.1", 0), _Handler)
@@ -97,8 +115,22 @@ def test_cloud_encode_batching_and_index_order(monkeypatch):
     monkeypatch.setenv("TEST_RAGKIT_KEY", "sk-test")
     opts = {"base_url": f"http://127.0.0.1:{server.server_port}",
             "model": "m", "key_env": "TEST_RAGKIT_KEY"}
-    texts = [f"text-{i}" for i in range(17)]   # crosses the _BATCH=16 boundary
+    texts = [f"text-{i}" for i in range(23)]   # crosses the _BATCH=10 boundary (3 批)
     vecs = backend.encode("cloud", opts, texts)
     server.shutdown()
-    assert vecs.shape == (17, 2)
+    assert vecs.shape == (23, 2)
     assert np.allclose(np.linalg.norm(vecs, axis=1), 1.0, atol=1e-5)
+
+
+def test_cloud_encode_respects_batch_size_override(monkeypatch):
+    """config 里的 batch_size 覆盖默认 _BATCH（如 OpenAI 端点可调大）。"""
+    _Handler.seen_auth.clear()
+    _Handler.batch_sizes = []
+    server = HTTPServer(("127.0.0.1", 0), _CountingHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("TEST_RAGKIT_KEY", "sk-test")
+    opts = {"base_url": f"http://127.0.0.1:{server.server_port}",
+            "model": "m", "key_env": "TEST_RAGKIT_KEY", "batch_size": 5}
+    backend.encode("cloud", opts, [f"t-{i}" for i in range(12)])   # 12 条 / 5 = 3 批
+    server.shutdown()
+    assert _CountingHandler.batch_sizes == [5, 5, 2]
