@@ -1,7 +1,7 @@
 {
   "name": "task-swarm",
   "version": "0.12.1",
-  "description": "Standalone multi-agent orchestration driven by a pipeline.yml — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (state.json is the single source of truth). specode delegates its execution phase here; also runnable directly via /task-swarm:swarm.",
+  "description": "Standalone multi-agent orchestration via pipeline.yml (fork coders + reviewer/validator loops).",
   "author": {
     "name": "xueqiang",
     "email": "xueqiang361@gmail.com"

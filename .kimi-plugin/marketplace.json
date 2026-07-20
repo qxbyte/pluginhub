@@ -6,7 +6,7 @@
       "name": "specode",
       "displayName": "specode",
       "version": "6.5.1",
-      "description": "Lightweight spec-driven workflow orchestration shell — requirements → design → tasks → execute → acceptance, 4 fixed docs per spec.",
+      "description": "Lightweight spec-driven workflow (requirements → design → tasks → execute → acceptance).",
       "source": "../plugins/specode"
     },
     {
@@ -14,7 +14,7 @@
       "name": "task-swarm",
       "displayName": "task-swarm",
       "version": "0.12.1",
-      "description": "Standalone multi-agent orchestration driven by a pipeline.yml — fork coders + per-group reviewer/validator loops.",
+      "description": "Standalone multi-agent orchestration via pipeline.yml (fork coders + reviewer/validator loops).",
       "source": "../plugins/task-swarm"
     },
     {
@@ -22,7 +22,7 @@
       "name": "obsidian-wiki",
       "displayName": "obsidian-wiki",
       "version": "2.2.1",
-      "description": "Maintain an Obsidian LLM-Wiki — deterministic structure layer + content curation + unified orchestrator.",
+      "description": "Maintain an Obsidian LLM-Wiki (structure layer + content curation + orchestrator).",
       "source": "../plugins/obsidian-wiki"
     },
     {
@@ -30,7 +30,7 @@
       "name": "ragkit",
       "displayName": "ragkit",
       "version": "0.2.2",
-      "description": "Standalone knowledge-base RAG — vector + lexical + metadata three-channel recall, RRF-fused.",
+      "description": "Standalone knowledge-base RAG (vector + lexical + metadata recall, RRF-fused).",
       "source": "../plugins/ragkit"
     }
   ]

@@ -1,7 +1,7 @@
 {
   "name": "obsidian-wiki",
   "version": "2.2.1",
-  "description": "Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (wiki-struct: Home tree / per-dir READMEs / partition pages), content curation (wiki-curate: ingest / curate / lint), and a unified orchestrator (wiki-orchestrate). Generic code + per-vault config in the home-dir registry ~/.config/obsidian-wiki/ (fallback: <vault>/.wiki/config.json), zero hardcoded structure.",
+  "description": "Maintain an Obsidian LLM-Wiki (structure layer + content curation + orchestrator).",
   "author": {
     "name": "xueqiang",
     "email": "xueqiang361@gmail.com"

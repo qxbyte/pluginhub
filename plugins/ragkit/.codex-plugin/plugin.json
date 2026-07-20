@@ -1,7 +1,7 @@
 {
   "name": "ragkit",
   "version": "0.2.2",
-  "description": "Standalone knowledge-base RAG: chunk + embed + multi-channel recall (vector/lexical/metadata, RRF-fused) over distill-style knowledge-base/ directories.",
+  "description": "Standalone knowledge-base RAG (vector + lexical + metadata recall, RRF-fused).",
   "author": {
     "name": "xueqiang",
     "email": "xueqiang361@gmail.com"
