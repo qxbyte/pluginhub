@@ -4,6 +4,15 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.5.1 (2026-07-21) — 修 Kimi 安装失败 + Kimi SessionStart 接线
+
+真机反馈：Kimi Code 上 `/plugins install <pluginhub 仓库 URL>` 报 `No manifest at kimi.plugin.json or .kimi-plugin/plugin.json`。据 Kimi 官方文档 + 源码确认：kimi-code **不支持从 GitHub 子目录安装、也不做多子目录扫描**，故 monorepo 市场无法用裸仓库 URL 远程装。
+
+- **`.kimi-plugin/marketplace.json` 改为 Kimi 官方 schema**：`version: "2"` + `plugins[].id` + `plugins[].source`（`source` 为 `../plugins/specode` 等，相对 marketplace 文件解析到各插件子目录，本地 clone 后 `/plugins marketplace <abs>/.kimi-plugin/marketplace.json` 可装）；保留 `name`/`version` 供版本门禁。
+- **Kimi SessionStart 接线（仿 superpowers 的 `sessionStart.skill`）**：`.kimi-plugin/plugin.json` 加 `sessionStart: {skill: "using-specode"}`，并新增轻量 bootstrap 技能 `skills/using-specode/SKILL.md`（会话启动 advisory：specode 可用 + 五命令 + Host-tool convention）。Kimi 无 SessionStart hook，改由此清单字段在会话启动注入。
+- **`skillInstructions`（Kimi 工具映射）**：`.kimi-plugin/plugin.json` 加一段，把 `AskUserQuestion`/`Skill`/`Agent(subagent_type)`/`TodoList`/`Read/Write/Edit/Bash/Grep/Glob/FetchURL/WebSearch` 映射到 Kimi 实际工具名。
+- README EN/zh Kimi 安装说明改为「本地 clone + `/plugins marketplace <abs>` 或 `/plugins install <abs>/plugins/<name>`」，并注明远程一键装需后续每插件 release zip。**仍未在真机 Kimi 验证**。
+
 ## 6.5.0 (2026-07-20) — 多宿主适配：skills 去宿主绑定 + CodeBuddy/Codex/Kimi 独立 manifest
 
 specode 现在同时面向 Claude Code / CodeBuddy / Codex / Kimi 四个宿主，且四套安装适配互不共用。

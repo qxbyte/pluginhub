@@ -3,12 +3,12 @@
 # pluginhub
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.md#license)
-[![specode](https://img.shields.io/badge/specode-6.5.0-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
-[![task-swarm](https://img.shields.io/badge/task--swarm-0.10.3-blue.svg)](./plugins/task-swarm/.claude-plugin/plugin.json)
-[![obsidian-wiki](https://img.shields.io/badge/obsidian--wiki-2.0.3-blue.svg)](./plugins/obsidian-wiki/.claude-plugin/plugin.json)
+[![specode](https://img.shields.io/badge/specode-6.5.1-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![task-swarm](https://img.shields.io/badge/task--swarm-0.12.1-blue.svg)](./plugins/task-swarm/.claude-plugin/plugin.json)
+[![obsidian-wiki](https://img.shields.io/badge/obsidian--wiki-2.2.1-blue.svg)](./plugins/obsidian-wiki/.claude-plugin/plugin.json)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/pluginhub#installation)
 [![CodeBuddy](https://img.shields.io/badge/CodeBuddy-2.97.1%2B-1E90FF)](https://github.com/qxbyte/pluginhub#installation)
-[![Tests](https://img.shields.io/badge/pytest-255%20cases-success)](./plugins/task-swarm/tests)
+[![Tests](https://img.shields.io/badge/pytest-301%20cases-success)](./plugins/task-swarm/tests)
 
 > qxbyte's plugin marketplace for CLI coding agents
 > (Claude Code / CodeBuddy / Codex / Kimi).
@@ -20,10 +20,10 @@ any plugin it hosts. More plugins will land here over time.
 
 | Plugin | Version | What it does |
 | --- | --- | --- |
-| **specode** | 6.5.0 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles dedicated `intake` and `execute` skills (the execution tail is manually triggerable anytime via `/specode:execute`), a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
-| **task-swarm** | 0.12.0 | Standalone multi-agent **orchestration** driven by a `pipeline.yml` — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (`state.json` is the single source of truth). specode delegates its execution phase here; also runnable directly via `/task-swarm:swarm`. See [`plugins/task-swarm/`](./plugins/task-swarm) + its CHANGELOG. |
-| **obsidian-wiki** | 2.2.0 | Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (`wiki-struct`), content curation (`wiki-curate`), and a unified orchestrator (`wiki-orchestrate`). Generic code + per-vault config in the home-dir registry `~/.config/obsidian-wiki/` (fallback: `<vault>/.wiki/config.json`), zero hardcoded structure. See [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki). |
-| **ragkit** | 0.2.0 | Standalone knowledge-base **RAG** — vector + lexical + metadata three-channel recall, RRF-fused, returns pointer cards. Optional downstream consumer of specode `distill` output; zero heavy deps (stdlib + numpy for lexical mode). See [`plugins/ragkit/`](./plugins/ragkit). |
+| **specode** | 6.5.1 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles dedicated `intake` and `execute` skills (the execution tail is manually triggerable anytime via `/specode:execute`), a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
+| **task-swarm** | 0.12.1 | Standalone multi-agent **orchestration** driven by a `pipeline.yml` — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (`state.json` is the single source of truth). specode delegates its execution phase here; also runnable directly via `/task-swarm:swarm`. See [`plugins/task-swarm/`](./plugins/task-swarm) + its CHANGELOG. |
+| **obsidian-wiki** | 2.2.1 | Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (`wiki-struct`), content curation (`wiki-curate`), and a unified orchestrator (`wiki-orchestrate`). Generic code + per-vault config in the home-dir registry `~/.config/obsidian-wiki/` (fallback: `<vault>/.wiki/config.json`), zero hardcoded structure. See [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki). |
+| **ragkit** | 0.2.1 | Standalone knowledge-base **RAG** — vector + lexical + metadata three-channel recall, RRF-fused, returns pointer cards. Optional downstream consumer of specode `distill` output; zero heavy deps (stdlib + numpy for lexical mode). See [`plugins/ragkit/`](./plugins/ragkit). |
 
 `## Installation` covers the whole marketplace; the other sections
 (Highlights, Usage, Architecture) document **specode**, the flagship
@@ -124,8 +124,15 @@ codebuddy plugin install specode@pluginhub
 codex plugin marketplace add qxbyte/pluginhub
 codex plugin install specode@pluginhub
 
-# Kimi (unverified)
-/plugins install https://github.com/qxbyte/pluginhub
+# Kimi Code — a bare repo URL does NOT work: Kimi cannot install a plugin
+# from a monorepo subdirectory. Clone, then point Kimi at the local
+# marketplace file (its sources resolve to the plugin subdirs), or install
+# a single plugin by absolute local path:
+git clone https://github.com/qxbyte/pluginhub
+# in a Kimi session (use the ABSOLUTE path to your clone):
+/plugins marketplace /abs/path/to/pluginhub/.kimi-plugin/marketplace.json
+# …then install each plugin from the browsed marketplace; or directly:
+/plugins install /abs/path/to/pluginhub/plugins/specode
 ```
 
 For the full superpowers-backed experience, also install the
@@ -198,7 +205,7 @@ difference is the manifest's hook env var.
 | Claude Code | `<plugin>/.claude-plugin/plugin.json` | `.claude-plugin/marketplace.json` | `${CLAUDE_PLUGIN_ROOT}` (`hooks/hooks.json`) | supported |
 | CodeBuddy | `<plugin>/.codebuddy-plugin/plugin.json` | `.codebuddy-plugin/marketplace.json` | `${CODEBUDDY_PLUGIN_ROOT}` (`hooks/hooks.codebuddy.json`) | supported |
 | Codex | `<plugin>/.codex-plugin/plugin.json` | `.agents/plugins/marketplace.json` | `${PLUGIN_ROOT}` (`hooks/hooks.codex.json`, matcher `startup\|resume\|clear`) | experimental — unverified |
-| Kimi | `<plugin>/.kimi-plugin/plugin.json` | `.kimi-plugin/marketplace.json` | — (no hooks declared) | experimental — unverified |
+| Kimi | `<plugin>/.kimi-plugin/plugin.json` | `.kimi-plugin/marketplace.json` (Kimi schema: `version` `"2"` + `id`/`source`) | — (`sessionStart.skill`, no hooks) | experimental — local-clone install only |
 
 Codex and Kimi are wired but **not yet verified on a real host**. Open
 items:
@@ -209,10 +216,17 @@ items:
   actually be `CODEX_PLUGIN_ROOT` or another name); unverified.
 - **Codex** — the marketplace landing at `.agents/plugins/marketplace.json`
   with a string `owner` schema is unverified.
-- **Kimi** — the whole set (manifest-scan mechanism, hook declaration) is
-  unverified; **Kimi currently declares no hooks, so specode/ragkit's
-  `SessionStart` injection will not fire under Kimi** (skills are still
-  discovered by Kimi's native scan).
+- **Kimi** — a **bare repo URL cannot install a monorepo subdir plugin**
+  (confirmed against Kimi Code's docs + source: no subpath GitHub install,
+  no multi-subdir scan). So pluginhub on Kimi is **local-clone only**: clone,
+  then `/plugins marketplace <abs>/.kimi-plugin/marketplace.json` (its `source`
+  entries resolve to the plugin subdirs) or `/plugins install <abs>/plugins/<name>`.
+  For remote/one-command install a future option is per-plugin release-asset
+  zips (Kimi accepts zip-URL sources). **SessionStart on Kimi is handled by the
+  manifest's `sessionStart.skill`** — specode/ragkit load `using-specode` /
+  `using-ragkit` (a bootstrap advisory skill) at session start; the other two
+  plugins have no session advisory (skills are found by Kimi's native scan).
+  The end-to-end flow is **not yet verified on a real Kimi host**.
 - The base-directory-relative path `../../scripts/run.sh` used inside
   skills is not verified reachable under Codex / Kimi.
 - specode's cross-skill "invoke by name" (the `Skill` tool) has no

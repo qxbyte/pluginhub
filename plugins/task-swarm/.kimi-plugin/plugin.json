@@ -1,6 +1,6 @@
 {
   "name": "task-swarm",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Standalone multi-agent orchestration driven by a pipeline.yml — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (state.json is the single source of truth). specode delegates its execution phase here; also runnable directly via /task-swarm:swarm.",
   "author": {
     "name": "xueqiang",
@@ -14,5 +14,6 @@
     "orchestration",
     "pipeline"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "skillInstructions": "Kimi Code tool mapping for task-swarm skills:\n- \"fork\" a coder / reviewer / validator, or \"dispatch a subagent\", means: use Kimi Code's `Agent` tool. Fork implementers with `subagent_type: \"coder\"`; use `explore` for read-only investigation; use `plan` for planning. Do not pass `general-purpose`. Paste the fully rendered task.md path/prompt into the Agent call.\n- A subagent counts as done only when the host confirms its dispatched task returned successfully — not from its verbal report.\n- When a skill refers to the `Skill` tool, use Kimi Code's native `Skill` tool.\n- Use Kimi Code's `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob` and MCP tools by their exposed names."
 }

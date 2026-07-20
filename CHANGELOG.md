@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 修 Kimi 安装 (2026-07-21) — specode 6.5.1 / task-swarm 0.12.1 / obsidian-wiki 2.2.1 / ragkit 0.2.1
+
+真机反馈 Kimi Code 上 `/plugins install <仓库URL>` 报 `No manifest at .kimi-plugin/plugin.json`。据 Kimi 官方文档 + kimi-code 源码确认：**kimi-code 不支持从 GitHub 子目录安装、也不做多子目录扫描**，故 monorepo 市场无法用裸仓库 URL 远程装（这是 Kimi 的硬限制，非我方 bug）。
+
+- **`.kimi-plugin/marketplace.json` 改为 Kimi 官方 schema**：`version:"2"` + `plugins[].id` + `source`（相对 marketplace 文件解析到各插件子目录）。pluginhub 在 Kimi 上**仅支持本地 clone**：clone 后 `/plugins marketplace <abs>/.kimi-plugin/marketplace.json` 或 `/plugins install <abs>/plugins/<name>`。
+- **Kimi SessionStart 接线**（仿 superpowers 的 `sessionStart.skill`）：specode/ragkit 的 `.kimi-plugin/plugin.json` 加 `sessionStart: {skill: using-specode/using-ragkit}`，新增两个 bootstrap 技能承接会话启动 advisory；4 个 Kimi 清单加 `skillInstructions`（Kimi 工具映射）。
+- README EN/zh Kimi 安装说明改为本地 clone；远程一键装的后续方案是每插件 release zip（Kimi 接受 zip-URL source）。**仍未在真机 Kimi 验证。**
+
 ## 多宿主适配 (2026-07-20) — specode 6.5.0 / task-swarm 0.12.0 / obsidian-wiki 2.2.0 / ragkit 0.2.0
 
 全库四插件同步做多宿主适配：从「Claude Code + CodeBuddy 共用一套」扩展到 **Claude Code / CodeBuddy / Codex / Kimi 四宿主各自独立一套安装适配**。

@@ -4,6 +4,10 @@ obsidian-wiki 是维护 Obsidian LLM-Wiki 的多 agent 插件（从独立 skills
 
 ## Unreleased
 
+## 2.2.1 (2026-07-21) — 修 Kimi 市场 schema + Kimi 工具映射
+
+随 pluginhub Kimi 安装修复同发：`.kimi-plugin/marketplace.json` 改 Kimi 官方 schema（`version:"2"`/`id`/`source` 指向各插件子目录，本地 clone 可装）；`.kimi-plugin/plugin.json` 加 `skillInstructions`（把 `AskUserQuestion` 等映射到 Kimi 工具，并重申只读目录/受管块红线）。obsidian-wiki 无 hooks，故不加 `sessionStart`。README Kimi 安装说明改为本地 clone。仍未真机验证。
+
 ## 2.2.0 (2026-07-20) — 多宿主适配：skills 去宿主绑定 + CodeBuddy/Codex/Kimi 独立 manifest
 
 obsidian-wiki 现在同时面向 Claude Code / CodeBuddy / Codex / Kimi 四个宿主。

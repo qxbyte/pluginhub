@@ -1,6 +1,6 @@
 {
   "name": "obsidian-wiki",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (wiki-struct: Home tree / per-dir READMEs / partition pages), content curation (wiki-curate: ingest / curate / lint), and a unified orchestrator (wiki-orchestrate). Generic code + per-vault config in the home-dir registry ~/.config/obsidian-wiki/ (fallback: <vault>/.wiki/config.json), zero hardcoded structure.",
   "author": {
     "name": "xueqiang",
@@ -16,5 +16,6 @@
     "curation",
     "workflow"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "skillInstructions": "Kimi Code tool mapping for obsidian-wiki skills:\n- When a skill says to ask the user, present options, or confirm before a destructive action, call Kimi Code's `AskUserQuestion` tool.\n- Use Kimi Code's `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob` and MCP tools by their exposed names. Never touch read-only content dirs; never rewrite wiki-struct managed blocks outside the struct skill."
 }

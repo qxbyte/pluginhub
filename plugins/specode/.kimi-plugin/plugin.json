@@ -1,6 +1,6 @@
 {
   "name": "specode",
-  "version": "6.5.0",
+  "version": "6.5.1",
   "description": "Lightweight spec-driven workflow orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to superpowers skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles dedicated intake and execute skills (the execution tail — selector, engine dispatch, acceptance — is manually triggerable anytime via /specode:execute), a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval.",
   "author": {
     "name": "xueqiang",
@@ -13,5 +13,9 @@
     "specification",
     "workflow"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "sessionStart": {
+    "skill": "using-specode"
+  },
+  "skillInstructions": "Kimi Code tool mapping for specode skills:\n- When a skill says to ask the user, present multiple-choice options, ask one question at a time, or wait for the user's choice, call Kimi Code's `AskUserQuestion` tool (1 question, 2-4 concrete options, recommended option first with a `(Recommended)` suffix). Do not render choices as plain assistant text unless AskUserQuestion is unavailable.\n- When a skill refers to the `Skill` tool (invoke another skill by name, e.g. specode:intake / specode:execute), use Kimi Code's native `Skill` tool.\n- When a skill says to dispatch a subagent or use `Agent`/`Task`, use Kimi Code's `Agent` tool with an appropriate `subagent_type` (`coder` for implementation, `explore` for read-only investigation, `plan` for planning). Do not pass `general-purpose`.\n- When a skill refers to `TodoWrite`, use Kimi Code's `TodoList` tool.\n- Use Kimi Code's `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob`, `FetchURL`, `WebSearch`, and MCP tools by their exposed names."
 }

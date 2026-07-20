@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.1 (2026-07-21) — 修 Kimi 安装失败 + Kimi SessionStart 接线
+
+同 specode 6.5.1 的 Kimi 修复：`.kimi-plugin/marketplace.json` 改 Kimi 官方 schema（`version:"2"`/`id`/`source`）；`.kimi-plugin/plugin.json` 加 `sessionStart: {skill: "using-ragkit"}` + 新增 `skills/using-ragkit/SKILL.md`（会话启动 advisory：ragkit 四技能 + 防脱轨硬约束）；加 `skillInstructions`（Kimi 工具映射）。Kimi 无 SessionStart hook，改由清单字段注入。README Kimi 安装说明改为本地 clone。仍未真机验证。
+
 ## 0.2.0 (2026-07-20) — 多宿主适配：bootstrap 去宿主绑定 + CodeBuddy/Codex/Kimi 独立 manifest
 
 ragkit 现在同时面向 Claude Code / CodeBuddy / Codex / Kimi 四个宿主。

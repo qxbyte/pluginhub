@@ -1,6 +1,6 @@
 {
   "name": "ragkit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Standalone knowledge-base RAG: chunk + embed + multi-channel recall (vector/lexical/metadata, RRF-fused) over distill-style knowledge-base/ directories.",
   "author": {
     "name": "xueqiang",
@@ -14,5 +14,9 @@
     "vector-search",
     "embedding"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "sessionStart": {
+    "skill": "using-ragkit"
+  },
+  "skillInstructions": "Kimi Code tool mapping for ragkit skills:\n- When a skill refers to the `Skill` tool (invoke a skill by name, e.g. ragkit:query / ragkit:embed), use Kimi Code's native `Skill` tool.\n- When a skill says to ask the user or present options, call Kimi Code's `AskUserQuestion` tool.\n- Use Kimi Code's `Read`, `Bash`, `Grep`, `Glob` and MCP tools by their exposed names. Do NOT hand-roll retrieval: only call ragkit's own scripts; never read the `.ragkit` vector files or compute similarity yourself."
 }
