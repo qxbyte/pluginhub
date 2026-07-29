@@ -452,4 +452,4 @@ rule, hermetic test conventions, and the release procedure.
 
 ## License
 
-MIT
+This project is licensed under the [MIT License](./LICENSE.TXT).
