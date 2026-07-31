@@ -9,3 +9,4 @@ state/*
 .claude/
 DEV.md
 .venv/
+docs/superpowers/

@@ -1,4 +1,4 @@
-<p align="right"><strong>English</strong> | <a href="./README.zh-CN.md">中文</a></p>
+<p align="right"><strong>English</strong> | <a href="./docs/README.zh-CN.md">中文</a></p>
 
 # pluginhub
 
@@ -112,9 +112,10 @@ optional. specode delegates parallel execution to task-swarm when it's
 installed and self-executes sequentially otherwise — both are first-class.
 
 Verification status: **Claude Code** ✅ and **CodeBuddy** ✅ (2.97.1) are
-verified; **Kimi Code** ✅ is verified for local install (it cannot install
-from a URL — see its own section); **Codex CLI** ⏳ ships manifests matching
-Codex's docs but is not yet run on a real host.
+verified; **Codex CLI** ✅ is verified for install + skills on a real host
+(the `SessionStart` hook advisory is not yet confirmed); **Kimi Code** ✅ is
+verified for local install (it cannot install from a URL — see its own
+section).
 
 ### Claude Code
 
@@ -180,8 +181,8 @@ codex plugin list
   without the flag task-swarm falls back to sequential single-agent. task-swarm's
   `agents/*.md` personas are Claude-format and Codex does not load them, so
   per-role tool isolation (reviewer/validator having no Edit/Write) is by prompt.
-- Status: the manifests match Codex's docs, but the flow is **not yet run on a
-  real Codex host** — please report any error.
+- Status: **install + skills are verified on a real Codex host**; the
+  `SessionStart` hook advisory is not yet confirmed — please report any error.
 
 ### Kimi Code (local install)
 
@@ -279,11 +280,11 @@ difference is the manifest's hook env var.
 | --- | --- | --- | --- | --- |
 | Claude Code | `<plugin>/.claude-plugin/plugin.json` | `.claude-plugin/marketplace.json` | `${CLAUDE_PLUGIN_ROOT}` (`hooks/hooks.json`) | supported |
 | CodeBuddy | `<plugin>/.codebuddy-plugin/plugin.json` | `.codebuddy-plugin/marketplace.json` | `${CODEBUDDY_PLUGIN_ROOT}` (`hooks/hooks.codebuddy.json`) | supported |
-| Codex | `<plugin>/.codex-plugin/plugin.json` | `.agents/plugins/marketplace.json` (Codex schema: per-entry `source: {source: local, path: ./plugins/<name>}` + `policy`) | `${PLUGIN_ROOT}` (`hooks/hooks.codex.json`, matcher `startup\|resume\|clear`) | schema per Codex docs — not yet run on a real host |
+| Codex | `<plugin>/.codex-plugin/plugin.json` | `.agents/plugins/marketplace.json` (Codex schema: per-entry `source: {source: local, path: ./plugins/<name>}` + `policy`) | `${PLUGIN_ROOT}` (`hooks/hooks.codex.json`, matcher `startup\|resume\|clear`) | install + skills **verified**; `SessionStart` hook advisory unconfirmed |
 | Kimi | `<plugin>/.kimi-plugin/plugin.json` | `.kimi-plugin/marketplace.json` (Kimi schema: `version` `"2"` + `id`/`source`) | — (`sessionStart.skill`, no hooks) | local-clone only — install + specode trigger **verified**; `sessionStart` advisory unconfirmed |
 
-Codex and Kimi are wired but **not yet verified on a real host**. Open
-items:
+Codex is verified for install + skills; its remaining open items and Kimi's
+are below:
 
 - **Codex** — unlike Kimi, Codex **does support monorepo subdir install**:
   `codex plugin marketplace add qxbyte/pluginhub` then
@@ -291,8 +292,8 @@ items:
   whose entries use `source: {source: "local", path: "./plugins/<name>"}`. The
   `.codex-plugin/plugin.json` (`skills: "./skills/"` + `hooks`) and the
   `SessionStart` hook via `${PLUGIN_ROOT}` (a `CLAUDE_PLUGIN_ROOT` alias also
-  works) all match Codex's docs — but the flow is **not yet run on a real
-  Codex host**.
+  works) all match Codex's docs. **Install + skill loading are verified on a
+  real Codex host**; the `SessionStart` hook advisory is not yet confirmed.
 - **Kimi** — a **bare repo URL cannot install a monorepo subdir plugin**
   (confirmed against Kimi Code's docs + source: no subpath GitHub install,
   no multi-subdir scan). So pluginhub on Kimi is **local-clone only**: clone,
@@ -305,7 +306,8 @@ items:
   plugins have no session advisory (skills are found by Kimi's native scan).
   The end-to-end flow is **not yet verified on a real Kimi host**.
 - The base-directory-relative path `../../scripts/run.sh` used inside
-  skills is not verified reachable under Codex / Kimi.
+  skills is not verified reachable under Kimi (Codex skill loading is
+  verified; a live `run.sh` invocation is not yet confirmed there).
 - specode's cross-skill "invoke by name" (the `Skill` tool) has no
   verified equivalent under Codex / Kimi.
 - Codex's `ask_user_question` being Plan-mode-only may affect specode's
@@ -446,7 +448,7 @@ and documented by its own `README.md` / `AGENTS.md`.
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the stdlib-only
+See [`CONTRIBUTING.md`](./docs/CONTRIBUTING.md) for the stdlib-only
 runtime rule, the `run.sh` CLI invocation contract, the advisory-hook
 rule, hermetic test conventions, and the release procedure.
 
