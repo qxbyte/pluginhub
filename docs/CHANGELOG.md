@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Codex 真机验证 + 仓库文档重组 (2026-08-01)
+
+- **Codex 真机验证通过**：`codex plugin marketplace add` + `codex plugin add` 安装成功，skills 加载可用；`SessionStart` hook 自动提示尚未确认。README EN/zh、CONTRIBUTING、CLAUDE.md 的 Codex 状态从「尚未真机验证」改为「安装 + skills 已验证」。
+- **根目录 md 文档规整进 `docs/`**：`CHANGELOG.md` / `CONTRIBUTING.md` / `README.zh-CN.md` 移入 `docs/`，根目录只保留 `README.md`（+ `LICENSE.TXT`；`CLAUDE.md` 因宿主要求留在根目录）。相对链接同步修正。
+- **`docs/superpowers/` 加入 `.gitignore`**：superpowers 相关文档不再上传 GitHub。
+
 ## Codex 适配修正 (2026-07-21) — task-swarm 0.12.2
 
 据 Codex 官方文档 + openai/codex 源码调研，修正 Codex 适配（Codex 与 Kimi 不同——**支持 monorepo 子目录安装**）：

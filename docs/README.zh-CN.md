@@ -1,14 +1,14 @@
-<p align="right"><a href="./README.md">English</a> | <strong>中文</strong></p>
+<p align="right"><a href="../README.md">English</a> | <strong>中文</strong></p>
 
 # pluginhub
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.zh-CN.md#许可证)
-[![specode](https://img.shields.io/badge/specode-6.5.1-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
-[![task-swarm](https://img.shields.io/badge/task--swarm-0.12.2-blue.svg)](./plugins/task-swarm/.claude-plugin/plugin.json)
-[![obsidian-wiki](https://img.shields.io/badge/obsidian--wiki-2.2.1-blue.svg)](./plugins/obsidian-wiki/.claude-plugin/plugin.json)
+[![specode](https://img.shields.io/badge/specode-6.5.1-blue.svg)](../plugins/specode/.claude-plugin/plugin.json)
+[![task-swarm](https://img.shields.io/badge/task--swarm-0.12.2-blue.svg)](../plugins/task-swarm/.claude-plugin/plugin.json)
+[![obsidian-wiki](https://img.shields.io/badge/obsidian--wiki-2.2.1-blue.svg)](../plugins/obsidian-wiki/.claude-plugin/plugin.json)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/pluginhub#installation)
 [![CodeBuddy](https://img.shields.io/badge/CodeBuddy-2.97.1%2B-1E90FF)](https://github.com/qxbyte/pluginhub#installation)
-[![Tests](https://img.shields.io/badge/pytest-301%20cases-success)](./plugins/task-swarm/tests)
+[![Tests](https://img.shields.io/badge/pytest-301%20cases-success)](../plugins/task-swarm/tests)
 
 > qxbyte 面向 CLI 编码代理（Claude Code / CodeBuddy / Codex / Kimi）的插件 marketplace。
 
@@ -18,12 +18,12 @@
 
 | 插件 | 版本 | 做什么 |
 | --- | --- | --- |
-| **specode** | 6.5.1 | 轻量**规格驱动工作流**编排外壳——带 host agent 走 requirements → design → tasks → 执行 → 验收，每阶段委托给 [superpowers](https://github.com/obra/superpowers) 技能（一等公民 specode 原生降级），每条规格固定产出 4 份文档（requirements / design / tasks / implementation-log）。内置独立 `intake` 与 `execute` skill（执行尾段可随时手动 `/specode:execute` 触发）、零 import 的 task-swarm 并发执行衔接、可选的定位型经验检索。版本历史见 [CHANGELOG](./plugins/specode/CHANGELOG.md)。 |
-| **task-swarm** | 0.12.2 | 由 `pipeline.yml` 驱动的独立**多 agent 编排**——语义任务组 + 跨组并发、fork coder、按组 reviewer + validator 循环（`state.json` 为单一事实源）。specode 把执行阶段委托到这里；也可用 `/task-swarm:swarm` 直接独立运行。详见 [`plugins/task-swarm/`](./plugins/task-swarm) 及其 CHANGELOG。 |
-| **obsidian-wiki** | 2.2.1 | 用三个 skill 维护 Obsidian LLM-Wiki——确定性结构层（`wiki-struct`）、内容策展（`wiki-curate`）、统一编排器（`wiki-orchestrate`）。通用代码 + 按库配置放在家目录注册表 `~/.config/obsidian-wiki/`（回退 `<vault>/.wiki/config.json`），零硬编码结构。详见 [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki)。 |
-| **ragkit** | 0.2.2 | 独立知识库 **RAG**——向量 + 词汇 + 元数据三路召回，RRF 融合，返回定位卡片。specode `distill` 产出的 `knowledge-base/` 可直接消费；零重型依赖（词汇路仅需 stdlib + numpy）。详见 [`plugins/ragkit/`](./plugins/ragkit)。 |
+| **specode** | 6.5.1 | 轻量**规格驱动工作流**编排外壳——带 host agent 走 requirements → design → tasks → 执行 → 验收，每阶段委托给 [superpowers](https://github.com/obra/superpowers) 技能（一等公民 specode 原生降级），每条规格固定产出 4 份文档（requirements / design / tasks / implementation-log）。内置独立 `intake` 与 `execute` skill（执行尾段可随时手动 `/specode:execute` 触发）、零 import 的 task-swarm 并发执行衔接、可选的定位型经验检索。版本历史见 [CHANGELOG](../plugins/specode/CHANGELOG.md)。 |
+| **task-swarm** | 0.12.2 | 由 `pipeline.yml` 驱动的独立**多 agent 编排**——语义任务组 + 跨组并发、fork coder、按组 reviewer + validator 循环（`state.json` 为单一事实源）。specode 把执行阶段委托到这里；也可用 `/task-swarm:swarm` 直接独立运行。详见 [`plugins/task-swarm/`](../plugins/task-swarm) 及其 CHANGELOG。 |
+| **obsidian-wiki** | 2.2.1 | 用三个 skill 维护 Obsidian LLM-Wiki——确定性结构层（`wiki-struct`）、内容策展（`wiki-curate`）、统一编排器（`wiki-orchestrate`）。通用代码 + 按库配置放在家目录注册表 `~/.config/obsidian-wiki/`（回退 `<vault>/.wiki/config.json`），零硬编码结构。详见 [`plugins/obsidian-wiki/`](../plugins/obsidian-wiki)。 |
+| **ragkit** | 0.2.2 | 独立知识库 **RAG**——向量 + 词汇 + 元数据三路召回，RRF 融合，返回定位卡片。specode `distill` 产出的 `knowledge-base/` 可直接消费；零重型依赖（词汇路仅需 stdlib + numpy）。详见 [`plugins/ragkit/`](../plugins/ragkit)。 |
 
-`## 安装` 覆盖整个 marketplace；其余章节（能力亮点、使用、项目结构）记录的是 **specode**（旗舰插件）。**task-swarm** 的文档见 [`plugins/task-swarm/`](./plugins/task-swarm) 下的源码与 `CHANGELOG`；**obsidian-wiki** 的文档见 [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki) 下的 `README.md` / `AGENTS.md`。
+`## 安装` 覆盖整个 marketplace；其余章节（能力亮点、使用、项目结构）记录的是 **specode**（旗舰插件）。**task-swarm** 的文档见 [`plugins/task-swarm/`](../plugins/task-swarm) 下的源码与 `CHANGELOG`；**obsidian-wiki** 的文档见 [`plugins/obsidian-wiki/`](../plugins/obsidian-wiki) 下的 `README.md` / `AGENTS.md`。
 
 ## 能力亮点
 
@@ -50,9 +50,9 @@
 都是可选。装了 task-swarm，specode 会在执行阶段委托给它；没装则 specode 顺序
 自执行——两条路都是一等公民。
 
-验证状态：**Claude Code** ✅ 与 **CodeBuddy** ✅（2.97.1）已验证；**Kimi Code**
-✅ 已验证本地安装（无法从 URL 装——见其专节）；**Codex CLI** ⏳ 附带按 Codex
-官方文档改对的 manifest，但尚未在真机宿主上跑过。
+验证状态：**Claude Code** ✅ 与 **CodeBuddy** ✅（2.97.1）已验证；**Codex CLI**
+✅ 已在真机验证安装 + skills 可用（`SessionStart` hook 自动提示尚未确认）；
+**Kimi Code** ✅ 已验证本地安装（无法从 URL 装——见其专节）。
 
 ### Claude Code
 
@@ -116,8 +116,8 @@ codex plugin list
   `multi_agent = true`**——Codex 用 `spawn_agent` 派子代理；不开这个开关
   task-swarm 会退回单 agent 顺序执行。task-swarm 的 `agents/*.md` 是 Claude 格式，
   Codex 不加载，故按角色的工具隔离（reviewer/validator 无 Edit/Write）靠 prompt 约束。
-- 状态：manifest 已按 Codex 官方文档改对，但整套流程**尚未在真机 Codex 上跑过**
-  ——遇到报错欢迎反馈。
+- 状态：**安装 + skills 已在真机 Codex 验证可用**；`SessionStart` hook 自动提示
+  尚未确认——遇到报错欢迎反馈。
 
 ### Kimi Code（本地安装）
 
@@ -208,17 +208,17 @@ prose 为单一来源、宿主中立（工具名 `AskUserQuestion` / `Skill` / `
 | --- | --- | --- | --- | --- |
 | Claude Code | `<plugin>/.claude-plugin/plugin.json` | `.claude-plugin/marketplace.json` | `${CLAUDE_PLUGIN_ROOT}`（`hooks/hooks.json`） | supported |
 | CodeBuddy | `<plugin>/.codebuddy-plugin/plugin.json` | `.codebuddy-plugin/marketplace.json` | `${CODEBUDDY_PLUGIN_ROOT}`（`hooks/hooks.codebuddy.json`） | supported |
-| Codex | `<plugin>/.codex-plugin/plugin.json` | `.agents/plugins/marketplace.json`（Codex schema：每条 `source: {source: local, path: ./plugins/<name>}` + `policy`） | `${PLUGIN_ROOT}`（`hooks/hooks.codex.json`，matcher `startup\|resume\|clear`） | schema 按官方文档改对 — 尚未真机验证 |
+| Codex | `<plugin>/.codex-plugin/plugin.json` | `.agents/plugins/marketplace.json`（Codex schema：每条 `source: {source: local, path: ./plugins/<name>}` + `policy`） | `${PLUGIN_ROOT}`（`hooks/hooks.codex.json`，matcher `startup\|resume\|clear`） | 安装 + skills **已验证**；`SessionStart` hook 自动提示未确认 |
 | Kimi | `<plugin>/.kimi-plugin/plugin.json` | `.kimi-plugin/marketplace.json`（Kimi schema：`version` `"2"` + `id`/`source`） | —（`sessionStart.skill`，无 hooks） | 仅本地 clone — 安装 + specode 触发**已验证**；`sessionStart` 自动提示未确认 |
 
-Codex 与 Kimi 已接线但**尚未在真机宿主上验证**。待实测清单：
+Codex 安装 + skills 已真机验证；其余待实测项与 Kimi 的待实测清单如下：
 
 - **Codex**——与 Kimi 不同，Codex **支持 monorepo 子目录安装**：
   `codex plugin marketplace add qxbyte/pluginhub` 后 `codex plugin add <name>@pluginhub`，
   由 `.agents/plugins/marketplace.json` 驱动（每条 `source: {source: "local", path: "./plugins/<name>"}`）。
   `.codex-plugin/plugin.json`（`skills: "./skills/"` + `hooks`）与 `${PLUGIN_ROOT}` 的
-  SessionStart hook（`CLAUDE_PLUGIN_ROOT` 别名也认）都符合 Codex 官方文档——但整套流程
-  **尚未在真机 Codex 上跑过**。
+  SessionStart hook（`CLAUDE_PLUGIN_ROOT` 别名也认）都符合 Codex 官方文档。
+  **安装 + skills 加载已在真机 Codex 验证**；`SessionStart` hook 自动提示尚未确认。
 - **Kimi**——**裸仓库 URL 无法安装 monorepo 子目录插件**（据 Kimi Code 官方文档 +
   源码确认：不支持子路径 GitHub 安装、也不做多子目录扫描）。故 pluginhub 在 Kimi 上
   **仅支持本地 clone**：clone 后 `/plugins marketplace <abs>/.kimi-plugin/marketplace.json`
@@ -227,8 +227,8 @@ Codex 与 Kimi 已接线但**尚未在真机宿主上验证**。待实测清单�
   SessionStart 由清单的 `sessionStart.skill` 承接**——specode/ragkit 在会话启动时加载
   `using-specode` / `using-ragkit`（bootstrap advisory 技能）；另两个插件无会话提示
   （skills 靠 Kimi 原生扫描发现）。端到端流程**尚未在真机 Kimi 上验证**。
-- skill 里使用的 base-directory 相对路径 `../../scripts/run.sh` 在 Codex / Kimi
-  的可达性未验证。
+- skill 里使用的 base-directory 相对路径 `../../scripts/run.sh` 在 Kimi 的可达性
+  未验证（Codex 的 skills 加载已验证；真机 `run.sh` 实际调用尚未确认）。
 - specode 跨 skill「按名调用」（`Skill` 工具）在 Codex / Kimi 无已验证的等价机制。
 - Codex 的 `ask_user_question` 仅 Plan mode 可用，可能影响 specode 的执行方式
   selector；未验证。
@@ -332,4 +332,4 @@ plugins/specode/
 
 ## 许可证
 
-本项目采用 [MIT 许可证](./LICENSE.TXT)。
+本项目采用 [MIT 许可证](../LICENSE.TXT)。

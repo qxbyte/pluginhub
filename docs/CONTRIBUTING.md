@@ -137,9 +137,10 @@ plugin-root env var; the `SessionStart` handler script itself is shared.
 Codex's root catalog (`.agents/plugins/marketplace.json`) uses the
 Codex schema — each plugin entry carries `source: {source: "local",
 path: "./plugins/<name>"}` (subdirectory install) plus a `policy` block,
-not a bare owner/URL string source. Claude Code / CodeBuddy are verified
-and Kimi's local install is verified; Codex's schema is conformed to its
-docs but not yet run on a real host — see README §Multi-host support.
+not a bare owner/URL string source. Claude Code / CodeBuddy are verified,
+Codex's install + skills are verified on a real host (its `SessionStart`
+hook advisory is unconfirmed), and Kimi's local install is verified —
+see README §Multi-host support.
 
 ### Version manifests (must agree)
 
