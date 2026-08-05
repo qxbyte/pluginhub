@@ -25,6 +25,11 @@ sh ../../scripts/run.sh ../../scripts/resolve_root.py get-root
 
 **Load-and-stop 🔒**: `/specode:continue <slug>` never auto-resumes. It does exactly three things: (1) locate `<specsRoot>/<slug>/` and read every fixed doc present; (2) report a **progress brief** — slug, inferred phase, per-doc existence, tasks.md checkbox progress (x/N; legacy specs: design.md checkboxes), and what the next action *would* be; (3) **stop and wait for the user's instruction**. Only when the user says 继续 (or equivalent) does execution resume from the inferred phase; if the user instead supplies requirement changes, digest them into the affected docs first, then ask whether to resume. The "Resume action" column below describes what happens *after* the user gives the go-ahead — it is not automatic behavior.
 
+For planning phases, “继续” (or an equivalent unambiguous go-ahead)
+explicitly approves the latest planning document and resumes the next phase.
+Modification requests are not approval: update the affected current document,
+report its new summary, present the document approval gate again, and stop.
+
 | Directory state | Inferred phase | Resume action (after user go-ahead) |
 |---|---|---|
 | no `requirements.md` | intake | invoke the `specode:intake` skill via the `Skill` tool (project analysis + clarification + writes `requirements.md` with the frontmatter contract) |

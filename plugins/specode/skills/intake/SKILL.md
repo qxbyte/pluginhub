@@ -82,15 +82,17 @@ Then persist the **frontmatter (§1 hard constraint)**:
    ```
    It validates and writes `project_root` into requirements.md frontmatter. **Never hand-write that field.**
 
-### Step 5 — Hand off to design
+### Step 5 — Return to orchestration
 
 Hand Step 2b's `参考定位（非事实来源）` pointers back to the specode orchestration as **ephemeral context** for the design phase (specode passes them as context when it calls `brainstorming`, or native design reuses them directly). **Do not persist them as factual conclusions in requirements.md** (the retrieval.md top-level invariant). Design inherits these pointers by default and only re-queries when it opens new territory intake didn't cover (design's retrieval is a **conditional top-up**, not mandatory).
 
-After the handoff, **end this skill** and return control to the specode orchestration (which proceeds into the design phase).
+After the handoff, end this skill and return control to the specode
+orchestration, which is waiting for requirements approval. Do not enter or
+pre-generate the design phase.
 
 ## §5 Reporting discipline
 
-Don't reprint the full requirements.md. Report only: the file path (one line) + 3-8 key points / clarifications + open questions (if any) + the next action (entering design). The only exception is when the user explicitly asks for the full text.
+Don't reprint the full requirements.md. Report only: the file path (one line) + 3-8 key points / clarifications + open questions (if any) + the next action (waiting for requirements approval). The only exception is when the user explicitly asks for the full text.
 
 ## §6 References
 

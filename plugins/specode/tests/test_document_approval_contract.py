@@ -50,3 +50,23 @@ def test_spec_pipeline_forbids_advance_without_explicit_approval():
     assert "before tasks.md is explicitly approved" in text
     assert "once design.md is produced (by it or by you), proceed into the tasks phase (step 4)" not in text
     assert "and continue to Flow step 5 (invoke `specode:execute`)" not in text
+
+
+def test_intake_returns_to_requirements_approval_instead_of_design():
+    text = _read(INTAKE_SKILL)
+    assert "waiting for requirements approval" in text
+    assert "which proceeds into the design phase" not in text
+    assert "next action (entering design)" not in text
+
+
+def test_continue_uses_go_ahead_as_latest_document_approval():
+    text = _read(CONTINUE_SKILL)
+    assert "explicitly approves the latest planning document" in text
+    assert "Modification requests are not approval" in text
+    assert "present the document approval gate again" in text
+
+
+def test_execute_distinguishes_pipeline_and_manual_authorization():
+    text = _read(EXECUTE_SKILL)
+    assert "Pipeline entry requires an explicitly approved `tasks.md`" in text
+    assert "Manual entry is explicit approval" in text

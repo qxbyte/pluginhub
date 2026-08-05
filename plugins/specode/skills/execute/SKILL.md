@@ -11,8 +11,8 @@ This skill owns everything from "tasks.md is ready" to "acceptance written": the
 
 ## Entry contract (three callers, one behavior)
 
-- **Pipeline entry**: the spec orchestration shell (`../spec/SKILL.md` Flow step 5) invokes this skill by name (`specode:execute`) via the `Skill` tool right after tasks.md is confirmed — slug and specsRoot are already in the conversation context; don't re-ask, but still run §Preflight to ground on on-disk state.
-- **Manual entry**: the user types `/specode:execute <slug>` at any time (typically after a session break, or after `/specode:continue <slug>` reported an executing/complete phase). slug is **required** — missing → report an error and suggest `/specode:list`.
+- **Pipeline entry**: Pipeline entry requires an explicitly approved `tasks.md`; the orchestration must not invoke this skill from the same turn that created the plan. The spec orchestration shell (`../spec/SKILL.md` Flow step 5) invokes this skill by name (`specode:execute`) via the `Skill` tool after that approval — slug and specsRoot are already in the conversation context; don't re-ask, but still run §Preflight to ground on on-disk state.
+- **Manual entry**: Manual entry is explicit approval of the existing `tasks.md`, because the user directly requested `/specode:execute <slug>`. The user may do so at any time (typically after a session break, or after `/specode:continue <slug>` reported an executing/complete phase). slug is **required** — missing → report an error and suggest `/specode:list`.
 - **continue handoff**: when `/specode:continue <slug>` infers phase ∈ {executing, complete, legacy 5.x} and the user gives the go-ahead, the continue skill invokes this skill via the `Skill` tool instead of re-deriving execution rules from prose.
 
 All three entries converge on the same flow: §Preflight → §执行方式 selector → §Execution dispatch → §Acceptance.
