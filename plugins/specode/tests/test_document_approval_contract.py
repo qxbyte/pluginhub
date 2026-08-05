@@ -5,6 +5,7 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 SPEC_SKILL = PLUGIN_ROOT / "skills" / "spec" / "SKILL.md"
 APPROVAL_REF = PLUGIN_ROOT / "skills" / "spec" / "references" / "document-approval.md"
+SUPERPOWERS_WIRING = PLUGIN_ROOT / "skills" / "spec" / "references" / "superpowers-wiring.md"
 INTAKE_SKILL = PLUGIN_ROOT / "skills" / "intake" / "SKILL.md"
 CONTINUE_SKILL = PLUGIN_ROOT / "skills" / "continue" / "SKILL.md"
 EXECUTE_SKILL = PLUGIN_ROOT / "skills" / "execute" / "SKILL.md"
@@ -50,6 +51,12 @@ def test_spec_pipeline_forbids_advance_without_explicit_approval():
     assert "before tasks.md is explicitly approved" in text
     assert "once design.md is produced (by it or by you), proceed into the tasks phase (step 4)" not in text
     assert "and continue to Flow step 5 (invoke `specode:execute`)" not in text
+
+
+def test_superpowers_wiring_blocks_brainstorming_handoff_until_design_approval():
+    text = _read(SUPERPOWERS_WIRING)
+    assert "let it flow naturally into the tasks phase" not in text
+    assert "Only after the user explicitly approves `design.md` may the pipeline enter the tasks phase." in text
 
 
 def test_intake_returns_to_requirements_approval_instead_of_design():

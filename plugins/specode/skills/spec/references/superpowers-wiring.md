@@ -17,7 +17,7 @@ description: Use when specode needs to invoke a superpowers skill at a given pha
 
 1. Pre-call: when invoking a skill, explicitly pass the target absolute path + fixed filename — brainstorming → `design.md` (design only; requirements are already settled in `requirements.md`, tell brainstorming to read it as input and go straight to design); writing-plans → `tasks.md`.
 2. **writing-plans' execution-handoff question**: writing-plans ends by asking "Subagent-Driven vs Inline Execution". It has no flag to disable this. **Ignore that question — do not act on it**; specode's 执行方式 selector supersedes it. (This is "digest", not "suppress" — you cannot actually stop it from asking.)
-3. **brainstorming's terminal handoff**: brainstorming is hardcoded to end by invoking writing-plans. That happens to match specode's design → tasks order, so let it flow naturally into the tasks phase — just make sure design.md landed first.
+3. **brainstorming's terminal handoff**: after brainstorming produces `design.md`, ignore or truncate its hardcoded writing-plans handoff. Enter the design approval gate and immediately end the current turn. Only after the user explicitly approves `design.md` may the pipeline enter the tasks phase.
 4. Post-call: after the skill returns, verify the expected `<specsRoot>/<slug>/<fixed-name>` is in place (brainstorming → design.md; writing-plans → tasks.md); if not, move/rename the skill's actual output there.
 
 ## Availability check
