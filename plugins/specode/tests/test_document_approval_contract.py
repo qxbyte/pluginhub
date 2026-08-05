@@ -74,7 +74,17 @@ def test_execute_distinguishes_pipeline_and_manual_authorization():
 
 def test_changelog_records_document_approval_regression():
     unreleased = _read(CHANGELOG).split("## 6.5.1", 1)[0]
-    assert "文档审批门" in unreleased
-    assert "requirements.md" in unreleased
-    assert "design.md" in unreleased
-    assert "tasks.md" in unreleased
+    for value in (
+        "文档审批门",
+        "v6.1.2",
+        "specode:intake",
+        "旧 brainstorming 提供的 approval gate 未被完整迁移",
+        "requirements.md",
+        "design.md",
+        "tasks.md",
+        "各自落盘后必须停轮等待明确确认",
+        "/specode:continue",
+        "跨会话批准语义",
+        "不新增持久状态",
+    ):
+        assert value in unreleased
