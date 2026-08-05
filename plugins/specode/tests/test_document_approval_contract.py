@@ -70,3 +70,11 @@ def test_execute_distinguishes_pipeline_and_manual_authorization():
     text = _read(EXECUTE_SKILL)
     assert "Pipeline entry requires an explicitly approved `tasks.md`" in text
     assert "Manual entry is explicit approval" in text
+
+
+def test_changelog_records_document_approval_regression():
+    unreleased = _read(CHANGELOG).split("## 6.5.1", 1)[0]
+    assert "文档审批门" in unreleased
+    assert "requirements.md" in unreleased
+    assert "design.md" in unreleased
+    assert "tasks.md" in unreleased

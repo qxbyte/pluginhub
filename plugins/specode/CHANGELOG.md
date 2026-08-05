@@ -4,6 +4,12 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+- **修复 spec 阶段缺失文档审批门**：`v6.1.2` 拆出独立
+  `specode:intake` 后，旧 brainstorming 提供的 approval gate 未被完整迁移，
+  导致 `requirements.md` / `design.md` / `tasks.md` 可连续落盘并直接进入执行方式
+  selector。现三份文档各自落盘后必须停轮等待明确确认；修改意见会重开当前
+  gate，`/specode:continue` 的“继续”承担跨会话批准语义，且不新增持久状态。
+
 ## 6.5.1 (2026-07-21) — 修 Kimi 安装失败 + Kimi SessionStart 接线
 
 真机反馈：Kimi Code 上 `/plugins install <pluginhub 仓库 URL>` 报 `No manifest at kimi.plugin.json or .kimi-plugin/plugin.json`。据 Kimi 官方文档 + 源码确认：kimi-code **不支持从 GitHub 子目录安装、也不做多子目录扫描**，故 monorepo 市场无法用裸仓库 URL 远程装。
