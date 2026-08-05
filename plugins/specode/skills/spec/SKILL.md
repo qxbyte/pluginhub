@@ -52,6 +52,10 @@ Each phase is annotated "if superpowers is installed, call it / otherwise go nat
 2. **requirements (clarify + requirements)** — **invoke the `specode:intake` skill via the `Skill` tool** and let it own this whole phase. intake is a **standalone specode skill** (`skills/intake/`, peer to `distill`, `user-invocable: false`) — it is the **sole producer of `requirements.md`**; there is **no** "superpowers vs native" fork here anymore (`brainstorming` is used only for design, see step 3). intake internally runs, in order: (1) `project_root` confirmation (`resolve-project-root` default → `AskUserQuestion` once) — it holds the confirmed absolute path; (2) **project analysis**: agent-docs scan (`## 项目级约束` path-only section) + **experience retrieval — this is the primary retrieval node** (per `references/retrieval.md`: Tier-0 RagKit / two-tier gated) + actually reading the located real code; (3) analysis-driven clarification (brainstorming-caliber, one question at a time, not a fixed wizard); (4) write `requirements.md` per the template **and persist the frontmatter contract** — `spec_id` / `created_at` + `project_root` **via `resolve_root.py write-project-root`** (single validated writer; never hand-write it); (5) hand the located 「参考定位（非事实来源）」 pointers back as ephemeral context for design. Full behavior lives in `skills/intake/SKILL.md` — do not re-derive it here.
 
    > **frontmatter contract 🔒**: `requirements.md`'s `spec_id` / `created_at` / `project_root` are the single source of truth for downstream distill / task-swarm / retrieval; `project_root` is written only through the single writer `write-project-root`. intake guarantees this contract; the specode orchestration does not re-write or hand-edit it.
+   - **requirements approval gate (mandatory)**: after `requirements.md` exists
+     and intake returns, follow `references/document-approval.md` for
+     `requirements.md` → `design`. Immediately end the turn after asking; the
+     design phase starts only after explicit approval.
 3. **design (traditional design doc)**:
    - superpowers installed → call `superpowers:brainstorming` for **design only** (single artifact → `design.md`). Pre-instruct it: **requirements are already settled in `requirements.md` (read it as input) — go straight to design presentation, produce only `design.md`** per the `assets/templates/design.md` sections (背景与目标 / 架构概览 / 模块划分与职责 / 接口设计 / 数据流 / 错误处理 / 测试策略 — prose, no checkboxes); also pass intake's 「参考定位（非事实来源）」 pointers as ephemeral grounding context. Relocate the artifact to `<specsRoot>/<slug>/design.md` (post-relocation check = **one** file).
 
@@ -60,11 +64,19 @@ Each phase is annotated "if superpowers is installed, call it / otherwise go nat
    - **experience retrieval (conditional top-up, not mandatory)**: design **inherits intake's (step 2) already-located pointers** by default and does not re-run a full retrieval. Only when design opens territory intake didn't cover, re-query once per `references/retrieval.md` (frontmatter is written by this phase, so get `project_root` via `resolve_root.py read-project-root --spec <specsRoot>/<slug>`); the hits' front/back-end files + call chains ground **module boundaries / interface design to real code** (design's judgment is still based on real code). `<project_root>/knowledge-base/MEMORY.md` absent → silently skip.
 
    > design retrieval is **for locating** (grounding the design to real code), producing pointers only and **introducing no "rule acknowledgement / deviation gate"** (since 4.0.0, no `.ai-memory/knowledge/rules/`-related rule check; don't reintroduce it).
+   - **design approval gate (mandatory)**: after `design.md` exists and the
+     design phase returns, follow `references/document-approval.md` for
+     `design.md` → `tasks`. Immediately end the turn after asking; the tasks
+     phase starts only after explicit approval.
 4. **tasks (executable plan)**:
    - superpowers installed → call `superpowers:writing-plans`. Pre-instruct the target path `<specsRoot>/<slug>/tasks.md`. **writing-plans ends by hardcoding a "Subagent-Driven vs Inline Execution" question — it has no flag to disable it; ignore that question and don't act on it**, and continue to Flow step 5 (invoke `specode:execute`). specode can only "digest" that question, not truly suppress it.
    - not installed → **specode-native**: break down into `## Task N` + `**Files:**` + `**Interfaces:**` + `验证: AC-N` + `- [ ]` TDD steps per the `assets/templates/tasks.md` template.
    - Relocate the artifact to `<specsRoot>/<slug>/tasks.md`.
    - the tasks phase does **no separate retrieval** — it inherits the file paths already located in design.md (each `**Files:**` derives from design's module/interface landing points).
+   - **tasks approval gate (mandatory)**: after `tasks.md` exists and the
+     tasks phase returns, follow `references/document-approval.md` for
+     `tasks.md` → `Execution tail`. Immediately end the turn after asking;
+     `specode:execute` must not be invoked before explicit approval.
 5. **Execution tail (selector → execution → acceptance)** — **invoke the `specode:execute` skill via the `Skill` tool** and let it own everything from here: the 「执行方式」 selector (verbatim per its own `references/selectors.md`), engine dispatch (task-swarm handoff / superpowers subagent-driven / executing-plans / specode self-execute, all TDD), `implementation-log.md` appending, acceptance, and the distill prompt. execute is a **standalone user-invocable skill** (`skills/execute/`, peer to intake/distill) — the user can also trigger it manually at any time as `/specode:execute <slug>` (e.g. after a session break or a `/specode:continue`). Full behavior lives in `skills/execute/SKILL.md` — do not re-derive it here.
 
 phase ↔ skill quick map: `requirements` → **`specode:intake`** (specode's own standalone skill, always — no superpowers fork); `design` → brainstorming (design only, single artifact) or native; `tasks` → writing-plans; execution + acceptance → **`specode:execute`** (specode's own standalone user-invocable skill, which internally dispatches task-swarm / subagent-driven-development / executing-plans / native TDD, then verification-before-completion / native acceptance).
@@ -105,6 +117,7 @@ When writing / updating spec documents, **never** reprint the full text in chat.
 3. **CLIs must go through run.sh via a relative path**: all specode CLIs go through the `run.sh` wrapper called as `../../scripts/run.sh ../../scripts/<name>.py` (paths relative to this skill's base directory, superpowers-style — no env-var resolution, no cache `find`); never a bare `python3 <script>`, never a hard-coded version path.
 4. **Execution tail goes through `specode:execute`**: after tasks.md is confirmed, always invoke the `specode:execute` skill via the `Skill` tool — never present the 执行方式 selector or dispatch engines from this SKILL's own prose (the verbatim selector example lives in `skills/execute/references/selectors.md`).
 5. **Lightweight red line**: no more locking / takeover protocol / state machine; no more status-summary footer line; no more forced code-doc sync nagging; no more paired writes of a persistent session file and spec config file; no more pending-selector markers / phase-transition CLI / log collection. Active state is inferred from the current conversation context + document existence.
+6. **Per-document approval is mandatory**: follow `references/document-approval.md` after each of `requirements.md`, `design.md`, and `tasks.md`; never infer approval from silence, and must not generate the next document in the same turn. Do not invoke `specode:execute` before tasks.md is explicitly approved.
 
 ## References
 
@@ -115,3 +128,4 @@ When writing / updating spec documents, **never** reprint the full text in chat.
 - `references/superpowers-wiring.md` — the per-phase ↔ superpowers skill mapping, pre-instructions, and post-relocation instructions.
 - `references/retrieval.md` — experience-retrieval injection spec (intake project-analysis is the primary node / design is a conditional top-up).
 - `references/knowledge-flow.md` — one-page knowledge-loop mental model: who produces / indexes / reads distill / knowledge-base / MEMORY / ragkit / intake-retrieval, and when.
+- `references/document-approval.md` — canonical blocking approval gate used after requirements, design, and tasks documents.
