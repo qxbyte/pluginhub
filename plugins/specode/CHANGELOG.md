@@ -4,6 +4,8 @@ specode 是 spec-driven 轻量工作流插件：requirements → design → task
 
 ## Unreleased
 
+## 6.5.2 (2026-08-05) — 修复 spec 三份规划文档的审批门
+
 - **修复 spec 阶段缺失文档审批门**：`v6.1.2` 拆出独立
   `specode:intake` 后，旧 brainstorming 提供的 approval gate 未被完整迁移，
   导致 `requirements.md` / `design.md` / `tasks.md` 可连续落盘并直接进入执行方式

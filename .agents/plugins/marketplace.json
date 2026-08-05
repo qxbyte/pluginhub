@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "specode",
-      "version": "6.5.1",
+      "version": "6.5.2",
       "description": "Lightweight spec-driven workflow (requirements → design → tasks → execute → acceptance).",
       "source": {
         "source": "local",

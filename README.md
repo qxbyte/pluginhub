@@ -3,7 +3,7 @@
 # pluginhub
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.md#license)
-[![specode](https://img.shields.io/badge/specode-6.5.1-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
+[![specode](https://img.shields.io/badge/specode-6.5.2-blue.svg)](./plugins/specode/.claude-plugin/plugin.json)
 [![task-swarm](https://img.shields.io/badge/task--swarm-0.12.2-blue.svg)](./plugins/task-swarm/.claude-plugin/plugin.json)
 [![obsidian-wiki](https://img.shields.io/badge/obsidian--wiki-2.2.1-blue.svg)](./plugins/obsidian-wiki/.claude-plugin/plugin.json)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/pluginhub#installation)
@@ -20,7 +20,7 @@ any plugin it hosts. More plugins will land here over time.
 
 | Plugin | Version | What it does |
 | --- | --- | --- |
-| **specode** | 6.5.1 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Bundles dedicated `intake` and `execute` skills (the execution tail is manually triggerable anytime via `/specode:execute`), a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
+| **specode** | 6.5.2 | Lightweight spec-driven **workflow** orchestration shell — walks a host agent through requirements → design → tasks → execute → acceptance, delegating each phase to [superpowers](https://github.com/obra/superpowers) skills with a first-class specode-native fallback, and landing 4 fixed docs per spec (requirements / design / tasks / implementation-log). Each planning document has a blocking approval gate before the next phase. Bundles dedicated `intake` and `execute` skills, a zero-import task-swarm handoff for parallel execution, and optional locate-oriented experience retrieval. Version history is in the [CHANGELOG](./plugins/specode/CHANGELOG.md). |
 | **task-swarm** | 0.12.2 | Standalone multi-agent **orchestration** driven by a `pipeline.yml` — semantic task groups with cross-group concurrency, forked coders, and per-group reviewer + validator loops (`state.json` is the single source of truth). specode delegates its execution phase here; also runnable directly via `/task-swarm:swarm`. See [`plugins/task-swarm/`](./plugins/task-swarm) + its CHANGELOG. |
 | **obsidian-wiki** | 2.2.1 | Maintain an Obsidian LLM-Wiki via three skills — a deterministic structure layer (`wiki-struct`), content curation (`wiki-curate`), and a unified orchestrator (`wiki-orchestrate`). Generic code + per-vault config in the home-dir registry `~/.config/obsidian-wiki/` (fallback: `<vault>/.wiki/config.json`), zero hardcoded structure. See [`plugins/obsidian-wiki/`](./plugins/obsidian-wiki). |
 | **ragkit** | 0.2.2 | Standalone knowledge-base **RAG** — vector + lexical + metadata three-channel recall, RRF-fused, returns pointer cards. Optional downstream consumer of specode `distill` output; zero heavy deps (stdlib + numpy for lexical mode). See [`plugins/ragkit/`](./plugins/ragkit). |
@@ -49,6 +49,11 @@ see its own `README.md` / `AGENTS.md` under
   engine-neutral) / `implementation-log.md` under `<specsRoot>/<slug>/` —
   whatever engine generated the content. Bug fixes use prose in
   `requirements.md` (no `bugfix.md`).
+- **Blocking approval after every planning document.** After writing
+  `requirements.md`, `design.md`, or `tasks.md`, specode reports the path
+  and summary, then stops the turn. It advances only after explicit
+  approval; requested edits update the current document and reopen the
+  same gate.
 - **Documents are the state.** No persistent session files, no locks,
   no status footer, no logging. "Which phase am I in?" is inferred from
   which fixed docs exist plus the `- [ ]` checkbox progress in
@@ -340,14 +345,16 @@ and remembers it. The agent then walks the pipeline:
    reading the located real code) → analysis-driven clarification →
    writes `requirements.md` with the frontmatter contract (`spec_id` /
    `created_at` / `project_root`). This is also the **primary node for
-   ragkit/experience retrieval**.
+   ragkit/experience retrieval**. After landing the document, the pipeline
+   stops for explicit approval before design begins.
 2. **design** — produce a traditional design doc `design.md`
    (architecture / modules / interfaces / data flow / error handling /
    test strategy) via `superpowers:brainstorming` (design only) or native
-   authoring.
+   authoring. The pipeline stops again for explicit approval before tasks.
 3. **tasks** — produce the executable plan `tasks.md` (via
    `superpowers:writing-plans`, or native Task breakdown). Engine-neutral:
-   every execution path consumes this one file.
+   every execution path consumes this one file. The execution selector is
+   unavailable until this document is explicitly approved.
 4. **执行方式 selector** — pick how to execute (adaptive 4 options; see
    Highlights).
 5. **execute** — run the plan with TDD, appending to
@@ -379,9 +386,9 @@ changes first. It never auto-resumes. Use `/specode:list` to find a slug.
 Run (or resume) a spec's execution tail at any time: presents the 执行方式
 selector (task-swarm / superpowers / specode-native), dispatches the chosen
 engine, then runs acceptance. The spec pipeline and `/specode:continue` route
-here automatically once `tasks.md` is ready; invoke it manually after a
-session break. Requires `tasks.md` (or a legacy 5.x `design.md` plan) to
-exist — it never generates the plan itself.
+here only after `tasks.md` is ready and explicitly approved; invoke it
+manually after a session break. Requires `tasks.md` (or a legacy 5.x
+`design.md` plan) to exist — it never generates the plan itself.
 
 ### 4. List specs
 
@@ -422,6 +429,7 @@ plugins/specode/
     SKILL.md                      requirements → design → tasks → hand off to execute
     references/
       selectors.md                first-time directory-setup question
+      document-approval.md        canonical planning-document approval gate
       obsidian.md                 specsRoot path resolution + conventions
       superpowers-wiring.md       phase ↔ superpowers skill mapping
       retrieval.md                experience retrieval spec (intake primary node)
@@ -437,7 +445,7 @@ plugins/specode/
     references/                   breakdown heuristics + doc templates
   assets/templates/               requirements.md / design.md / tasks.md /
                                   implementation-log.md seed templates
-  tests/                          hermetic pytest suite (resolve_root.py + knowledge.py)
+  tests/                          hermetic pytest suite (CLIs + document-approval contracts)
 ```
 
 The companion **task-swarm** plugin (`plugins/task-swarm/`) is a

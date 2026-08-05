@@ -6,7 +6,7 @@
     {
       "name": "specode",
       "source": "./plugins/specode",
-      "version": "6.5.1",
+      "version": "6.5.2",
       "description": "Lightweight spec-driven workflow (requirements → design → tasks → execute → acceptance).",
       "category": "development",
       "homepage": "https://github.com/qxbyte/pluginhub",

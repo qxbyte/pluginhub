@@ -3,7 +3,7 @@
 # pluginhub
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./README.zh-CN.md#许可证)
-[![specode](https://img.shields.io/badge/specode-6.5.1-blue.svg)](../plugins/specode/.claude-plugin/plugin.json)
+[![specode](https://img.shields.io/badge/specode-6.5.2-blue.svg)](../plugins/specode/.claude-plugin/plugin.json)
 [![task-swarm](https://img.shields.io/badge/task--swarm-0.12.2-blue.svg)](../plugins/task-swarm/.claude-plugin/plugin.json)
 [![obsidian-wiki](https://img.shields.io/badge/obsidian--wiki-2.2.1-blue.svg)](../plugins/obsidian-wiki/.claude-plugin/plugin.json)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-8A2BE2)](https://github.com/qxbyte/pluginhub#installation)
@@ -18,7 +18,7 @@
 
 | 插件 | 版本 | 做什么 |
 | --- | --- | --- |
-| **specode** | 6.5.1 | 轻量**规格驱动工作流**编排外壳——带 host agent 走 requirements → design → tasks → 执行 → 验收，每阶段委托给 [superpowers](https://github.com/obra/superpowers) 技能（一等公民 specode 原生降级），每条规格固定产出 4 份文档（requirements / design / tasks / implementation-log）。内置独立 `intake` 与 `execute` skill（执行尾段可随时手动 `/specode:execute` 触发）、零 import 的 task-swarm 并发执行衔接、可选的定位型经验检索。版本历史见 [CHANGELOG](../plugins/specode/CHANGELOG.md)。 |
+| **specode** | 6.5.2 | 轻量**规格驱动工作流**编排外壳——带 host agent 走 requirements → design → tasks → 执行 → 验收，每阶段委托给 [superpowers](https://github.com/obra/superpowers) 技能（一等公民 specode 原生降级），每条规格固定产出 4 份文档（requirements / design / tasks / implementation-log），三份规划文档逐份设阻断式审批门。内置独立 `intake` 与 `execute` skill、零 import 的 task-swarm 并发执行衔接、可选的定位型经验检索。版本历史见 [CHANGELOG](../plugins/specode/CHANGELOG.md)。 |
 | **task-swarm** | 0.12.2 | 由 `pipeline.yml` 驱动的独立**多 agent 编排**——语义任务组 + 跨组并发、fork coder、按组 reviewer + validator 循环（`state.json` 为单一事实源）。specode 把执行阶段委托到这里；也可用 `/task-swarm:swarm` 直接独立运行。详见 [`plugins/task-swarm/`](../plugins/task-swarm) 及其 CHANGELOG。 |
 | **obsidian-wiki** | 2.2.1 | 用三个 skill 维护 Obsidian LLM-Wiki——确定性结构层（`wiki-struct`）、内容策展（`wiki-curate`）、统一编排器（`wiki-orchestrate`）。通用代码 + 按库配置放在家目录注册表 `~/.config/obsidian-wiki/`（回退 `<vault>/.wiki/config.json`），零硬编码结构。详见 [`plugins/obsidian-wiki/`](../plugins/obsidian-wiki)。 |
 | **ragkit** | 0.2.2 | 独立知识库 **RAG**——向量 + 词汇 + 元数据三路召回，RRF 融合，返回定位卡片。specode `distill` 产出的 `knowledge-base/` 可直接消费；零重型依赖（词汇路仅需 stdlib + numpy）。详见 [`plugins/ragkit/`](../plugins/ragkit)。 |
@@ -30,6 +30,7 @@
 - **编排外壳，不是重型引擎。** specode 把每个阶段委托给成熟的 superpowers 技能（`brainstorming` → `writing-plans` → `subagent-driven-development` / `executing-plans` → `verification-before-completion`），自身只管规格生命周期、文档落盘和 task-swarm 衔接。
 - **原生降级，一等公民。** 没有 superpowers？specode 用 `AskUserQuestion` 向导 + 顺序 TDD 自己跑澄清 / 规划 / 执行 / 验收循环，原生路径与 superpowers 路径地位相同，不是凑数的备选。
 - **4 份固定文档，固定命名，固定位置。** 每条规格产出 `requirements.md` / `design.md`（传统设计文档：架构 / 模块 / 接口 / 数据流）/ `tasks.md`（可执行计划，引擎中立）/ `implementation-log.md`，统一落在 `<specsRoot>/<slug>/` 下，无论用哪种引擎生成内容。缺陷修复用 `requirements.md` 散文描述，不单独建 `bugfix.md`。
+- **三份规划文档逐份确认。** `requirements.md`、`design.md`、`tasks.md` 每份落盘后汇报路径与摘要并立即停轮；只有明确批准才进入下一阶段，修改意见更新当前文档并重开同一道审批门。
 - **文档即状态。** 无持久状态文件，无锁，无状态行 footer，无日志。"我在哪个阶段？"由已存在的文档以及 `tasks.md` 中 `- [ ]` 勾选进度推断得出（5.x 存量 spec 看 `design.md`）。
 - **单一自适应选择器。** `tasks.md` 确认后，`AskUserQuestion` 选择器动态呈现最多 4 条执行路径——仅展示当前已安装引擎对应的选项：委托 task-swarm / superpowers subagent-driven / superpowers executing-plans / specode 自执行。
 - **首次使用问一次目录。** 第一次使用时，specode 询问你的文档管理目录，将其**原样**作为规格根目录持久化到 `~/.config/specode/config.json.specsRoot`，之后不再询问。
@@ -249,9 +250,9 @@ specode 共有五条命令。
 
 先 `cd` 到你的项目目录——specode 以 cwd 推导项目根默认值（`git rev-parse --show-toplevel`，无 git 则 cwd），并在每条 spec 开始时让你确认一次。**首次运行**时还会询问一次文档管理目录并记住它。之后代理依次走完流水线：
 
-1. **需求阶段** — 由 `specode:intake` skill（specode 自己的，永远走它）执行：项目分析（agent-docs 扫描 + 经验检索 + 读定位到的真实代码）→ 基于分析的澄清 → 写 `requirements.md`（含 `spec_id` / `created_at` / `project_root` frontmatter 契约）。这里也是 **ragkit / 经验检索的主节点**。
-2. **设计阶段** — 生成传统设计文档 `design.md`（架构 / 模块划分 / 接口设计 / 数据流 / 错误处理 / 测试策略），通过 `superpowers:brainstorming`（只产 design）或原生撰写。
-3. **计划阶段（tasks）** — 生成可执行计划 `tasks.md`（通过 `superpowers:writing-plans`，或原生任务分解）。引擎中立：所有执行路径消费同一份文件。
+1. **需求阶段** — 由 `specode:intake` skill（specode 自己的，永远走它）执行：项目分析（agent-docs 扫描 + 经验检索 + 读定位到的真实代码）→ 基于分析的澄清 → 写 `requirements.md`（含 `spec_id` / `created_at` / `project_root` frontmatter 契约）。这里也是 **ragkit / 经验检索的主节点**。落盘后停下，明确批准才进入设计。
+2. **设计阶段** — 生成传统设计文档 `design.md`（架构 / 模块划分 / 接口设计 / 数据流 / 错误处理 / 测试策略），通过 `superpowers:brainstorming`（只产 design）或原生撰写。落盘后再次停下，明确批准才进入 tasks。
+3. **计划阶段（tasks）** — 生成可执行计划 `tasks.md`（通过 `superpowers:writing-plans`，或原生任务分解）。引擎中立：所有执行路径消费同一份文件。明确批准前不显示执行方式选择器。
 4. **执行方式选择器** — 从自适应 4 个选项中选择执行路径（详见上方亮点）。
 5. **执行阶段** — 以 TDD 方式跑完计划，追加写入 `implementation-log.md`。
 6. **验收阶段** — 对照 `requirements.md` 的 `AC-N`、`design.md` 测试策略和 `tasks.md` 勾选进度检查，然后由你确认接受。
@@ -272,7 +273,7 @@ specode 共有五条命令。
 /specode:execute <slug>
 ```
 
-随时运行（或续跑）一条 spec 的执行尾段：呈现「执行方式」selector（task-swarm / superpowers / specode 自执行）→ 按选择调度引擎 → 验收。spec 管道与 `/specode:continue` 在 `tasks.md` 就绪后自动汇入此 skill；会话中断后也可手动触发。要求 `tasks.md`（或 5.x 存量 `design.md` 计划）已存在——它自己绝不生成计划。
+随时运行（或续跑）一条 spec 的执行尾段：呈现「执行方式」selector（task-swarm / superpowers / specode 自执行）→ 按选择调度引擎 → 验收。spec 管道与 `/specode:continue` 仅在 `tasks.md` 就绪且明确批准后汇入此 skill；会话中断后也可手动触发。要求 `tasks.md`（或 5.x 存量 `design.md` 计划）已存在——它自己绝不生成计划。
 
 ### 4. 列出规格
 
@@ -306,6 +307,7 @@ plugins/specode/
     SKILL.md                      requirements → design → tasks → 交棒 execute
     references/
       selectors.md                首次目录设置问句
+      document-approval.md        规划文档审批门权威问句与规则
       obsidian.md                 specsRoot 路径解析 + 惯例
       superpowers-wiring.md       阶段 ↔ superpowers 技能映射
       retrieval.md                经验检索规格（intake 为主节点）
@@ -321,7 +323,7 @@ plugins/specode/
     references/                   拆分启发式 + 文档模板
   assets/templates/               requirements.md / design.md / tasks.md /
                                   implementation-log.md 种子模板
-  tests/                          hermetic pytest 测试套件（resolve_root.py + knowledge.py）
+  tests/                          hermetic pytest 测试套件（CLI + 文档审批合同）
 ```
 
 配套的 **task-swarm** 插件（`plugins/task-swarm/`）是独立的多代理编排器，specode 可选择性地将执行阶段交由它负责；详见其自身的 `skills/swarm/SKILL.md` 与 `CHANGELOG.md`。**obsidian-wiki** 插件（`plugins/obsidian-wiki/`）自成一体，文档见其 `README.md` / `AGENTS.md`。
