@@ -48,3 +48,5 @@ def test_spec_pipeline_forbids_advance_without_explicit_approval():
     assert "never infer approval from silence" in text
     assert "must not generate the next document in the same turn" in text
     assert "before tasks.md is explicitly approved" in text
+    assert "once design.md is produced (by it or by you), proceed into the tasks phase (step 4)" not in text
+    assert "and continue to Flow step 5 (invoke `specode:execute`)" not in text
